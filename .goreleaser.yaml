@@ -1,0 +1,46 @@
+version: 2
+
+project_name: upool
+
+builds:
+  - main: ./cmd/upool
+    binary: upool
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - arm64
+      - amd64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: checksums.txt
+
+# Release notes come from CHANGELOG.md (see .github/workflows/release.yml).
+changelog:
+  disable: true
+
+brews:
+  - name: upool
+    repository:
+      owner: weslo
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/weslo/upool
+    description: Pool of pre-warmed Unity worktrees leased to coding agents
+    license: MIT
+    install: |
+      bin.install "upool"
+    test: |
+      system "#{bin}/upool"
