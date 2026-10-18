@@ -23,6 +23,58 @@ CI runs both checks, vet, lint and `go test -race -shuffle=on ./...` on `ubuntu-
 (APFS clones, `flock`, the clone recipe) run only on macOS. Tests tagged `//go:build unity` need a
 real Editor and never run in CI.
 
+## Coding standards
+
+The layout in [docs/design.md](docs/design.md#repository-ci-and-homebrew-distribution) and the five
+rules that follow it are the architecture; these are the conventions inside it. `go vet` and
+golangci-lint's standard linters enforce some of them, and review enforces the rest.
+
+### Go
+
+- **gofmt, always.** CI does not check formatting, so run `gofmt -l .` before committing; it must
+  print nothing.
+- **Process state comes in through `run`.** Only `main` reads `os.Args`, the standard streams or the
+  environment, or calls `os.Exit`. Everything else takes what it needs as parameters (arguments,
+  streams, `getenv`, a clock), so tests call it in-process. Only the dispatcher writes stdout.
+- **One way through each boundary.** Paths are compared only after `internal/paths` has made them
+  canonical, Unity CLI calls go through the verb table in `internal/unity`, git calls through
+  `internal/git`, and state files through `internal/statefile` under `~/.upool/lock`. Nothing calls
+  `exec.Command("git", …)` or writes a state file by hand. These packages arrive in M0; until then,
+  code that needs one waits for it.
+- **Exit codes and JSON have one home.** Return the constants in `internal/output`, never a bare
+  number. upool's own output is the strict `output.Envelope`; Unity CLI replies decode into the
+  lenient `unity.Response`, and neither is used for the other.
+- **Errors are returned, with context.** No `panic` or `os.Exit` for a failure a user can cause.
+  Wrap with `fmt.Errorf("reading %s: %w", path, err)`; messages are lowercase with no final
+  punctuation.
+  Handle every error; where one cannot be handled, discard it with `_ =` and a comment saying why,
+  as `run` does for a failed write to stderr.
+- **Doc comments say why, and cite the contract.** Every package has a package comment and every
+  exported name a doc comment that starts with the name. A rule that comes from the design or a
+  capture names its source, such as `docs/contracts.md (d)`.
+- **Lines wrap at 100 columns**, comments included. Long literals in tests may run over.
+- **Tests read as statements.** A test's name says the behaviour it checks
+  (`TestAnythingElsePrintsUsageAndFails`), and a failure reads `exit = 1, want 0`: what was checked,
+  what it was, what it should be. [Testing](#testing) covers the rest.
+
+### Scripts
+
+Shell scripts open with a comment saying what they do and how to run them, then `set -eu`, or
+`set -euo pipefail` under bash. A script the desktop app's restricted helper may run stays POSIX
+`sh`, as `scripts/capture-hook.sh` does. A helper that needs more than a few lines of shell is a Go
+program under `scripts/`, like `scripts/scrubpaths`.
+
+### Documentation
+
+- **No machine paths.** Write `~` or the variables in [testdata/README.md](testdata/README.md)
+  (`${home}`, `${repo}`); `make check-paths` fails CI otherwise.
+- **Markdown wraps at 100 columns**, tables excepted. `docs/design.md` and `docs/spike-report.md`
+  keep one paragraph per line, as they were written.
+- **Cite design sections by heading**, as issues do: `docs/contracts.md (f) Slot lifecycle`.
+- **Keep the README roadmap current.** Whoever closes a milestone after its gate (design.md,
+  Appendix A, stage 4) marks its row ✅ Done and the next row 🚧 In progress. Once stage 2 has filed
+  its issues, Planning becomes ✅ Done and M0 🚧 In progress the same way.
+
 ## Testing
 
 - **Call upool in-process.** `main` only calls `run(args, stdin, stdout, stderr, getenv)`, so a test
