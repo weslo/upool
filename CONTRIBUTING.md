@@ -37,7 +37,8 @@ Tests tagged `//go:build unity` need a real Editor and never run in CI.
    says, cite the design section it names, update `CHANGELOG.md` under Unreleased, and fill in the
    pull request template with "Closes #<n>".
 4. **CI green, then a human.** A pull request goes to review only once CI passes. A human reviews and
-   merges every pull request; reviewers may use agents to help them read a diff, but the approval is
-   theirs. Merges are squash merges.
+   merges every pull request; reviewers may use agents to help them read a diff, but the decision to
+   merge is theirs. Branch protection requires a pull request and green CI but no approval, since
+   GitHub does not let an author approve their own pull request. Merges are squash merges.
 5. **No new dependencies without an issue.** The design allows a TOML parser and at most one CLI
    framework; anything else needs an issue that makes the case first.

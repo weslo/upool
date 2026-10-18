@@ -166,7 +166,7 @@ Hook scripts stay trivial on purpose: each is `exec /path/to/upool hook worktree
 - `CHANGELOG.md`: kept by hand under Keep a Changelog headings; GoReleaser reads it for release notes.
 - `ci.yml`: on push and pull request, `go vet`, `golangci-lint` (default linters only), `go test ./...` on `ubuntu-latest`; a second job on `macos-latest` running the tests tagged `//go:build darwin` that exercise `cp -cR` sharing, `flock`, and the clone recipe against a temporary git repo. Tests tagged `//go:build unity` need a real Editor and never run in CI.
 - `release.yml`: on tag `v*`, GoReleaser with a `HOMEBREW_TAP_TOKEN` secret (a fine-grained token with contents write on the tap repository only). The tap is a second repository named `homebrew-tap` with nothing in it but the generated `Formula/upool.rb`; users run `brew install weslo/tap/upool` and later `brew upgrade upool`. Plain `brew install upool` with no tap prefix means homebrew-core, whose notability rules (age, stars, maintained releases) are not met by a new project, so it is a later step, not a launch requirement ([Homebrew tap docs](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)).
-- Repository settings: squash merges only; branch protection on `main` requiring the CI checks and one approving review; labels `phase:0` to `phase:4`, `manual-gate`, `blocked`, `decision-needed`; milestones M0 to M4.
+- Repository settings: squash merges only; branch protection on `main` requiring a pull request and the CI checks, with no required approval, because GitHub does not let a pull request's author approve it and a one-maintainer repository has no one else to (the human merge is the review); labels `phase:0` to `phase:4`, `manual-gate`, `blocked`, `decision-needed`; milestones M0 to M4.
 - Versioning: `v0.1.0` when Phase 1 passes its manual gate; `v0.2.0` for Phase 2; semver from there. No tag before the gate script in `docs/manual-gates/` for that milestone has been run on a real Mac.
 
 ## Appendix A: execution plan from a blank repository
@@ -180,7 +180,7 @@ The plan assumes nothing but an empty GitHub repository, the two documents from 
 3. Put the inputs where the bootstrap prompt expects them: `docs-input/design.md` (this document), `docs-input/spike-report.md` and `docs-input/spike-logs/`, copied from `~/Documents/.upool-spike/down/` (`spike-report.md` and its `logs/`, which holds the captured hook stdin JSON, Unity CLI JSON envelopes, `main.log` excerpts and the Editor logs). These are read by the bootstrap agent and deleted from the tree once their contents are committed in their final places.
 4. `gh auth status` must succeed with repo and workflow scopes. Install Go 1.23 or later and `golangci-lint`.
 5. The tap repository is `weslo/homebrew-tap`, also public, so the install line everywhere is `brew install weslo/tap/upool`.
-6. Reviews are by humans: every PR waits for a human approval and merge. Reviewers may use agents to help them read a diff; the decision stays with the person.
+6. Reviews are by humans: every PR waits for a human to review and merge it. Reviewers may use agents to help them read a diff; the decision stays with the person.
 
 ### Stage 1: bootstrap prompt
 
@@ -242,8 +242,8 @@ Then produce, on a branch named bootstrap, in this order:
    phase:1, phase:2, phase:3, phase:4, manual-gate, blocked, decision-needed; create milestones M0
    Scaffold, M1 Pool core, M2 Claude Code integration, M3 Editor governance, M4 Hygiene and release,
    each with the one-line description from docs/design.md's build order; set the repository to
-   squash-merge only; and add branch protection on main requiring the ci.yml checks and one
-   approving review.
+   squash-merge only; and add branch protection on main requiring a pull request and the ci.yml
+   checks, with no required approvals.
 7. Delete docs-input/. Run `make build test lint` and confirm CI is green on the branch. Open a PR
    titled "Bootstrap repository" with the template filled in, and stop. Do not merge it.
 
