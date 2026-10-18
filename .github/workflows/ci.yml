@@ -1,13 +1,18 @@
 name: ci
 
+# Pull requests cover every branch; pushes are checked only on main, where an administrator can
+# push directly (CONTRIBUTING.md, rule 4).
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
+  # The job name and matrix give the check names that branch protection requires,
+  # `ci (ubuntu-latest)` and `ci (macos-latest)`: renaming either means updating the required checks.
   ci:
     name: ci (${{ matrix.os }})
     strategy:
@@ -17,11 +22,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          # check-captures diffs against the pull request's base or the pushed-over commit.
+          fetch-depth: 0
       - uses: actions/setup-go@v7
         with:
-          go-version: stable
+          go-version-file: go.mod
       - name: no local paths
         run: make check-paths
+      - name: captures unchanged
+        run: make check-captures BASE=${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
       - name: vet
         run: go vet ./...
       - name: lint
@@ -29,4 +39,4 @@ jobs:
         with:
           version: v2.15.0
       - name: test
-        run: go test ./...
+        run: go test -race -shuffle=on ./...
