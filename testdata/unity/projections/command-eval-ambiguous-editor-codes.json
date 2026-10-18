@@ -1,0 +1,7 @@
+{
+  "success": false,
+  "result": null,
+  "errors": [
+    "AMBIGUOUS_EDITOR"
+  ]
+}

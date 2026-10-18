@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "command": "command",
+  "data": {
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7801,
+      "projectPath": "/Users/wes/Documents/Personal/.upool-spike/down/clone1"
+    },
+    "server": {
+      "version": "0.0.1",
+      "port": 7801
+    },
+    "commands": [
+      {
+        "name": "package_resolve",
+        "description": "Resolve/refresh packages from the manifest (re-fetch and re-link). May trigger a recompile/domain reload — poll recompile_status. Its outcome is recorded for package_status.",
+        "tags": [
+          "packages"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "package_resolve",
+          "description": "Resolve/refresh packages from the manifest (re-fetch and re-link). May trigger a recompile/domain reload — poll recompile_status. Its outcome is recorded for package_status.",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.PackageManager.PackageManagerCommand.PackageResolve"
+          }
+        }
+      }
+    ],
+    "count": 1,
+    "total": 1,
+    "offset": 0,
+    "limit": null
+  },
+  "errors": [],
+  "warnings": []
+}

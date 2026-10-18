@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "target": null,
+  "errors": [
+    {
+      "code": "COMMAND_FAILED",
+      "message": "No Pipeline instance found for project: /Users/wes/Documents/Personal/.upool-spike/down/clone2. Make sure Unity Editor is running with the Pipeline package installed."
+    }
+  ]
+}

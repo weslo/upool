@@ -1,0 +1,15 @@
+Warning: "/Users/wes/Documents/Personal/.upool-spike/down/clone1" was not found in the Hub project registry, opening as a file path.
+{
+  "success": true,
+  "command": "open",
+  "data": {
+    "projectPath": "/Users/wes/Documents/Personal/.upool-spike/down/clone1",
+    "editorVersion": "6000.4.11f1",
+    "editorPath": "/Applications/Unity/Hub/Editor/6000.4.11f1/Unity.app",
+    "launchedPid": 10648
+  },
+  "errors": [],
+  "warnings": [
+    "Warning: \"/Users/wes/Documents/Personal/.upool-spike/down/clone1\" was not found in the Hub project registry, opening as a file path."
+  ]
+}

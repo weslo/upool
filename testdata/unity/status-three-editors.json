@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "command": "status",
+  "data": {
+    "count": 3,
+    "instances": [
+      {
+        "port": 7801,
+        "project": "/Users/wes/Documents/Personal/.upool-spike/down/clone1",
+        "version": "6000.4.11f1",
+        "pid": 82364,
+        "state": "ready"
+      },
+      {
+        "port": 7800,
+        "project": "/Users/wes/Documents/Personal/.upool-spike/down/clone2",
+        "version": "6000.4.11f1",
+        "pid": 82372,
+        "state": "ready"
+      },
+      {
+        "port": 7802,
+        "project": "/Users/wes/Documents/Personal/.upool-spike/down/ta",
+        "version": "6000.4.11f1",
+        "pid": 82375,
+        "state": "ready"
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": []
+}

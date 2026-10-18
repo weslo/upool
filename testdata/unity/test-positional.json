@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "command": "test",
+  "data": {
+    "projectPath": "/Users/wes/Documents/Personal/.upool-spike/down/clone1",
+    "output": "/Users/wes/Documents/Personal/.upool-spike/down/logs/t6-test-results.xml",
+    "reports": {
+      "nunit": "/Users/wes/Documents/Personal/.upool-spike/down/logs/t6-test-results.xml",
+      "junit": null
+    },
+    "coverage": {
+      "requested": false,
+      "enabled": false,
+      "output": null
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

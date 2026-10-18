@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "command": "close",
+  "data": {
+    "project": "/Users/wes/Documents/Personal/.upool-spike/down/clone1",
+    "pid": 10648,
+    "closed": true,
+    "method": "graceful",
+    "reason": "closed"
+  },
+  "errors": [],
+  "warnings": []
+}

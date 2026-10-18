@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "command": "vcs git worktree remove",
+  "data": {
+    "repository": "/Users/<user>/Documents/Personal/.upool-spike/down/seed-cache",
+    "worktree": "/Users/<user>/Documents/Personal/.upool-spike/down/seed-cache",
+    "branch": "spike/seed-test",
+    "branchKept": true,
+    "removed": true,
+    "dryRun": false,
+    "unregistered": true,
+    "unregisterError": null,
+    "editorGateOverridden": false,
+    "uncommittedEntries": 0,
+    "untrackedFiles": 0
+  },
+  "errors": [],
+  "warnings": []
+}

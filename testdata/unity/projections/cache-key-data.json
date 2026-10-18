@@ -1,0 +1,21 @@
+{
+  "key": "7af693ebef233205ac29e31c8a55fceecfffa6fa7d368241173b81cd0d9640c9",
+  "component": null,
+  "compositeKey": "7af693ebef233205ac29e31c8a55fceecfffa6fa7d368241173b81cd0d9640c9",
+  "algorithm": "sha256",
+  "algorithmVersion": 1,
+  "components": {
+    "editor": {
+      "version": "6000.4.11f1",
+      "hash": "4b90a88f8486adcc8e9d7a77fd6c7525697e8856d4694674f5a79b9e5c6944a5"
+    },
+    "packages": {
+      "source": "packages-lock.json",
+      "hash": "d82c673a8c317405af1c3d3f59e4f65a088ee625d12cb53629aa5639d5b8bc50"
+    },
+    "target": {
+      "target": null,
+      "hash": "0ac68a86abbfece3524d8b7727fc81db00585dd7b7396118cd02cc417159f2a1"
+    }
+  }
+}

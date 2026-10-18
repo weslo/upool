@@ -1,0 +1,4 @@
+2026-10-12 22:15:32 [info] [CCD start-timing] local_96d55930-04fd-4136-83ee-729d3b82227d preflight=8ms worktree=1ms mcp=27ms query=2ms enqueue=3ms init=781ms first_assistant=4658ms | ccd_overhead=38ms total_to_init=822ms total_to_assistant=5480ms cache_hit=true worktree=false mcp_count=24 online=tru
+2026-10-12 22:16:22 [info] LocalSessions.archive: sessionId=local_96d55930-04fd-4136-83ee-729d3b82227d
+2026-10-12 22:16:22 [info] Archived session local_96d55930-04fd-4136-83ee-729d3b82227d
+2026-10-12 22:16:22 [info] [CCD] archive local_96d55930-04fd-4136-83ee-729d3b82227d: 0 side session(s) named, 0 left live

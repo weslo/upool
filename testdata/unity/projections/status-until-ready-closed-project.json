@@ -1,0 +1,9 @@
+{
+  "success": false,
+  "errors": [
+    {
+      "code": "STATUS_NO_INSTANCES",
+      "message": "No Unity Editor instances found with the Pipeline package installed. Open Unity and install the Pipeline package, or run unity pipeline install."
+    }
+  ]
+}

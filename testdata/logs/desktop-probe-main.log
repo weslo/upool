@@ -1,0 +1,12 @@
+2026-10-11 21:24:46 [info] Creating worktree for session local_d003da2d-8318-401e-9e04-5333aacbf7c8 from /Users/wes/Documents/Personal/down
+2026-10-11 21:24:51 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/.upool-probe/cc-shell-command-output-8ff578
+2026-10-11 21:24:51 [info] Skipped per-machine config overlay for hook-based worktree "shell-command-output-8ff578" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-11 21:24:51 [info] Created hook-based worktree "shell-command-output-8ff578" at /Users/wes/.upool-probe/cc-shell-command-output-8ff578
+2026-10-11 21:24:51 [info] Using worktree "shell-command-output-8ff578" at /Users/wes/.upool-probe/cc-shell-command-output-8ff578 for session local_d003da2d-8318-401e-9e04-5333aacbf7c8
+2026-10-11 21:24:51 [info] Skipped auto-trust for hook-based worktree at /Users/wes/.upool-probe/cc-shell-command-output-8ff578 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-11 21:26:17 [info] Cleaning up worktree shell-command-output-8ff578 for session local_d003da2d-8318-401e-9e04-5333aacbf7c8
+2026-10-11 21:26:17 [info] Removing worktree "shell-command-output-8ff578" (leased by local_d003da2d-8318-401e-9e04-5333aacbf7c8): /Users/wes/.upool-probe/cc-shell-command-output-8ff578
+2026-10-11 21:26:18 [info] Removed hook-based worktree "shell-command-output-8ff578"
+2026-10-11 20:54:20 [error] WorktreeCreate hook failed: /Users/wes/Documents/Personal/.upool-spike/down/hooks/wt-create.sh: shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/wes/Documents/Personal/.upool-spike/down/hooks/wt-create.sh: Operation not permitted
+2026-10-11 20:54:20 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/wes/Documents/Personal/down', sessionId: 'local_ba750fc3-f573-4cfe-ab18-2f0b63f81583' }
