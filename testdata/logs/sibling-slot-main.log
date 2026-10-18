@@ -1,55 +1,55 @@
-2026-10-11 23:02:45 [info] Creating worktree for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395 from /Users/wes/Documents/Personal/down
-2026-10-11 23:02:45 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:02:45 [info] Creating worktree for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395 from /Users/user/Documents/down
+2026-10-11 23:02:45 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:02:45 [info] Skipped per-machine config overlay for hook-based worktree "env-project-status-6b702e" — hook returned a path outside the managed worktree directory
-2026-10-11 23:02:45 [info] Created hook-based worktree "env-project-status-6b702e" at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:02:45 [info] Using worktree "env-project-status-6b702e" at /Users/wes/Documents/Personal/.upool-spike/down/ta for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395
-2026-10-11 23:02:45 [info] Skipped auto-trust for hook-based worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
+2026-10-11 23:02:45 [info] Created hook-based worktree "env-project-status-6b702e" at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:02:45 [info] Using worktree "env-project-status-6b702e" at /Users/user/Documents/.upool-spike/down/ta for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395
+2026-10-11 23:02:45 [info] Skipped auto-trust for hook-based worktree at /Users/user/Documents/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
 2026-10-11 23:02:49 [info] [CCD start-timing] local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395 preflight=18ms worktree=56ms mcp=28ms query=13ms enqueue=7ms init=949ms first_assistant=2396ms | ccd_overhead=115ms total_to_init=1071ms total_to_assistant=3467ms cache_hit=true worktree=true mcp_count=24 online=true rpm_enabled_state=empty-manifest/9ms overlay_wait=0ms barrier=none/predicate/not_applicable de
-2026-10-11 23:03:31 [info] Creating worktree for session local_4af4bfd1-4d67-4407-8682-91bdd744765c from /Users/wes/Documents/Personal/down
-2026-10-11 23:03:31 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:03:31 [error] WorktreeCreate hook failed: hook printed "/Users/wes/Documents/Personal/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
-2026-10-11 23:03:31 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/wes/Documents/Personal/down', sessionId: 'local_4af4bfd1-4d67-4407-8682-91bdd744765c' }
-2026-10-11 23:03:36 [info] Creating worktree for session local_42411952-c8a6-48cc-a1a3-cce03be56342 from /Users/wes/Documents/Personal/down
-2026-10-11 23:03:36 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:03:36 [error] WorktreeCreate hook failed: hook printed "/Users/wes/Documents/Personal/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
-2026-10-11 23:03:36 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/wes/Documents/Personal/down', sessionId: 'local_42411952-c8a6-48cc-a1a3-cce03be56342' }
-2026-10-11 23:04:01 [info] Creating worktree for session local_b5e3113e-e1da-42cd-9562-21594a6fdf54 from /Users/wes/Documents/Personal/down
-2026-10-11 23:04:01 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:04:01 [error] WorktreeCreate hook failed: hook printed "/Users/wes/Documents/Personal/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
-2026-10-11 23:04:01 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/wes/Documents/Personal/down', sessionId: 'local_b5e3113e-e1da-42cd-9562-21594a6fdf54' }
-2026-10-11 23:04:21 [info] Creating worktree for session local_5f0950df-78db-410d-b0fb-28b045e1d8b3 from /Users/wes/Documents/Personal/down
-2026-10-11 23:04:21 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:04:21 [error] WorktreeCreate hook failed: hook printed "/Users/wes/Documents/Personal/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
-2026-10-11 23:04:21 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/wes/Documents/Personal/down', sessionId: 'local_5f0950df-78db-410d-b0fb-28b045e1d8b3' }
+2026-10-11 23:03:31 [info] Creating worktree for session local_4af4bfd1-4d67-4407-8682-91bdd744765c from /Users/user/Documents/down
+2026-10-11 23:03:31 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:03:31 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
+2026-10-11 23:03:31 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_4af4bfd1-4d67-4407-8682-91bdd744765c' }
+2026-10-11 23:03:36 [info] Creating worktree for session local_42411952-c8a6-48cc-a1a3-cce03be56342 from /Users/user/Documents/down
+2026-10-11 23:03:36 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:03:36 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
+2026-10-11 23:03:36 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_42411952-c8a6-48cc-a1a3-cce03be56342' }
+2026-10-11 23:04:01 [info] Creating worktree for session local_b5e3113e-e1da-42cd-9562-21594a6fdf54 from /Users/user/Documents/down
+2026-10-11 23:04:01 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:04:01 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
+2026-10-11 23:04:01 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_b5e3113e-e1da-42cd-9562-21594a6fdf54' }
+2026-10-11 23:04:21 [info] Creating worktree for session local_5f0950df-78db-410d-b0fb-28b045e1d8b3 from /Users/user/Documents/down
+2026-10-11 23:04:21 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:04:21 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
+2026-10-11 23:04:21 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_5f0950df-78db-410d-b0fb-28b045e1d8b3' }
 2026-10-11 23:12:33 [info] LocalSessions.archive: sessionId=local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395
 2026-10-11 23:12:33 [info] Archived session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395
 2026-10-11 23:12:33 [info] [CCD] archive local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395: 0 side session(s) named, 0 left live
 2026-10-11 23:12:33 [info] Cleaning up worktree env-project-status-6b702e for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395
-2026-10-11 23:12:33 [info] Removing worktree "env-project-status-6b702e" (leased by local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395): /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:12:33 [info] Removing worktree "env-project-status-6b702e" (leased by local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395): /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:12:34 [info] Removed hook-based worktree "env-project-status-6b702e"
-2026-10-11 23:12:43 [info] Creating worktree for session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14 from /Users/wes/Documents/Personal/down
-2026-10-11 23:12:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:12:43 [info] Creating worktree for session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14 from /Users/user/Documents/down
+2026-10-11 23:12:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:12:43 [info] Skipped per-machine config overlay for hook-based worktree "pwd-64bb41" — hook returned a path outside the managed worktree directory
-2026-10-11 23:12:43 [info] Created hook-based worktree "pwd-64bb41" at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:12:43 [info] Using worktree "pwd-64bb41" at /Users/wes/Documents/Personal/.upool-spike/down/ta for session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14
-2026-10-11 23:12:43 [info] Skipped auto-trust for hook-based worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
+2026-10-11 23:12:43 [info] Created hook-based worktree "pwd-64bb41" at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:12:43 [info] Using worktree "pwd-64bb41" at /Users/user/Documents/.upool-spike/down/ta for session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14
+2026-10-11 23:12:43 [info] Skipped auto-trust for hook-based worktree at /Users/user/Documents/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
 2026-10-11 23:12:46 [info] [CCD start-timing] local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14 preflight=13ms worktree=52ms mcp=40ms query=13ms enqueue=4ms init=965ms first_assistant=2307ms | ccd_overhead=118ms total_to_init=1087ms total_to_assistant=3394ms cache_hit=true worktree=true mcp_count=24 online=true rpm_enabled_state=empty-manifest/11ms overlay_wait=0ms barrier=none/predicate/not_applicable d
 2026-10-11 23:12:58 [info] LocalSessions.archive: sessionId=local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14
 2026-10-11 23:12:58 [info] Archived session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14
 2026-10-11 23:12:58 [info] [CCD] archive local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14: 0 side session(s) named, 0 left live
 2026-10-11 23:12:58 [info] Cleaning up worktree pwd-64bb41 for session local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14
-2026-10-11 23:12:58 [info] Removing worktree "pwd-64bb41" (leased by local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14): /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:12:58 [info] Removing worktree "pwd-64bb41" (leased by local_8a6f35b3-2fed-4a9a-846c-dc2de82f5a14): /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:12:58 [info] Removed hook-based worktree "pwd-64bb41"
-2026-10-11 23:13:10 [info] Creating worktree for session local_619a111e-2760-4449-9f92-e7c70913d65d from /Users/wes/Documents/Personal/down
-2026-10-11 23:13:10 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:13:10 [info] Creating worktree for session local_619a111e-2760-4449-9f92-e7c70913d65d from /Users/user/Documents/down
+2026-10-11 23:13:10 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:13:10 [info] Skipped per-machine config overlay for hook-based worktree "spike-reuse-test-file-9a4d6d" — hook returned a path outside the managed worktree directory
-2026-10-11 23:13:10 [info] Created hook-based worktree "spike-reuse-test-file-9a4d6d" at /Users/wes/Documents/Personal/.upool-spike/down/ta
-2026-10-11 23:13:10 [info] Using worktree "spike-reuse-test-file-9a4d6d" at /Users/wes/Documents/Personal/.upool-spike/down/ta for session local_619a111e-2760-4449-9f92-e7c70913d65d
-2026-10-11 23:13:10 [info] Skipped auto-trust for hook-based worktree at /Users/wes/Documents/Personal/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
+2026-10-11 23:13:10 [info] Created hook-based worktree "spike-reuse-test-file-9a4d6d" at /Users/user/Documents/.upool-spike/down/ta
+2026-10-11 23:13:10 [info] Using worktree "spike-reuse-test-file-9a4d6d" at /Users/user/Documents/.upool-spike/down/ta for session local_619a111e-2760-4449-9f92-e7c70913d65d
+2026-10-11 23:13:10 [info] Skipped auto-trust for hook-based worktree at /Users/user/Documents/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
 2026-10-11 23:13:14 [info] [CCD start-timing] local_619a111e-2760-4449-9f92-e7c70913d65d preflight=15ms worktree=36ms mcp=23ms query=12ms enqueue=1ms init=867ms first_assistant=3478ms | ccd_overhead=86ms total_to_init=954ms total_to_assistant=4432ms cache_hit=true worktree=true mcp_count=24 online=true rpm_enabled_state=empty-manifest/6ms overlay_wait=0ms barrier=none/predicate/not_applicable defe
 2026-10-11 23:13:33 [info] LocalSessions.archive: sessionId=local_619a111e-2760-4449-9f92-e7c70913d65d
 2026-10-11 23:13:33 [info] Archived session local_619a111e-2760-4449-9f92-e7c70913d65d
 2026-10-11 23:13:33 [info] [CCD] archive local_619a111e-2760-4449-9f92-e7c70913d65d: 0 side session(s) named, 0 left live
 2026-10-11 23:13:33 [info] Cleaning up worktree spike-reuse-test-file-9a4d6d for session local_619a111e-2760-4449-9f92-e7c70913d65d
-2026-10-11 23:13:33 [info] Removing worktree "spike-reuse-test-file-9a4d6d" (leased by local_619a111e-2760-4449-9f92-e7c70913d65d): /Users/wes/Documents/Personal/.upool-spike/down/ta
+2026-10-11 23:13:33 [info] Removing worktree "spike-reuse-test-file-9a4d6d" (leased by local_619a111e-2760-4449-9f92-e7c70913d65d): /Users/user/Documents/.upool-spike/down/ta
 2026-10-11 23:13:33 [info] Removed hook-based worktree "spike-reuse-test-file-9a4d6d"

@@ -2,21 +2,30 @@
 
 These files are the contract. Each one was captured on a real Mac during the spike
 (2026-10-11 to 2026-10-12, macOS 15.7.3, Unity CLI 1.0.0-beta.13, Claude Code 2.1.295, desktop app
-2.31226.1) and is reproduced verbatim: JSON pretty-printed with `jq .`, text copied byte for byte.
-[docs/contracts.md](../docs/contracts.md) explains what each one proves; the "Section" column below
-points into [docs/spike-report.md](../docs/spike-report.md).
+2.31226.1) and is reproduced verbatim except for one redaction: JSON pretty-printed with `jq .`, text
+copied byte for byte. [docs/contracts.md](../docs/contracts.md) explains what each one proves; the
+"Section" column below points into [docs/spike-report.md](../docs/spike-report.md).
+
+**Redaction.** No path from the capturing machine is committed. The home directory is rewritten to
+`/Users/user` and the folder holding the projects to `/Users/user/Documents`, so the spike's
+repository appears as `/Users/user/Documents/down`. Claude Code's dash-encoded forms follow suit
+(`-Users-user-Documents-down`), and the Unity CLI's own `/Users/<user>` redaction is kept. The
+rewrite is consistent across files, so every relationship between paths (stdin `cwd` against a
+`worktree_path`, a slot against its repository, a transcript key against its slot) survives it.
+`Documents` stays because the TCC restriction on it is part of the contract. `make check-paths`, run
+in CI, fails on any other home directory.
 
 **Never edit a fixture.** If upool's parsing has to change, the change must be matched by a new
-capture from a real Editor or a real Claude Code session, added as a new file with its source
-recorded here. A fixture that disagrees with the code is a bug report against the code, not the
-fixture.
+capture from a real Editor or a real Claude Code session, redacted as above and added as a new file
+with its source recorded here. A fixture that disagrees with the code is a bug report against the
+code, not the fixture.
 
 The "Spike log" column names the file in the spike's `logs/` folder each fixture came from. That
 folder is not in this repository.
 
 ## hooks/
 
-Hook stdin as Claude Code delivered it. Paths and ids are the spike machine's.
+Hook stdin as Claude Code delivered it, paths redacted. Session ids are the spike's.
 
 | Fixture | Spike log | Section | What it is |
 |---|---|---|---|
@@ -76,8 +85,6 @@ so.
 | `test-positional.json` | `t6-test-positional.json` | §2 T6.6 | `unity test <path> --mode EditMode`: success |
 | `run-not-a-unity-project.json` | `b3-run.json` | §8 B.3 | `unity run --command editor_status` from `/tmp` with the variable: `COMMAND_FAILED`, exit 6 |
 | `cache-key-project-path-invalid.json` | `d1-cache-key.txt`, `--project-path form` | §8 D.1 | `unity cache key --project-path`: `INVALID_COMMAND_ARGS` |
-| `projects-before.json` | `projects-before.json` | §2 T6.3 | `unity projects` (Hub registry) before `--seed cache` |
-| `projects-after-seed-cache.json` | `projects-after-seed-cache.json` | §2 T6.3 | the same after `--seed cache` registered the worktree |
 | `vcs-worktree-add-dry-run.json` | `t6-dryrun.json` | §2 T6.2 | `unity vcs git worktree add --seed cache --dry-run`; home directory redacted |
 | `vcs-worktree-add-seed-cache.json` | `t6-seed-cache.json` | §2 T6.3 | `--seed cache`: `PackageCache` withheld |
 | `vcs-worktree-add-seed-full.json` | `t6-seed-full.json` | §2 T6.3 | `--seed full` |
@@ -129,6 +136,8 @@ Kept only in the spike's `logs/` folder, because nothing in upool parses them: t
 `measurements.txt`, `setup.txt`, the `--help` texts, the probe hook scripts and their own logs
 (`fired.log`, `probe.log`, `git.log`, `selftest.log`), the desktop app's `git-worktrees.json`
 snapshots (`e4-*`, `test-e/registry/`, `test-gc/`), `symlink-check.tsv`, `d4-settings-diff.txt`,
-`c5-startup-scene.diff`, `t6-test-results.xml`, `t6-dryrun-human.txt`, `t7-claude-p.*`, and the
+`c5-startup-scene.diff`, `t6-test-results.xml`, `t6-dryrun-human.txt`, `t7-claude-p.*`, the
+`unity projects` listings (`projects-before.json`, `projects-after-seed-cache.json`), which name
+every project in the capturing machine's Unity Hub, and the
 `jq` projections of successful calls (`b-targeting.txt` B2a–B2g except B2c and B2f, B3d;
 `t6-targeting.txt` D, D2, F, F2, G; `b5-close.txt`). The spike report quotes what matters from them.

@@ -12,7 +12,8 @@ Requirements: Go 1.23 or later, [golangci-lint](https://golangci-lint.run) v2, a
 |---|---|
 | `make build` | builds `bin/upool` |
 | `make test` | `go test ./...` |
-| `make lint` | `go vet ./...` and `golangci-lint run` |
+| `make lint` | `make check-paths`, `go vet ./...` and `golangci-lint run` |
+| `make check-paths` | fails if a tracked file names a real home directory |
 | `make fakeunity` | builds the fake `unity` binary for tests (not yet: arrives in M0) |
 | `make release-dry-run` | a GoReleaser snapshot build into `dist/`, publishing nothing |
 
@@ -25,7 +26,9 @@ Tests tagged `//go:build unity` need a real Editor and never run in CI.
 1. **Test against fakes and fixtures.** Every behaviour that touches Unity or Claude Code is tested
    against `test/fakeunity` and the captured fixtures under [`testdata/`](testdata/README.md). Never
    edit a fixture: if parsing has to change, add a new capture from a real Editor or session and
-   record its source in `testdata/README.md`.
+   record its source in `testdata/README.md`. Redact a capture before committing it: no path from
+   your machine goes into the repository (`testdata/README.md` lists the placeholders, and
+   `make check-paths` fails CI on any other home directory).
 2. **Manual gates, not claims.** Anything that can only be verified with a real Unity Editor or the
    Claude desktop app is a manual gate: an exact check (commands, what to look for, in which log)
    listed in `docs/manual-gates/M<n>.md`. A pull request never claims such behaviour works; it says

@@ -5,7 +5,7 @@
   "errors": [
     {
       "code": "AMBIGUOUS_EDITOR",
-      "message": "Multiple Unity Editors are running with Pipeline servers:\n\n  1. clone1 (localhost:7801) - /Users/wes/Documents/Personal/.upool-spike/down/clone1\n  2. clone2 (localhost:7800) - /Users/wes/Documents/Personal/.upool-spike/down/clone2\n  3. ta (localhost:7802) - /Users/wes/Documents/Personal/.upool-spike/down/ta\n\nPass --project-path <path> with one of the project paths listed above to choose one, or run the command from inside one of those project directories."
+      "message": "Multiple Unity Editors are running with Pipeline servers:\n\n  1. clone1 (localhost:7801) - /Users/user/Documents/.upool-spike/down/clone1\n  2. clone2 (localhost:7800) - /Users/user/Documents/.upool-spike/down/clone2\n  3. ta (localhost:7802) - /Users/user/Documents/.upool-spike/down/ta\n\nPass --project-path <path> with one of the project paths listed above to choose one, or run the command from inside one of those project directories."
     }
   ]
 }

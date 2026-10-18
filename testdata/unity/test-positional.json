@@ -2,10 +2,10 @@
   "success": true,
   "command": "test",
   "data": {
-    "projectPath": "/Users/wes/Documents/Personal/.upool-spike/down/clone1",
-    "output": "/Users/wes/Documents/Personal/.upool-spike/down/logs/t6-test-results.xml",
+    "projectPath": "/Users/user/Documents/.upool-spike/down/clone1",
+    "output": "/Users/user/Documents/.upool-spike/down/logs/t6-test-results.xml",
     "reports": {
-      "nunit": "/Users/wes/Documents/Personal/.upool-spike/down/logs/t6-test-results.xml",
+      "nunit": "/Users/user/Documents/.upool-spike/down/logs/t6-test-results.xml",
       "junit": null
     },
     "coverage": {

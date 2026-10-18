@@ -1,8 +1,8 @@
 {
   "session_id": "42dcdc5a-86cc-486e-aadc-8eb65d3cd14c",
-  "transcript_path": "/Users/wes/.claude/projects/-Users-wes-Documents-Personal-down/42dcdc5a-86cc-486e-aadc-8eb65d3cd14c.jsonl",
-  "cwd": "/Users/wes/Documents/Personal/down",
-  "scratchpad_dir": "/private/tmp/claude-501/-Users-wes-Documents-Personal-down/42dcdc5a-86cc-486e-aadc-8eb65d3cd14c/scratchpad",
+  "transcript_path": "/Users/user/.claude/projects/-Users-user-Documents-down/42dcdc5a-86cc-486e-aadc-8eb65d3cd14c.jsonl",
+  "cwd": "/Users/user/Documents/down",
+  "scratchpad_dir": "/private/tmp/claude-501/-Users-user-Documents-down/42dcdc5a-86cc-486e-aadc-8eb65d3cd14c/scratchpad",
   "hook_event_name": "SessionStart",
   "source": "startup"
 }

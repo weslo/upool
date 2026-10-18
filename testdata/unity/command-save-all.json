@@ -13,7 +13,7 @@
     "target": {
       "host": "127.0.0.1",
       "port": 7800,
-      "projectPath": "/Users/wes/Documents/Personal/.upool-spike/down/clone1"
+      "projectPath": "/Users/user/Documents/.upool-spike/down/clone1"
     }
   },
   "errors": [],

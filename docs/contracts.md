@@ -96,7 +96,7 @@ by `session_id` (S§7 item 3; D-route).
 | Field | Desktop, worktree session | Desktop, no worktree | CLI `-p --worktree` | Source |
 |---|---|---|---|---|
 | `session_id` | CLI session UUID; differs from the create/remove `session_id` | CLI session UUID | same value as the create's | S§8 "A, session ids"; S§5 |
-| `transcript_path` | keyed by the slot path (`…/-Users-wes-Documents-Personal-down--claude-worktrees-slot-1/…`) | keyed by the repo path | keyed by the worktree path | S§5; S§9 E, added memory row |
+| `transcript_path` | keyed by the slot path (`…/-Users-user-Documents-down--claude-worktrees-slot-1/…`) | keyed by the repo path | keyed by the worktree path | S§5; S§9 E, added memory row |
 | `cwd` | the slot | main checkout | the worktree | S§2 TB; S§5 |
 | `scratchpad_dir` | present | present | absent | S§5 (both captures) |
 | `hook_event_name` | `"SessionStart"` | `"SessionStart"` | `"SessionStart"` | S§5 |

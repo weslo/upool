@@ -20,6 +20,8 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version: stable
+      - name: no local paths
+        run: make check-paths
       - name: vet
         run: go vet ./...
       - name: lint
