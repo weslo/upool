@@ -2,7 +2,7 @@
   "success": true,
   "command": "close",
   "data": {
-    "project": "/Users/user/Documents/.upool-spike/down/clone1",
+    "project": "${spike}/clone1",
     "pid": 10648,
     "closed": true,
     "method": "graceful",

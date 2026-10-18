@@ -1,7 +1,7 @@
 {
   "session_id": "3965aa22-ae6d-4000-9c6e-c5d6f22043c1",
-  "transcript_path": "/Users/user/.claude/projects/-Users-user-Documents-down/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
-  "cwd": "/Users/user/Documents/down",
+  "transcript_path": "${home}/.claude/projects/${repo_key}/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
+  "cwd": "${repo}",
   "hook_event_name": "WorktreeCreate",
   "name": "probe"
 }

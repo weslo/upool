@@ -96,7 +96,7 @@ by `session_id` (S§7 item 3; D-route).
 | Field | Desktop, worktree session | Desktop, no worktree | CLI `-p --worktree` | Source |
 |---|---|---|---|---|
 | `session_id` | CLI session UUID; differs from the create/remove `session_id` | CLI session UUID | same value as the create's | S§8 "A, session ids"; S§5 |
-| `transcript_path` | keyed by the slot path (`…/-Users-user-Documents-down--claude-worktrees-slot-1/…`) | keyed by the repo path | keyed by the worktree path | S§5; S§9 E, added memory row |
+| `transcript_path` | keyed by the slot path (`…/${repo_key}--claude-worktrees-slot-1/…`) | keyed by the repo path | keyed by the worktree path | S§5; S§9 E, added memory row |
 | `cwd` | the slot | main checkout | the worktree | S§2 TB; S§5 |
 | `scratchpad_dir` | present | present | absent | S§5 (both captures) |
 | `hook_event_name` | `"SessionStart"` | `"SessionStart"` | `"SessionStart"` | S§5 |
@@ -155,7 +155,8 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 | `command` is not a stable verb: `"status"`, `"command"`, `"command eval"`, `"unity command eval"` (on the failing eval), `"command save_all"`, `"cache"`, `"vcs git worktree add"` | `testdata/unity/*.json` |
 | The `recompile` capture has no top-level `errors` or `warnings` | `unity/recompile-up-to-date.json` |
 | `unity open` printed `Warning: "<path>" was not found in the Hub project registry, opening as a file path.` before the JSON and repeated it in `warnings` | `unity/open-gui.raw.txt` |
-| `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim | S§5; `unity/vcs-worktree-*.json` |
+| `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim (upool never calls it) | S§5 |
+| Fixtures write the directory a command ran in as `${cwd}`; the spike ran these from `/tmp`, which the CLI reports as `/private/tmp` | `testdata/README.md` |
 
 ### Codes upool must handle
 

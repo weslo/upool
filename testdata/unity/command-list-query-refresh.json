@@ -5,7 +5,7 @@
     "target": {
       "host": "127.0.0.1",
       "port": 7801,
-      "projectPath": "/Users/user/Documents/.upool-spike/down/clone1"
+      "projectPath": "${spike}/clone1"
     },
     "server": {
       "version": "0.0.1",

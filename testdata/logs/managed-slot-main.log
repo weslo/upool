@@ -1,39 +1,39 @@
-2026-10-12 21:26:34 [info] LocalSessions.checkTrust: cwd=/Users/user/Documents/down
-2026-10-12 21:26:43 [info] Creating worktree for session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456 from /Users/user/Documents/down
-2026-10-12 21:26:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:26:34 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-12 21:26:43 [info] Creating worktree for session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456 from ${repo}
+2026-10-12 21:26:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:26:43 [info] [worktreeOverlay] 21 gitignored config entries do not resolve to a regular file inside the checkout (a link leaving it or dangling, a FIFO, a directory); not copied
 2026-10-12 21:26:43 [info] Skipped 3 gitignored .claude files already present in worktree
-2026-10-12 21:26:43 [info] Created hook-based worktree "system-diagnostics-9f8a09" at /Users/user/Documents/down/.claude/worktrees/slot-1
-2026-10-12 21:26:43 [info] Using worktree "system-diagnostics-9f8a09" at /Users/user/Documents/down/.claude/worktrees/slot-1 for session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456
-2026-10-12 21:26:43 [info] [GitWorktreeManager] recorded origin's URL for this repository: <redacted>@github.com:weslo/down.git { baseRepo: '/Users/user/Documents/down/.claude/worktrees/slot-1' }
-2026-10-12 21:26:43 [info] Saved workspace trust for /Users/user/Documents/down/.claude/worktrees/slot-1
-2026-10-12 21:26:43 [info] Auto-trusted worktree with key "/Users/user/Documents/down/.claude/worktrees/slot-1" (inherited from /Users/user/Documents/down)
-2026-10-12 21:26:43 [info] Starting local session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456 in /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:26:43 [info] Created hook-based worktree "system-diagnostics-9f8a09" at ${repo}/.claude/worktrees/slot-1
+2026-10-12 21:26:43 [info] Using worktree "system-diagnostics-9f8a09" at ${repo}/.claude/worktrees/slot-1 for session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456
+2026-10-12 21:26:43 [info] [GitWorktreeManager] recorded origin's URL for this repository: <redacted>@github.com:weslo/down.git { baseRepo: '${repo}/.claude/worktrees/slot-1' }
+2026-10-12 21:26:43 [info] Saved workspace trust for ${repo}/.claude/worktrees/slot-1
+2026-10-12 21:26:43 [info] Auto-trusted worktree with key "${repo}/.claude/worktrees/slot-1" (inherited from ${repo})
+2026-10-12 21:26:43 [info] Starting local session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456 in ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:26:47 [info] [CCD start-timing] local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456 preflight=20ms worktree=112ms mcp=51ms query=6ms enqueue=4ms init=953ms first_assistant=2249ms | ccd_overhead=189ms total_to_init=1146ms total_to_assistant=3395ms cache_hit=true worktree=true mcp_count=24 online=true rpm_enabled_state=empty-manifest/25ms overlay_wait=0ms include_overlay_wait=1ms barrier=none/p
-2026-10-12 21:27:04 [info] Creating worktree for session local_7453e144-9563-4234-9ade-65f54f1772af from /Users/user/Documents/down
-2026-10-12 21:27:04 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/down/.claude/worktrees/slot-1
-2026-10-12 21:27:04 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/down/.claude/worktrees/slot-1", which is already in use by worktree "system-diagnostics-9f8a09"
-2026-10-12 21:27:04 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_7453e144-9563-4234-9ade-65f54f1772af' }
+2026-10-12 21:27:04 [info] Creating worktree for session local_7453e144-9563-4234-9ade-65f54f1772af from ${repo}
+2026-10-12 21:27:04 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
+2026-10-12 21:27:04 [error] WorktreeCreate hook failed: hook printed "${repo}/.claude/worktrees/slot-1", which is already in use by worktree "system-diagnostics-9f8a09"
+2026-10-12 21:27:04 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '${repo}', sessionId: 'local_7453e144-9563-4234-9ade-65f54f1772af' }
 2026-10-12 21:27:07 [info] [CCD-SessionRecovery] Scan complete: 0 recoverable, counts={"scannedTranscripts":79,"skippedUnparseable":0,"skippedFiltered":79,"skippedNotLost":0,"skippedUntrusted":0}
 2026-10-12 21:27:29 [info] LocalSessions.archive: sessionId=local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456
 2026-10-12 21:27:29 [info] Archived session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456
 2026-10-12 21:27:29 [info] [CCD] archive local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456: 0 side session(s) named, 0 left live
 2026-10-12 21:27:29 [info] Cleaning up worktree system-diagnostics-9f8a09 for session local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456
-2026-10-12 21:27:29 [info] Removing worktree "system-diagnostics-9f8a09" (leased by local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456): /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:27:29 [info] Removing worktree "system-diagnostics-9f8a09" (leased by local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456): ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:27:29 [info] Removed hook-based worktree "system-diagnostics-9f8a09"
-2026-10-12 21:29:15 [info] Creating worktree for session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7 from /Users/user/Documents/down
-2026-10-12 21:29:15 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:29:15 [info] Creating worktree for session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7 from ${repo}
+2026-10-12 21:29:15 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:29:15 [info] [worktreeOverlay] 21 gitignored config entries do not resolve to a regular file inside the checkout (a link leaving it or dangling, a FIFO, a directory); not copied
 2026-10-12 21:29:15 [info] Skipped 3 gitignored .claude files already present in worktree
-2026-10-12 21:29:15 [info] Created hook-based worktree "upool-probe-slot-hook-log-904bfb" at /Users/user/Documents/down/.claude/worktrees/slot-1
-2026-10-12 21:29:15 [info] Using worktree "upool-probe-slot-hook-log-904bfb" at /Users/user/Documents/down/.claude/worktrees/slot-1 for session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7
-2026-10-12 21:29:15 [info] Saved workspace trust for /Users/user/Documents/down/.claude/worktrees/slot-1
-2026-10-12 21:29:15 [info] Auto-trusted worktree with key "/Users/user/Documents/down/.claude/worktrees/slot-1" (inherited from /Users/user/Documents/down)
-2026-10-12 21:29:15 [info] Starting local session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7 in /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:29:15 [info] Created hook-based worktree "upool-probe-slot-hook-log-904bfb" at ${repo}/.claude/worktrees/slot-1
+2026-10-12 21:29:15 [info] Using worktree "upool-probe-slot-hook-log-904bfb" at ${repo}/.claude/worktrees/slot-1 for session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7
+2026-10-12 21:29:15 [info] Saved workspace trust for ${repo}/.claude/worktrees/slot-1
+2026-10-12 21:29:15 [info] Auto-trusted worktree with key "${repo}/.claude/worktrees/slot-1" (inherited from ${repo})
+2026-10-12 21:29:15 [info] Starting local session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7 in ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:29:18 [info] [CCD start-timing] local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7 preflight=14ms worktree=75ms mcp=20ms query=2ms enqueue=7ms init=741ms first_assistant=2009ms | ccd_overhead=111ms total_to_init=859ms total_to_assistant=2868ms cache_hit=true worktree=true mcp_count=24 online=true rpm_enabled_state=empty-manifest/6ms overlay_wait=0ms include_overlay_wait=1ms barrier=none/pred
 2026-10-12 21:29:26 [info] LocalSessions.archive: sessionId=local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7
 2026-10-12 21:29:26 [info] Archived session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7
 2026-10-12 21:29:26 [info] [CCD] archive local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7: 0 side session(s) named, 0 left live
 2026-10-12 21:29:26 [info] Cleaning up worktree upool-probe-slot-hook-log-904bfb for session local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7
-2026-10-12 21:29:26 [info] Removing worktree "upool-probe-slot-hook-log-904bfb" (leased by local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7): /Users/user/Documents/down/.claude/worktrees/slot-1
+2026-10-12 21:29:26 [info] Removing worktree "upool-probe-slot-hook-log-904bfb" (leased by local_62f2ddb2-a882-4262-9f76-5a4ea3f189a7): ${repo}/.claude/worktrees/slot-1
 2026-10-12 21:29:26 [info] Removed hook-based worktree "upool-probe-slot-hook-log-904bfb"

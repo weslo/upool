@@ -5,7 +5,7 @@
   "errors": [
     {
       "code": "COMMAND_FAILED",
-      "message": "Not a Unity project (ProjectVersion.txt not found at /private/tmp)."
+      "message": "Not a Unity project (ProjectVersion.txt not found at ${cwd})."
     }
   ],
   "warnings": []

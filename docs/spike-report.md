@@ -4,6 +4,9 @@ Project: `down` (Unity 6000.4.11f1), 2026-10-11. All raw logs are in `logs/` bes
 `commands.log` holds every command with its wall time, `measurements.txt` holds the free-space
 samples, and each Editor run has its own log named after the run.
 
+Paths from the spike machine are written as variables (`${home}`, `${repo}`, `${spike}`, their
+`_key` forms, `${repo_lc}`, `${claude_tmp}`), defined in [testdata/README.md](../testdata/README.md).
+
 ## 1. Environment
 
 | Item | Value |
@@ -212,8 +215,8 @@ can't use those paths verbatim.
 ```json
 {
   "session_id": "3965aa22-ae6d-4000-9c6e-c5d6f22043c1",
-  "transcript_path": "/Users/user/.claude/projects/-Users-user-Documents-down/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
-  "cwd": "/Users/user/Documents/down",
+  "transcript_path": "${home}/.claude/projects/${repo_key}/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
+  "cwd": "${repo}",
   "hook_event_name": "WorktreeCreate",
   "name": "probe"
 }
@@ -224,8 +227,8 @@ can't use those paths verbatim.
 ```json
 {
   "session_id": "3965aa22-ae6d-4000-9c6e-c5d6f22043c1",
-  "transcript_path": "/Users/user/.claude/projects/-Users-user-Documents--upool-spike-down-cc-probe/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
-  "cwd": "/Users/user/Documents/.upool-spike/down/cc-probe",
+  "transcript_path": "${home}/.claude/projects/${spike_key}-cc-probe/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
+  "cwd": "${spike}/cc-probe",
   "hook_event_name": "SessionStart",
   "source": "startup"
 }
@@ -236,10 +239,10 @@ The session's project key moved to the slot path. Transcripts are keyed by the s
 ### Desktop app (`~/Library/Logs/Claude/main.log`, app 2.31226.1)
 
 ```
-2026-10-11 20:54:20 [info] Creating worktree for session local_ba750fc3-f573-4cfe-ab18-2f0b63f81583 from /Users/user/Documents/down
-2026-10-11 20:54:20 [error] WorktreeCreate hook failed: /Users/user/Documents/.upool-spike/down/hooks/wt-create.sh: shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
-/bin/bash: /Users/user/Documents/.upool-spike/down/hooks/wt-create.sh: Operation not permitted
-2026-10-11 20:54:20 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_ba750fc3-f573-4cfe-ab18-2f0b63f81583' }
+2026-10-11 20:54:20 [info] Creating worktree for session local_ba750fc3-f573-4cfe-ab18-2f0b63f81583 from ${repo}
+2026-10-11 20:54:20 [error] WorktreeCreate hook failed: ${spike}/hooks/wt-create.sh: shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: ${spike}/hooks/wt-create.sh: Operation not permitted
+2026-10-11 20:54:20 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '${repo}', sessionId: 'local_ba750fc3-f573-4cfe-ab18-2f0b63f81583' }
 ```
 
 ### Desktop follow-up: `WorktreeCreate` stdin (hook in `~/.upool-probe/`)
@@ -248,7 +251,7 @@ The session's project key moved to the slot path. Transcripts are keyed by the s
 {
   "session_id": "d003da2d-8318-401e-9e04-5333aacbf7c8",
   "transcript_path": "",
-  "cwd": "/Users/user/Documents/down",
+  "cwd": "${repo}",
   "hook_event_name": "WorktreeCreate",
   "name": "shell-command-output-8ff578"
 }
@@ -259,9 +262,9 @@ The session's project key moved to the slot path. Transcripts are keyed by the s
 ```json
 {
   "session_id": "65d40ae0-886a-45de-ba41-a8beaf3c1f5b",
-  "transcript_path": "/Users/user/.claude/projects/-Users-user--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b.jsonl",
-  "cwd": "/Users/user/.upool-probe/cc-shell-command-output-8ff578",
-  "scratchpad_dir": "/private/tmp/claude-501/-Users-user--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b/scratchpad",
+  "transcript_path": "${home}/.claude/projects/${home_key}--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b.jsonl",
+  "cwd": "${home}/.upool-probe/cc-shell-command-output-8ff578",
+  "scratchpad_dir": "${claude_tmp}/${home_key}--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b/scratchpad",
   "hook_event_name": "SessionStart",
   "source": "startup"
 }
@@ -273,23 +276,23 @@ The session's project key moved to the slot path. Transcripts are keyed by the s
 {
   "session_id": "d003da2d-8318-401e-9e04-5333aacbf7c8",
   "transcript_path": "",
-  "cwd": "/Users/user/Documents/down",
+  "cwd": "${repo}",
   "hook_event_name": "WorktreeRemove",
-  "worktree_path": "/Users/user/.upool-probe/cc-shell-command-output-8ff578"
+  "worktree_path": "${home}/.upool-probe/cc-shell-command-output-8ff578"
 }
 ```
 
 ### Desktop follow-up: app log (`main.log`)
 
 ```
-21:24:46 Creating worktree for session local_d003da2d-8318-401e-9e04-5333aacbf7c8 from /Users/user/Documents/down
-21:24:51 [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/.upool-probe/cc-shell-command-output-8ff578
+21:24:46 Creating worktree for session local_d003da2d-8318-401e-9e04-5333aacbf7c8 from ${repo}
+21:24:51 [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/.upool-probe/cc-shell-command-output-8ff578
 21:24:51 Skipped per-machine config overlay for hook-based worktree "shell-command-output-8ff578" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
-21:24:51 Created hook-based worktree "shell-command-output-8ff578" at /Users/user/.upool-probe/cc-shell-command-output-8ff578
-21:24:51 Using worktree "shell-command-output-8ff578" at /Users/user/.upool-probe/cc-shell-command-output-8ff578 for session local_d003da2d-8318-401e-9e04-5333aacbf7c8
-21:24:51 Skipped auto-trust for hook-based worktree at /Users/user/.upool-probe/cc-shell-command-output-8ff578 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+21:24:51 Created hook-based worktree "shell-command-output-8ff578" at ${home}/.upool-probe/cc-shell-command-output-8ff578
+21:24:51 Using worktree "shell-command-output-8ff578" at ${home}/.upool-probe/cc-shell-command-output-8ff578 for session local_d003da2d-8318-401e-9e04-5333aacbf7c8
+21:24:51 Skipped auto-trust for hook-based worktree at ${home}/.upool-probe/cc-shell-command-output-8ff578 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
 21:24:54 [CCD start-timing] … worktree=4634ms … total_to_assistant=7542ms … worktree=true
-21:26:17 Removing worktree "shell-command-output-8ff578" (leased by local_d003da2d-…): /Users/user/.upool-probe/cc-shell-command-output-8ff578
+21:26:17 Removing worktree "shell-command-output-8ff578" (leased by local_d003da2d-…): ${home}/.upool-probe/cc-shell-command-output-8ff578
 21:26:18 Removed hook-based worktree "shell-command-output-8ff578"
 ```
 
@@ -391,14 +394,14 @@ Two departures from the plan:
 ### Desktop `WorktreeCreate` stdin (Test A, session 1)
 
 ```json
-{"session_id":"e8c6f3e6-2950-4120-9d6b-d032ae7c6395","transcript_path":"","cwd":"/Users/user/Documents/down","hook_event_name":"WorktreeCreate","name":"env-project-status-6b702e"}
+{"session_id":"e8c6f3e6-2950-4120-9d6b-d032ae7c6395","transcript_path":"","cwd":"${repo}","hook_event_name":"WorktreeCreate","name":"env-project-status-6b702e"}
 ```
 
 ### Desktop `WorktreeRemove` stdin (session 1 archive, then session 3 with the untracked file)
 
 ```json
-{"session_id":"e8c6f3e6-2950-4120-9d6b-d032ae7c6395","transcript_path":"","cwd":"/Users/user/Documents/down","hook_event_name":"WorktreeRemove","worktree_path":"/Users/user/Documents/.upool-spike/down/ta"}
-{"session_id":"619a111e-2760-4449-9f92-e7c70913d65d","transcript_path":"","cwd":"/Users/user/Documents/down","hook_event_name":"WorktreeRemove","worktree_path":"/Users/user/Documents/.upool-spike/down/ta"}
+{"session_id":"e8c6f3e6-2950-4120-9d6b-d032ae7c6395","transcript_path":"","cwd":"${repo}","hook_event_name":"WorktreeRemove","worktree_path":"${spike}/ta"}
+{"session_id":"619a111e-2760-4449-9f92-e7c70913d65d","transcript_path":"","cwd":"${repo}","hook_event_name":"WorktreeRemove","worktree_path":"${spike}/ta"}
 ```
 
 `remove-status` for the second: `?? spike-reuse.txt`.
@@ -406,21 +409,21 @@ Two departures from the plan:
 ### `main.log` (Test A)
 
 ```
-23:02:45 [info] Creating worktree for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395 from /Users/user/Documents/down
-23:02:45 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
+23:02:45 [info] Creating worktree for session local_e8c6f3e6-2950-4120-9d6b-d032ae7c6395 from ${repo}
+23:02:45 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${spike}/ta
 23:02:45 [info] Skipped per-machine config overlay for hook-based worktree "env-project-status-6b702e" — hook returned a path outside the managed worktree directory
-23:02:45 [info] Using worktree "env-project-status-6b702e" at /Users/user/Documents/.upool-spike/down/ta for session local_e8c6f3e6-…
-23:02:45 [info] Skipped auto-trust for hook-based worktree at /Users/user/Documents/.upool-spike/down/ta — hook-chosen path is outside the managed worktree directory
-23:03:31 [error] WorktreeCreate hook failed: hook printed "/Users/user/Documents/.upool-spike/down/ta", which is already in use by worktree "env-project-status-6b702e"
-23:03:31 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '/Users/user/Documents/down', sessionId: 'local_4af4bfd1-…' }
+23:02:45 [info] Using worktree "env-project-status-6b702e" at ${spike}/ta for session local_e8c6f3e6-…
+23:02:45 [info] Skipped auto-trust for hook-based worktree at ${spike}/ta — hook-chosen path is outside the managed worktree directory
+23:03:31 [error] WorktreeCreate hook failed: hook printed "${spike}/ta", which is already in use by worktree "env-project-status-6b702e"
+23:03:31 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '${repo}', sessionId: 'local_4af4bfd1-…' }
    (same refusal at 23:03:36, 23:04:01, 23:04:21)
 23:12:33 [info] LocalSessions.archive: sessionId=local_e8c6f3e6-…
 23:12:33 [info] Cleaning up worktree env-project-status-6b702e for session local_e8c6f3e6-…
-23:12:33 [info] Removing worktree "env-project-status-6b702e" (leased by local_e8c6f3e6-…): /Users/user/Documents/.upool-spike/down/ta
+23:12:33 [info] Removing worktree "env-project-status-6b702e" (leased by local_e8c6f3e6-…): ${spike}/ta
 23:12:34 [info] Removed hook-based worktree "env-project-status-6b702e"
-23:12:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/.upool-spike/down/ta
-23:12:43 [info] Using worktree "pwd-64bb41" at /Users/user/Documents/.upool-spike/down/ta for session local_8a6f35b3-…
-23:13:33 [info] Removing worktree "spike-reuse-test-file-9a4d6d" (leased by local_619a111e-…): /Users/user/Documents/.upool-spike/down/ta
+23:12:43 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${spike}/ta
+23:12:43 [info] Using worktree "pwd-64bb41" at ${spike}/ta for session local_8a6f35b3-…
+23:13:33 [info] Removing worktree "spike-reuse-test-file-9a4d6d" (leased by local_619a111e-…): ${spike}/ta
 23:13:33 [info] Removed hook-based worktree "spike-reuse-test-file-9a4d6d"
 ```
 
@@ -462,10 +465,10 @@ desktop app.
 | E.2–3 | marker `SessionStart` in the slot's `settings.local.json`; user-scope create prints `slot-1`; remove is an exit-0 no-op that logs `git status` | — | done |
 | E.4 registry | `~/Library/Application Support/Claude/git-worktrees.json` (`schemaVersion: 2`, keys `worktrees`, `untrackedDirGc{sightings,roots,cwds}`, `originUrls`). Before: `worktrees: {}`; `untrackedDirGc.cwds` = repo and `ta` | the three `ta` leases accumulated | **no**: lease entries are deleted on archive |
 | E.5 session 1 | `pwd` = `slot-1`; `.claude` = `settings.json`, `settings.local.json`, `skills`; `slot-hook.log` absent; app `worktree=112ms` | slot's own project hook runs | **contradicted** |
-| E.5 overlay / trust | `[worktreeOverlay] 21 gitignored config entries do not resolve to a regular file inside the checkout (a link leaving it or dangling, a FIFO, a directory); not copied`; `Skipped 3 gitignored .claude files already present in worktree`; `Saved workspace trust …`; `Auto-trusted worktree … (inherited from /Users/user/Documents/down)` | managed dir gets overlay and auto-trust | **confirmed**. The overlay doesn't overwrite files already present, and skips the 21 symlinks under `.claude/skills` and `.agents` |
+| E.5 overlay / trust | `[worktreeOverlay] 21 gitignored config entries do not resolve to a regular file inside the checkout (a link leaving it or dangling, a FIFO, a directory); not copied`; `Skipped 3 gitignored .claude files already present in worktree`; `Saved workspace trust …`; `Auto-trusted worktree … (inherited from ${repo})` | managed dir gets overlay and auto-trust | **confirmed**. The overlay doesn't overwrite files already present, and skips the 21 symlinks under `.claude/skills` and `.agents` |
 | E.5 registry during lease | entry `{name, path, leasedBy: local_<id>, baseRepo, branch: <name>, sourceBranch: main, createdAt, hookBased: true, fromCommittableTier: false, anchors[…trustedAt], autoTrusted: true}`; **no git branch** created | — | recorded |
-| E (added) hook source | second session: only the **repo's** `settings.local.json` marker ran, with `cwd=/Users/user/Documents/down`; the slot's `settings.json` and `settings.local.json` markers did not | — | **new**: a slot session takes project hooks from the main checkout, run in the main checkout's cwd |
-| E (added) memory | slot sessions (managed `slot-1` and sibling `ta`) load the slot's `CLAUDE.md`/`AGENTS.md` and the **repo's** auto-memory (`~/.claude/projects/-Users-user-Documents-down/memory/MEMORY.md`); transcripts are keyed by slot path | — | **corrects §7**: memory follows the repo |
+| E (added) hook source | second session: only the **repo's** `settings.local.json` marker ran, with `cwd=${repo}`; the slot's `settings.json` and `settings.local.json` markers did not | — | **new**: a slot session takes project hooks from the main checkout, run in the main checkout's cwd |
+| E (added) memory | slot sessions (managed `slot-1` and sibling `ta`) load the slot's `CLAUDE.md`/`AGENTS.md` and the **repo's** auto-memory (`~/.claude/projects/${repo_key}/memory/MEMORY.md`); transcripts are keyed by slot path | — | **corrects §7**: memory follows the repo |
 | E.6 after archive | `WorktreeRemove` fired; log `Removing worktree … (leased by …)` then `Removed hook-based worktree`; `slot-1` stayed registered and on disk, never locked (1 s poll); registry entry deleted (`worktrees: {}`) | app removes a managed-dir slot itself | **no**: it only calls the hook, as for sibling slots |
 | E.7 | first try refused (`…slot-1", which is already in use by worktree "system-diagnostics-9f8a09"`) because session 1 was still live; after archive: accepted (`worktree=75ms`), archived, kept | reuse works in the managed dir | **confirmed** |
 | F.2–3 creates | **2** `WorktreeCreate` calls (one per subagent, same second), run by the **bundled CLI process** (`…/claude.app/Contents/MacOS/claude`), not the app's `disclaimer` | one create per subagent | **confirmed** |
@@ -481,8 +484,8 @@ desktop app.
 ### Subagent `WorktreeCreate` stdin (verbatim)
 
 ```json
-{"session_id":"f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038","transcript_path":"/Users/user/.claude/projects/-Users-user-Documents-down/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038.jsonl","cwd":"/Users/user/Documents/down","scratchpad_dir":"/private/tmp/claude-501/-Users-user-Documents-down/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038/scratchpad","prompt_id":"3b9b23da-bede-4b6e-9d0f-3dde9a38a776","hook_event_name":"WorktreeCreate","name":"agent-a59f8e76142da8348"}
-{"session_id":"f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038","transcript_path":"/Users/user/.claude/projects/-Users-user-Documents-down/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038.jsonl","cwd":"/Users/user/Documents/down","scratchpad_dir":"/private/tmp/claude-501/-Users-user-Documents-down/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038/scratchpad","prompt_id":"3b9b23da-bede-4b6e-9d0f-3dde9a38a776","hook_event_name":"WorktreeCreate","name":"agent-a4fc3fea4c347d21c"}
+{"session_id":"f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038","transcript_path":"${home}/.claude/projects/${repo_key}/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038.jsonl","cwd":"${repo}","scratchpad_dir":"${claude_tmp}/${repo_key}/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038/scratchpad","prompt_id":"3b9b23da-bede-4b6e-9d0f-3dde9a38a776","hook_event_name":"WorktreeCreate","name":"agent-a59f8e76142da8348"}
+{"session_id":"f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038","transcript_path":"${home}/.claude/projects/${repo_key}/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038.jsonl","cwd":"${repo}","scratchpad_dir":"${claude_tmp}/${repo_key}/f6d1f92c-71cf-4b2a-aa5f-b2dc9cf79038/scratchpad","prompt_id":"3b9b23da-bede-4b6e-9d0f-3dde9a38a776","hook_event_name":"WorktreeCreate","name":"agent-a4fc3fea4c347d21c"}
 ```
 
 How to tell the requests apart:
@@ -498,13 +501,13 @@ How to tell the requests apart:
 Before Test E (and after every archive), entries mentioning the repo:
 
 ```json
-{"worktrees":{},"untrackedDirGc":{"sightings":{},"roots":{},"cwds":{"/Users/user/Documents/down":1791852689694,"/Users/user/Documents/.upool-spike/down/ta":1791852689694}},"originUrls":{"/users/user/documents/down":{"commonDir":"/users/user/documents/down/.git","url":"<redacted>@github.com:weslo/down.git"}}}
+{"worktrees":{},"untrackedDirGc":{"sightings":{},"roots":{},"cwds":{"${repo}":1791852689694,"${spike}/ta":1791852689694}},"originUrls":{"${repo_lc}":{"commonDir":"${repo_lc}/.git","url":"<redacted>@github.com:weslo/down.git"}}}
 ```
 
 During a lease (session 1):
 
 ```json
-{"system-diagnostics-9f8a09":{"name":"system-diagnostics-9f8a09","path":"/Users/user/Documents/down/.claude/worktrees/slot-1","leasedBy":"local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456","baseRepo":"/Users/user/Documents/down","branch":"system-diagnostics-9f8a09","sourceBranch":"main","createdAt":1791854803710,"hookBased":true,"fromCommittableTier":false,"anchors":[{"gitRoot":"/Users/user/Documents/down","commonDir":"/Users/user/Documents/down/.git","trustedAt":1791854803672},{"gitRoot":"/Users/user/Documents/down/.claude/worktrees/slot-1","commonDir":"/Users/user/Documents/down/.git","hookCreated":true,"trustedAt":1791854803710}],"autoTrusted":true}}
+{"system-diagnostics-9f8a09":{"name":"system-diagnostics-9f8a09","path":"${repo}/.claude/worktrees/slot-1","leasedBy":"local_49b55ea5-fc66-40a8-8f6c-b4afc31ec456","baseRepo":"${repo}","branch":"system-diagnostics-9f8a09","sourceBranch":"main","createdAt":1791854803710,"hookBased":true,"fromCommittableTier":false,"anchors":[{"gitRoot":"${repo}","commonDir":"${repo}/.git","trustedAt":1791854803672},{"gitRoot":"${repo}/.claude/worktrees/slot-1","commonDir":"${repo}/.git","hookCreated":true,"trustedAt":1791854803710}],"autoTrusted":true}}
 ```
 
 After all tests: `worktrees: {}`. Subagent worktrees never appear in it.
@@ -512,14 +515,14 @@ After all tests: `worktrees: {}`. Subagent worktrees never appear in it.
 ### `main.log` (Test E, session 1 and archive)
 
 ```
-21:26:43 Creating worktree for session local_49b55ea5-… from /Users/user/Documents/down
-21:26:43 [WorktreeHooks] WorktreeCreate hook created worktree at /Users/user/Documents/down/.claude/worktrees/slot-1
+21:26:43 Creating worktree for session local_49b55ea5-… from ${repo}
+21:26:43 [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
 21:26:43 [worktreeOverlay] 21 gitignored config entries do not resolve to a regular file inside the checkout (a link leaving it or dangling, a FIFO, a directory); not copied
 21:26:43 Skipped 3 gitignored .claude files already present in worktree
 21:26:43 Created hook-based worktree "system-diagnostics-9f8a09" at …/.claude/worktrees/slot-1
 21:26:43 [GitWorktreeManager] recorded origin's URL for this repository: <redacted>@github.com:weslo/down.git { baseRepo: '…/.claude/worktrees/slot-1' }
 21:26:43 Saved workspace trust for …/.claude/worktrees/slot-1
-21:26:43 Auto-trusted worktree with key "…/.claude/worktrees/slot-1" (inherited from /Users/user/Documents/down)
+21:26:43 Auto-trusted worktree with key "…/.claude/worktrees/slot-1" (inherited from ${repo})
 21:26:43 Starting local session local_49b55ea5-… in …/.claude/worktrees/slot-1
 21:27:04 [error] WorktreeCreate hook failed: hook printed "…/.claude/worktrees/slot-1", which is already in use by worktree "system-diagnostics-9f8a09"
 21:27:29 Cleaning up worktree system-diagnostics-9f8a09 for session local_49b55ea5-…

@@ -2,30 +2,41 @@
 
 These files are the contract. Each one was captured on a real Mac during the spike
 (2026-10-11 to 2026-10-12, macOS 15.7.3, Unity CLI 1.0.0-beta.13, Claude Code 2.1.295, desktop app
-2.31226.1) and is reproduced verbatim except for one redaction: JSON pretty-printed with `jq .`, text
-copied byte for byte. [docs/contracts.md](../docs/contracts.md) explains what each one proves; the
+2.31226.1) and is reproduced verbatim except for paths: JSON pretty-printed with `jq .`, text copied
+byte for byte. [docs/contracts.md](../docs/contracts.md) explains what each one proves; the
 "Section" column below points into [docs/spike-report.md](../docs/spike-report.md).
 
-**Redaction.** No path from the capturing machine is committed. The home directory is rewritten to
-`/Users/user` and the folder holding the projects to `/Users/user/Documents`, so the spike's
-repository appears as `/Users/user/Documents/down`. Claude Code's dash-encoded forms follow suit
-(`-Users-user-Documents-down`), and the Unity CLI's own `/Users/<user>` redaction is kept. The
-rewrite is consistent across files, so every relationship between paths (stdin `cwd` against a
-`worktree_path`, a slot against its repository, a transcript key against its slot) survives it.
-`Documents` stays because the TCC restriction on it is part of the contract. `make check-paths`, run
-in CI, fails on any other home directory.
+**Paths are variables.** No path from the capturing machine is committed. Each one is replaced by
+the variable for its role, and a test fills the variables with the temporary directories it creates
+(a fake repository, a fake home), so the fixtures describe the shape of the input, not one machine.
+The replacement is consistent across files, so every relationship between paths survives it: stdin
+`cwd` against `worktree_path`, a slot against its repository, a transcript key against its slot.
+
+| Variable | Role | Example from a fixture |
+|---|---|---|
+| `${home}` | the user's home directory | `${home}/.claude/projects/…` |
+| `${repo}` | the pooled repository (the spike's Unity project, under `~/Documents`) | `${repo}/.claude/worktrees/slot-1` |
+| `${repo_lc}` | `${repo}` lowercased, as the desktop app's registry stores it (docs only) | — |
+| `${spike}` | the folder beside the repository that held the spike's sibling slots (`ta`, `clone1`…) and logs | `${spike}/ta` |
+| `${home_key}`, `${repo_key}`, `${spike_key}` | Claude Code's project key for that path: every `/` and `.` replaced by `-` | `${repo_key}--claude-worktrees-slot-1` is the key of `${repo}/.claude/worktrees/slot-1` |
+| `${claude_tmp}` | Claude Code's per-user temporary root (`$TMPDIR/claude-<uid>`) | `${claude_tmp}/${repo_key}/<session>/scratchpad` |
+| `${cwd}` | the directory a Unity CLI command ran in | `Not a Unity project (ProjectVersion.txt not found at ${cwd}).` |
+
+Only these braced names are variables: fill them with a literal string replacement, not
+`os.Expand`, because some captures contain a literal `$schema` key. `make check-paths`, run in CI,
+fails if a home-directory path appears anywhere in the repository.
 
 **Never edit a fixture.** If upool's parsing has to change, the change must be matched by a new
-capture from a real Editor or a real Claude Code session, redacted as above and added as a new file
-with its source recorded here. A fixture that disagrees with the code is a bug report against the
-code, not the fixture.
+capture from a real Editor or a real Claude Code session, with its paths replaced as above, added as
+a new file with its source recorded here. A fixture that disagrees with the code is a bug report
+against the code, not the fixture.
 
 The "Spike log" column names the file in the spike's `logs/` folder each fixture came from. That
 folder is not in this repository.
 
 ## hooks/
 
-Hook stdin as Claude Code delivered it, paths redacted. Session ids are the spike's.
+Hook stdin as Claude Code delivered it, with paths as variables. Session ids are the spike's.
 
 | Fixture | Spike log | Section | What it is |
 |---|---|---|---|
@@ -85,11 +96,6 @@ so.
 | `test-positional.json` | `t6-test-positional.json` | §2 T6.6 | `unity test <path> --mode EditMode`: success |
 | `run-not-a-unity-project.json` | `b3-run.json` | §8 B.3 | `unity run --command editor_status` from `/tmp` with the variable: `COMMAND_FAILED`, exit 6 |
 | `cache-key-project-path-invalid.json` | `d1-cache-key.txt`, `--project-path form` | §8 D.1 | `unity cache key --project-path`: `INVALID_COMMAND_ARGS` |
-| `vcs-worktree-add-dry-run.json` | `t6-dryrun.json` | §2 T6.2 | `unity vcs git worktree add --seed cache --dry-run`; home directory redacted |
-| `vcs-worktree-add-seed-cache.json` | `t6-seed-cache.json` | §2 T6.3 | `--seed cache`: `PackageCache` withheld |
-| `vcs-worktree-add-seed-full.json` | `t6-seed-full.json` | §2 T6.3 | `--seed full` |
-| `vcs-worktree-remove-seed-cache.json` | `t6-remove-seed-cache.json` | §2 T6.3 | `unity vcs git worktree remove -y` |
-| `vcs-worktree-remove-seed-full.json` | `t6-remove-seed-full.json` | §2 T6.3 | the same for the `--seed full` worktree |
 
 ### unity/projections/
 
@@ -138,6 +144,8 @@ Kept only in the spike's `logs/` folder, because nothing in upool parses them: t
 snapshots (`e4-*`, `test-e/registry/`, `test-gc/`), `symlink-check.tsv`, `d4-settings-diff.txt`,
 `c5-startup-scene.diff`, `t6-test-results.xml`, `t6-dryrun-human.txt`, `t7-claude-p.*`, the
 `unity projects` listings (`projects-before.json`, `projects-after-seed-cache.json`), which name
-every project in the capturing machine's Unity Hub, and the
+every project in the capturing machine's Unity Hub, the `unity vcs git worktree` envelopes
+(`t6-dryrun.json`, `t6-seed-*.json`, `t6-remove-seed-*.json`), because upool never wraps that
+command and their home-redacted paths fit no variable, and the
 `jq` projections of successful calls (`b-targeting.txt` B2a–B2g except B2c and B2f, B3d;
 `t6-targeting.txt` D, D2, F, F2, G; `b5-close.txt`). The spike report quotes what matters from them.

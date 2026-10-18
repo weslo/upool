@@ -1,7 +1,7 @@
 {
   "session_id": "42411952-c8a6-48cc-a1a3-cce03be56342",
   "transcript_path": "",
-  "cwd": "/Users/user/Documents/down",
+  "cwd": "${repo}",
   "hook_event_name": "WorktreeCreate",
   "name": "pwd-80bd53"
 }

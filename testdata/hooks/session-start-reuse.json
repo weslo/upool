@@ -1,8 +1,8 @@
 {
   "session_id": "e9b10f63-9863-479f-aaa3-26ad35eb90d8",
-  "transcript_path": "/Users/user/.claude/projects/-Users-user-Documents-down--claude-worktrees-slot-1/e9b10f63-9863-479f-aaa3-26ad35eb90d8.jsonl",
-  "cwd": "/Users/user/Documents/down/.claude/worktrees/slot-1",
-  "scratchpad_dir": "/private/tmp/claude-501/-Users-user-Documents-down--claude-worktrees-slot-1/e9b10f63-9863-479f-aaa3-26ad35eb90d8/scratchpad",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-slot-1/e9b10f63-9863-479f-aaa3-26ad35eb90d8.jsonl",
+  "cwd": "${repo}/.claude/worktrees/slot-1",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-slot-1/e9b10f63-9863-479f-aaa3-26ad35eb90d8/scratchpad",
   "hook_event_name": "SessionStart",
   "source": "startup"
 }

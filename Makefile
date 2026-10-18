@@ -13,10 +13,11 @@ lint: check-paths
 	go vet ./...
 	golangci-lint run
 
-# Fails if a tracked file names a real home directory. Captures use /Users/user (testdata/README.md).
+# Fails if a tracked file contains a home-directory path. Fixtures use variables instead
+# (testdata/README.md).
 check-paths:
-	@if git grep -noE '/(Users|home)/[A-Za-z0-9._-]+|-Users-[A-Za-z0-9._]+-' | grep -vE ':(/Users/user|-Users-user-)$$'; then \
-		echo "check-paths: local home-directory paths found above; redact them to /Users/user" >&2; exit 1; \
+	@if git grep -nE '/([Uu]sers|home)/[A-Za-z0-9._-]+|-Users-[A-Za-z0-9._]+-|/private/tmp/claude-[0-9]+'; then \
+		echo "check-paths: machine paths found above; use the variables in testdata/README.md" >&2; exit 1; \
 	fi
 
 fakeunity:
