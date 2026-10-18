@@ -1,0 +1,51 @@
+name: Task
+description: One unit of work that becomes one pull request.
+body:
+  - type: input
+    id: goal
+    attributes:
+      label: Goal
+      description: One sentence.
+    validations:
+      required: true
+  - type: input
+    id: design-reference
+    attributes:
+      label: Design reference
+      description: The section of docs/design.md or docs/contracts.md this implements.
+      placeholder: "docs/contracts.md (f) Slot lifecycle"
+    validations:
+      required: true
+  - type: textarea
+    id: fixtures
+    attributes:
+      label: Fixtures
+      description: Files under testdata/ the change must pass against, or "none".
+      placeholder: testdata/hooks/desktop-session-create.json
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-test
+    attributes:
+      label: Acceptance test
+      description: A command a reviewer can run and the expected result.
+      placeholder: "`go test ./internal/pool -run TestTakeRefusesConfirmedLease` passes"
+    validations:
+      required: true
+  - type: input
+    id: manual-gate
+    attributes:
+      label: Manual gate
+      description: none, or the docs/manual-gates file and check number.
+      placeholder: "none, or docs/manual-gates/M1.md check 3"
+    validations:
+      required: true
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+  - type: input
+    id: blocked-by
+    attributes:
+      label: Blocked by
+      placeholder: "#12, #13"
