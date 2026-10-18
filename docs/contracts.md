@@ -4,8 +4,10 @@ The external behaviour `upool` depends on, extracted from [design.md](design.md)
 [spike-report.md](spike-report.md). Every row cites its source. Where the two documents disagree,
 the spike report wins and a footnote says so. Fixture names refer to files under
 [`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
-[`docs/evidence/`](evidence/README.md). Nothing here is new design: gaps are listed under
-[Open questions](#open-questions), not filled.
+[`docs/evidence/`](evidence/README.md). Nothing here is new design except the maintainer's answers
+to the questions under [Decide before Stage 2](#decide-before-stage-2), cited A4, A5, A6, A7 and
+A10: they settle what both documents leave open, and the tables follow them. Every other gap is
+listed under [Open questions](#open-questions), not filled.
 
 Citation keys:
 
@@ -24,6 +26,7 @@ Citation keys:
 | D-unverified | design.md, "What remains unverified" |
 | D-build | design.md, "Build in four phases, with the clone recipe first" |
 | S§n X | spike-report.md section n, step X (for example S§8 A.7 is §8, row A.7) |
+| An | this document, the answer to open question n under [Decide before Stage 2](#decide-before-stage-2) (maintainer decision, 2026-10-18) |
 
 ## (a) WorktreeCreate and WorktreeRemove stdin
 
@@ -113,7 +116,7 @@ by `session_id` (S§7 item 3; D-route).
 | Set for `SessionStart` hooks to `~/.claude/session-env/<SessionStart session_id>/sessionstart-hook-0.sh` | S§2 T7.5 |
 | The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree[^2] | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply) |
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
-| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh` | D-env; D-lifecycle |
+| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh` | D-env; D-lifecycle; A6 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
 | `SessionEnd` (best effort, 1.5 s budget) and `CwdChanged` were not exercised | D-env; D-unverified |
 
@@ -194,9 +197,15 @@ exits 0, and `worktree-create` exits non-zero only to abort the session (D-route
 All three files live under `~/.upool/`, never under a TCC-protected folder, because the create hook
 reads them from the disclaimed helper (D-commands). Each is one JSON document rewritten atomically
 under one OS file lock, `~/.upool/lock`, shared by all three and held only across the
-read-modify-write, never across a 26 s clone or a 235 s import (D-commands). The design names the data but, apart from `lease_id` and `confirmed`,
-not the keys; the snake_case names below are descriptive placeholders and the types are the JSON
-types the descriptions imply (see [Open questions](#open-questions)).
+read-modify-write, never across a 26 s clone or a 235 s import (D-commands).
+
+The keys are the snake_case names below, exactly, and the types are JSON types (A7). Timestamps are
+RFC 3339 strings in UTC, as Go encodes `time.Time`; a process start time (`holder_pid_start`,
+`owner_pid_start`) is the one `internal/proc` reads (sysctl, microseconds) and is compared at that
+precision, never against another source such as `ps -o lstart` (A7). Each file has a top-level
+`schema_version`, `1` for the format described here: a binary that reads a higher version refuses
+with exit 1 and a message to upgrade upool, rather than rewriting the file and dropping fields it
+does not know, and one that reads a lower version migrates it on its next write (A7).
 
 ### `~/.upool/pools/<repo-key>/state.json`
 
@@ -204,6 +213,7 @@ Pool:
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
+| `schema_version` | integer | `1` | every writer | A7 |
 | `repo` | string, absolute path | the main checkout | `init` | D-commands |
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init` (from flag, `UPOOL_*`, `.upool.toml`, user config) | D-commands; D-lifecycle |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
@@ -216,9 +226,11 @@ Slot:
 |---|---|---|---|---|
 | `name` | string | `slot-N` | `init`, `take` (create), `refresh` | D-commands |
 | `path` | string, absolute path | `<repo>/.claude/worktrees/slot-N` | same | D-commands |
-| `state` | string, one of the states in (f) | lifecycle state, including the "acquisition incomplete" entry written before `git worktree add` | every transition in (f) | D-leases; D-route |
-| `seed_head` | string, commit SHA | the seed source's `git rev-parse HEAD` at clone time | clone (`init`, `take`, `refresh`) | D-lifecycle; S§8 "What this changes (updated)", staleness row |
-| `seed_dirty` | bool | whether the seed source had uncommitted changes | clone | same |
+| `state` | string, one of the states in (f) | lifecycle state; `creating` is the "acquisition incomplete" entry written before `git worktree add` | every transition in (f) | D-leases; D-route; A4 |
+| `owner_pid` | integer or null | the process cloning the slot (`creating`) or re-warming it (`warming`); null in every other state. A dead owner starts recovery, (f) transitions 21 and 22 | clone (`init`, `take`, `refresh`), `refresh` | A4 |
+| `owner_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the owner | same | A4 |
+| `seed_head` | string, commit SHA | the seed source's `git rev-parse HEAD` at clone time: the commit the cloned Library matches. The slot is then moved to base ((g) step 7), so its own HEAD may differ | clone (`init`, `take`, `refresh`) | D-lifecycle; S§8 "What this changes (updated)", staleness row; A10 |
+| `seed_dirty` | bool | whether the seed source had uncommitted changes, which (g) step 7 reverts in the slot | clone | same |
 | `last_used` | timestamp | for LRU removal under `max_disk` and for `shrink_after` | `release`, hook (remove) | D-disk; D-commands |
 | `lease` | lease or null | current lease | `take`, `take --confirm`, `release`, hooks, reclaim | D-leases |
 
@@ -229,10 +241,10 @@ Lease:
 | `lease_id` | string, random | identity for `release --if-lease-id` | `take` | D-commands; D-leases |
 | `holder` | string | `--holder ID`; for the desktop hook, the create stdin `session_id` | `take` | D-route |
 | `worktree_path` | string, absolute path | correlation key for `--confirm`, remove and release | `take` | D-route; D-leases |
-| `holder_pid` | integer | process holding the lease | `take` | D-leases |
-| `holder_pid_start` | timestamp | that process's start time, so a reused PID is not mistaken for the holder | `take` | D-leases |
-| `acquired_at` | timestamp | when the lease was taken; drives `confirm_timeout` | `take` | D-commands; D-leases |
-| `confirmed` | bool | `false` when the create hook takes it; `true` after `take --confirm` | `take`, `take --confirm` | D-route; D-env |
+| `holder_pid` | integer or null | the process whose life the lease follows, for dead-PID reclaim: `upool run`'s own PID; for a create-hook lease, null until `take --confirm` sets it to the `SessionStart` hook's parent, the session's CLI process (unverified that no shell sits between them, as for `parent_pid` below); null for a bare `take`, which is never reclaimed automatically | `take`, `run`, `take --confirm` | D-leases; A6 |
+| `holder_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the holder | same | D-leases; A6 |
+| `acquired_at` | timestamp | when the lease was taken; drives `confirm_timeout`, and for a lease with no holder PID, `doctor`'s warning once it is older than `agent_ttl` | `take` | D-commands; D-leases; A6 |
+| `confirmed` | bool | `false` only for a lease the create hook takes, set inside `internal/hooks` and never by a CLI flag; `true` after `take --confirm`, and from the start for every other `take`, including `run`'s | `take`, `take --confirm` | D-route; D-env; A6 |
 | `lane` | string, `script` or `scene` | default `script`; at most one `scene` lease per project | `take --lane` | D-lanes |
 | `name_hint` | string | the create stdin `name`; never a key | hook (create) | D-route |
 
@@ -252,9 +264,16 @@ Agent worktree:
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
+| `schema_version` | integer | `1` | `init` | A7 |
 | `repos` | array of repo | every pooled repository on the machine | `init` | D-commands |
 | `repos[].path` | string, absolute path | main checkout; the create hook matches stdin `cwd` against it | `init`, run from Terminal | D-commands; D-route |
-| `repos[].key` | string | the `<repo-key>` naming `~/.upool/pools/<repo-key>/` | `init` | D-commands |
+| `repos[].key` | string | the `<repo-key>` naming `~/.upool/pools/<repo-key>/` | `init` | D-commands; A7 |
+
+`<repo-key>` is the last element of the canonical path (`internal/paths`), a `-`, and the first 8
+hex digits of the SHA-256 of the canonical path, for example `down-3f9a1c2e` (A7). This file is the
+source of truth: lookups go by path, and the derivation matters only so that `init` finds an
+existing pool again after the registry is lost. It is not the `${repo_key}` of
+[testdata/README.md](../testdata/README.md), which is Claude Code's project key for the same path.
 
 The hook reads this file instead of `.upool.toml` because `head` on a file under `~/Documents` failed
 from the disclaimed helper (D-commands; S§2 TB).
@@ -263,6 +282,7 @@ from the disclaimed helper (D-commands; S§2 TB).
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
+| `schema_version` | integer | `1` | every writer | A7 |
 | `editors` | array of editor | every Editor `upool` is charging for | `open`, `close`, `release`, `refresh`, `doctor --fix` | D-commands; D-editors |
 | `editors[].project` | string, absolute path | the slot the Editor has open | `open` | D-editors |
 | `editors[].pid` | integer | Editor PID; a dead PID is reclaimed | `open`; removed by `close`, `release`, `doctor --fix` | D-editors; D-leases |
@@ -275,39 +295,56 @@ The helper charge (2 GB once any Editor is up) is computed from the list, not st
 
 ## (f) Slot lifecycle
 
+A slot is **clean** when `git status --porcelain` prints nothing once define-order noise is
+reverted, **and** some ref contains its HEAD (`git for-each-ref --contains HEAD` prints at least one
+line). Anything else is **dirty**. The second test is there because the app creates no branch for a
+hook-made worktree and slots are handed out detached (S§9 E.5): a session's commits pass
+`git status`, and a reset to base would orphan them (A5).
+
 | State | Meaning | `take` skip reason | Source |
 |---|---|---|---|
-| `warming` | being cloned (the "acquisition incomplete" entry) or re-warmed by `refresh`[^3] | — | D-leases; D-commands |
-| `ready` | detached at base, clean, unleased | — (handed out) | D-lifecycle |
+| `creating` | being cloned: the "acquisition incomplete" entry, written before `git worktree add` with the cloning process in `owner_pid`[^3] | `creating` | D-leases; A4 |
+| `warming` | a ready slot that `refresh` is moving to base and re-warming, with the `refresh` process in `owner_pid`; out of circulation until it is `ready` again[^3] | `warming` | D-commands; A4 |
+| `ready` | detached at base, clean, unleased | — (handed out first) | D-lifecycle |
 | `leased-unconfirmed` | leased by the create hook, `confirmed: false` | `unconfirmed` | D-route; D-leases |
 | `leased` | leased and confirmed | `leased` | D-env; D-leases |
 | `parked` | dirty after a remove or release: unleased, not ready, never reset, surfaced by `prune` | `parked` | D-route |
-| `needs-reset` | clean after a remove; reset deferred to the next `SessionStart` | `needs-reset` | D-route; D-env; D-leases |
+| `needs-reset` | clean after a remove; the reset is deferred to the confirm step of its next lease, or to `refresh` | — (handed out only when no slot is `ready`) | D-route; D-env; A5 |
 
 `take` also skips slots for `editor-running` and `missing-from-worktree-list`, which are conditions,
-not states (D-leases).
+not states (D-leases). It hands out a `ready` slot if there is one and a `needs-reset` slot
+otherwise, and runs that slot's reset (checkout base detached, `git clean -fd`) in the confirm
+step: for a create-hook lease, in `SessionStart`'s `take --confirm`, which has full file access; for
+any other `take`, before it prints the path (A5). `refresh` resets `needs-reset` slots before it
+clones anything, and counts `creating` and `warming` slots as ready when it tops the pool up to
+`ready` (A4; A5).
 
 | # | From | To | Caused by | Source |
 |---|---|---|---|---|
-| 1 | — | `warming` | `upool init` (first slot, from the main checkout with its Editor closed); `upool take` when no slot is ready and the pool is below `max_slots` (not with `--no-create`); `upool refresh` topping the pool up to `ready`, spawned detached by the `SessionStart` hook | D-commands; D-lifecycle; D-env |
-| 2 | `warming` | `ready` | the clone recipe (g) completes and the gitdir backlink checks out | D-lifecycle; D-leases |
-| 3 | `ready` | `warming` | `upool refresh [--fetch]` moves idle ready slots to the current base (`origin/<base>` with `--fetch`) and re-warms them under the cold-import semaphore | D-commands; D-lifecycle |
+| 1 | — | `creating` | `upool init` (first slot, from the main checkout with its Editor closed); `upool take` when no slot is `ready` or `needs-reset` and the pool is below `max_slots` (not with `--no-create`); `upool refresh` topping the pool up to `ready`, spawned detached by the `SessionStart` hook | D-commands; D-lifecycle; D-env; A4 |
+| 2 | `creating` | `ready` | the clone recipe (g) completes and its step 8 checks pass | D-lifecycle; D-leases; A4 |
+| 3 | `ready` | `warming` | `upool refresh [--fetch]` moves an idle ready slot to the current base (`origin/<base>` with `--fetch`) and re-warms it under the cold-import semaphore | D-commands; D-lifecycle; A4 |
 | 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20` | D-route |
-| 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run` (see [Open questions](#open-questions) on whether these start confirmed) | D-commands; D-route |
-| 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path | D-env |
+| 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; the lease starts confirmed | D-commands; D-route; A6 |
+| 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path; it records the holder PID | D-env; A6 |
 | 7 | `leased-unconfirmed` | `ready` | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come | D-leases; S§8 A.7 |
-| 8 | `leased` | `needs-reset` | `WorktreeRemove` hook, `git status --porcelain` clean after reverting define-order noise | D-route |
-| 9 | `leased` | `parked` | `WorktreeRemove` hook, any other tracked or untracked change | D-route; S§8 A.8 |
-| 10 | `needs-reset` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch, if it hands out `needs-reset` slots (Open question 5); the deferred reset (checkout base detached, `git clean -fd`) then runs inside transition 6's `take --confirm` | D-env; D-route |
-| 11 | `leased` | `ready` | `upool release`, clean: `save_all` then `unity close <path>` for an Editor it opened, revert define-order noise, checkout base detached, `git clean -fd` | D-commands; D-lifecycle |
-| 12 | `leased` | `parked` | `upool release`, dirty | D-commands |
-| 13 | `leased` | `ready` | reclaim: holder PID dead **and** no live Editor in the ledger **and** tree clean | D-leases |
-| 14 | `leased` | `parked` | reclaim: holder PID dead, tree dirty | D-leases |
+| 8 | `leased` | `needs-reset` | `WorktreeRemove` hook, the slot clean | D-route; A5 |
+| 9 | `leased` | `parked` | `WorktreeRemove` hook, the slot dirty | D-route; S§8 A.8; A5 |
+| 10 | `needs-reset` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch, when no slot is `ready`; the deferred reset then runs inside transition 6's `take --confirm` | D-env; D-route; A5 |
+| 11 | `leased` | `ready` | `upool release`, clean: `save_all` then `unity close <path>` for an Editor it opened, revert define-order noise, checkout base detached, `git clean -fd` | D-commands; D-lifecycle; A5 |
+| 12 | `leased` | `parked` | `upool release`, dirty | D-commands; A5 |
+| 13 | `leased` | `ready` | reclaim: the lease has a holder PID **and** it is dead **and** no live Editor in the ledger **and** the slot clean. A lease with no holder PID (a bare `take`) is never reclaimed: it ends on `release`, or a person's `release --force`, and `doctor` warns once it is older than `agent_ttl` | D-leases; A6 |
+| 14 | `leased` | `parked` | reclaim: the holder PID dead, the slot dirty | D-leases |
 | 15 | `ready` | removed | `upool prune --yes`: idle, merged, clean slots beyond `ready`; LRU to `max_disk`; `shrink_after` | D-commands; D-disk |
 | 16 | `parked` | — | no automatic transition; `prune` lists it and a person resolves it | D-route |
 | 17 | any | missing | the slot left the disk or `git worktree list`; `take` skips it, `doctor` reports it and it is recreated | D-route; S§10 |
+| 18 | `warming` | `ready` | `refresh` finishes the move to base and the re-warm, and the slot is clean | D-commands; A4 |
+| 19 | `needs-reset` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`, when no slot is `ready`; the reset runs before the path is printed, and the lease starts confirmed | A5; A6 |
+| 20 | `needs-reset` | `ready` | `upool refresh`, before it clones anything: checkout base detached, `git clean -fd` | A5 |
+| 21 | `creating` | removed | the owner PID is dead: `doctor --fix`, or the next `take` or `refresh`, removes the slot's worktree registration if `git worktree add` got that far (`git worktree remove --force`), then its directory and its entry | A4 |
+| 22 | `warming` | `ready` or `parked` | the owner PID is dead and the ledger shows no live Editor in the slot: the slot is checked again; clean → `ready`, and a later `refresh` moves it to base; dirty → `parked` | A4 |
 
-`upool run <name> -- <cmd>` is transitions 5 then 11 or 12 around the command (D-commands).
+`upool run <name> -- <cmd>` is transition 5 or 19, then 11 or 12, around the command (D-commands).
 `release` refuses a live session's slot without `--force` and honours `--if-lease-id` (D-commands).
 
 Agent worktrees are not slots: the hook creates them, nothing releases them, and `prune` removes one
@@ -323,12 +360,13 @@ sets `UNITY_SKIP_HOOKS` (D-lifecycle).
 |---|---|---|
 | 0 | Choose the seed: the main checkout with its Editor closed for the first slot, the freshest ready slot afterwards | D-lifecycle |
 | 1 | Staleness check on the seed: newest mtime under `Assets/**/*.cs` against `Library/ScriptAssemblies`; `git -C <seed> rev-parse HEAD` and `git -C <seed> status --porcelain`; `unity cache key "<seed>"` only to catch an Editor or package change. If stale, refresh it: with an Editor running, `unity recompile`; without one, a batch open (about 16 s) | D-lifecycle; S§8 D.1, D.2 |
-| 2 | Write the "acquisition incomplete" entry to `state.json` under the lock, then drop the lock | D-leases |
-| 3 | `git -C <repo> worktree add --no-checkout --detach <repo>/.claude/worktrees/slot-N <commit>` (the spike passed `HEAD`) | S§2 TA; S§9 E.1 |
+| 2 | Write the `creating` entry, with this process in `owner_pid`, to `state.json` under the lock, then drop the lock | D-leases; A4 |
+| 3 | `git -C <repo> worktree add --no-checkout --detach <repo>/.claude/worktrees/slot-N <seed-head>`, where `<seed-head>` is `git -C <seed> rev-parse HEAD`, as the spike measured | S§2 TA; S§9 E.1; A10 |
 | 4 | For each top-level entry `<e>` of `<seed>` not in the exclusion list: `cp -cR <seed>/<e> <slot>/<e>`; `.claude` is copied without its `worktrees` child | S§2 TA; S§9 E.1; D-clone |
 | 5 | `rm -f <slot>/Library/EditorInstance.json <slot>/Library/ProtocolInstance.json` and `rm -rf <slot>/Library/Pipeline` | D-lifecycle; S§2 T1.5–T1.6 |
 | 6 | `git -C <slot> reset -q` to rebuild the index (7.3 to 7.7 s) | S§2 TA; S§9 E.1 |
-| 7 | Verify `git -C <slot> status --porcelain` is empty, the slot's `.git` file points back into `<repo>/.git/worktrees/`, and the slot is in `git worktree list`; mark it `ready` | D-leases; D-route |
+| 7 | Move the slot to base. If the seed was dirty, `git -C <slot> checkout -- .` and `git -C <slot> clean -fd`, which keeps gitignored files; then, if HEAD is not base, `git -C <slot> checkout --detach <base>`. The first open imports only the difference between `<seed-head>` and base; a seed already clean at base, as every ready slot is, makes this step do nothing | A10 |
+| 8 | Verify `git -C <slot> status --porcelain` is empty, HEAD is base, the slot's `.git` file points back into `<repo>/.git/worktrees/`, and the slot is in `git worktree list`; mark it `ready` | D-leases; D-route; A10 |
 
 Exclusion list, exactly: `.git`, `Temp`, `Logs`, `obj`, `Builds`, `.claude/worktrees` (D-clone;
 S§2 TA; S§9 E.1).
@@ -379,24 +417,65 @@ Each question keeps its number wherever it is cited.
 ### Decide before Stage 2
 
 These define M0's state types. M0 and M1 run one issue at a time, so a `decision-needed` issue for
-any of them would stall the whole chain: answer each one here before Stage 2 (design.md,
-Appendix A) starts.
+any of them would stall the whole chain: each had to be answered here before Stage 2 (design.md,
+Appendix A) could start. All five are answered (maintainer decision, 2026-10-18), and (e), (f) and
+(g) follow the answers.
 
 - **4. `warming`.** Neither document names it. Is it a persisted state (the "acquisition incomplete"
   entry), and does `refresh`'s re-warm take a ready slot out of circulation while it runs?
+
+  **A4.** Yes to both, as two persisted states. `creating` is the "acquisition incomplete" entry:
+  written before `git worktree add` with the cloning process in `owner_pid`, so that while the lock
+  is dropped no other process hands the slot out, picks the same `slot-N`, or leaves it out of the
+  `max_slots` count. `warming` is a ready slot that `refresh` is moving to base and re-warming. It
+  is out of circulation until it is `ready` again, because a session could otherwise land in a slot
+  mid-checkout, or in one whose batch Editor holds `Temp/UnityLockfile`. `take` skips both, and the
+  top-up counts both as ready. A dead owner is recovered by state: a `creating` slot is removed, and
+  a `warming` slot is checked again and goes back to `ready` if clean or to `parked` if not ((f),
+  transitions 1–3, 18, 21 and 22).
 - **5. `needs-reset`.** `take` lists `needs-reset` as a skip reason (D-leases), yet the
   `SessionStart` hook "runs the deferred reset if the slot is marked `needs-reset`" (D-env), which
   only happens if the create hook handed such a slot out. Does the pooled create branch accept
   `needs-reset` slots? If not, what resets them?
+
+  **A5.** Yes, when no slot is `ready`: every `take` hands out `ready` slots first and `needs-reset`
+  ones after, so `needs-reset` is not a skip reason. The reset runs in the confirm step: for a
+  create-hook lease, in `SessionStart`'s `take --confirm`; for any other `take`, before the path is
+  printed. `refresh` also resets `needs-reset` slots to `ready`, before it clones anything. And a
+  clean slot now also needs a HEAD that some ref contains, because hook-made slots run detached
+  (S§9 E.5) and a reset would otherwise orphan a session's commits; such a slot is parked ((f),
+  the definition of clean and transitions 8–12, 19 and 20).
 - **6. Leases outside the hook.** Do leases from a Terminal `take`, `upool run` or a subagent's
   explicit `take` start `confirmed: true`? If not, they would expire after `confirm_timeout` with no
   `SessionStart` to confirm them.
+
+  **A6.** Yes. Only the create hook's lease starts with `confirmed: false`, set inside
+  `internal/hooks` and never by a CLI flag. Dead-PID reclaim needs a holder PID that lives as long
+  as the lease: `upool run` records its own; a create-hook lease gets the `SessionStart` hook's
+  parent, the session's CLI process, at confirm; a bare `take` records none, because its own process
+  exits at once and its parent, from a Claude Code Bash tool call, is probably a shell that exits
+  after each command (unverified). A lease with no holder PID is never reclaimed automatically: it
+  ends on `release`, or a person's `release --force`; `status` shows its age and `doctor` warns once
+  it is older than `agent_ttl` ((e) Lease; (f) transitions 5, 6, 13 and 19).
 - **7. Schema keys.** The design gives no key names (except `lease_id` and `confirmed`), no timestamp
   format, no schema-version field and no derivation for `<repo-key>`. The placeholders in (e) need a
   decision before M0's state types.
+
+  **A7.** The keys are the snake_case names in (e), exactly. Timestamps are RFC 3339 strings in
+  UTC; process start times come from `internal/proc` and are compared at its precision. Each file
+  has a top-level `schema_version`, `1` for now: a newer version is refused, an older one migrated
+  on the next write. `<repo-key>` is the canonical path's last element, a `-`, and the first 8 hex
+  digits of the SHA-256 of the canonical path (`down-3f9a1c2e`); the registry stays the source of
+  truth ((e)).
 - **10. Clone commit.** The spike cloned at the seed's `HEAD`; the design says "clone at base". If
   base differs from the seed's `HEAD`, step 6 leaves the slot dirty. Must the seed be at base, or
   does the recipe check base out after step 6?
+
+  **A10.** The recipe checks base out. It clones at the seed's HEAD, as the spike measured, then
+  reverts anything a dirty seed left in the slot and runs `git checkout --detach <base>` before the
+  final checks ((g) step 7). The first open imports only the difference between the seed's HEAD
+  and base, the same delta-only cost `refresh --fetch` accepts, and `seed_head` records the commit
+  the Library matches. A seed already clean at base, as every ready slot is, costs nothing extra.
 
 ### Other open questions
 
@@ -439,8 +518,8 @@ Appendix A) starts.
     2.1.295". The spike confirmed delivery only through the desktop app (S§2 T7.5; S§7); the
     standalone CLI run stopped at "Not logged in" before any Bash call (S§2 T7.4; S§8 A.9). The spike
     wins: delivery through a standalone CLI session is unverified.
-[^3]: "warming" appears in neither document. It is mapped here to the design's "acquisition
-    incomplete" entry (D-leases) and to `refresh`'s re-warm (D-commands); see Open question 4.
+[^3]: Neither document names these states. `creating` is the design's "acquisition incomplete"
+    entry (D-leases) and `warming` is `refresh`'s re-warm (D-commands); A4 settles both.
 [^4]: The design gives the defaults and the result ("at 64 GB that admits three Editors with headroom
     for one cold import", D-editors) but not a formula; this is the closed form that reproduces it.
     The spike's figure is "3 at 64 GB is comfortable, 4 is plausible" (S§8 "What this changes
