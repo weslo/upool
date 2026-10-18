@@ -1,0 +1,17 @@
+# Build output
+/bin/
+/dist/
+
+# Go
+*.exe
+*.test
+*.out
+*.prof
+go.work
+go.work.sum
+
+# Claude Code worktrees and upool slots
+.claude/worktrees/
+
+# macOS
+.DS_Store
