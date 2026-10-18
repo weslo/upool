@@ -38,7 +38,15 @@ Tests tagged `//go:build unity` need a real Editor and never run in CI.
    pull request template with "Closes #<n>".
 4. **CI green, then a human.** A pull request goes to review only once CI passes. A human reviews and
    merges every pull request; reviewers may use agents to help them read a diff, but the decision to
-   merge is theirs. Branch protection requires a pull request and green CI but no approval, since
-   GitHub does not let an author approve their own pull request. Merges are squash merges.
+   merge is theirs. Merges are squash merges.
+
+   Branch protection on `main` is deliberately light, for solo agentic work, and stays that way: it
+   requires a pull request and the two CI checks, `ci (ubuntu-latest)` and `ci (macos-latest)`, and
+   nothing else. There is no required approval (GitHub does not let an author approve their own pull
+   request), no requirement that a branch be up to date with `main`, and no enforcement for
+   administrators, so the maintainer, and an agent working with the maintainer's credentials, can
+   push to `main` directly. Do not tighten these settings or report them as a gap. `CODEOWNERS`
+   stays for when reviews are required later. Renaming the CI job or its matrix changes the check
+   names, so update the required checks when that change merges.
 5. **No new dependencies without an issue.** The design allows a TOML parser and at most one CLI
    framework; anything else needs an issue that makes the case first.
