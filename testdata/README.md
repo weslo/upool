@@ -1,5 +1,14 @@
 # testdata
 
+Two kinds of file live here, under different rules:
+
+- [`captures/`](#captures): what the outside world actually did. Each one was captured on a real
+  Mac and is **never edited**.
+- [`golden/`](#golden): what upool itself is expected to print. These are regenerated whenever
+  upool's output changes on purpose.
+
+## captures/
+
 These files are the contract. Each one was captured on a real Mac during the spike
 (2026-10-11 to 2026-10-12, macOS 15.7.3, Unity CLI 1.0.0-beta.13, Claude Code 2.1.295, desktop app
 2.31226.1) and is reproduced verbatim except for paths: JSON pretty-printed with `jq .`, text copied
@@ -8,37 +17,61 @@ byte for byte. [docs/contracts.md](../docs/contracts.md) explains what each one 
 
 **Paths are variables.** No path from the capturing machine is committed. Each one is replaced by
 the variable for its role, and a test fills the variables with the temporary directories it creates
-(a fake repository, a fake home), so the fixtures describe the shape of the input, not one machine.
+(a fake repository, a fake home), so the captures describe the shape of the input, not one machine.
 The replacement is consistent across files, so every relationship between paths survives it: stdin
 `cwd` against `worktree_path`, a slot against its repository, a transcript key against its slot.
 
-| Variable | Role | Example from a fixture |
+| Variable | Role | Example from a capture |
 |---|---|---|
 | `${home}` | the user's home directory | `${home}/.claude/projects/…` |
 | `${repo}` | the pooled repository (the spike's Unity project, under `~/Documents`) | `${repo}/.claude/worktrees/slot-1` |
 | `${repo_lc}` | `${repo}` lowercased, as the desktop app's registry stores it (docs only) | — |
 | `${spike}` | the folder beside the repository that held the spike's sibling slots (`ta`, `clone1`…) and logs | `${spike}/ta` |
 | `${home_key}`, `${repo_key}`, `${spike_key}` | Claude Code's project key for that path: every `/` and `.` replaced by `-` | `${repo_key}--claude-worktrees-slot-1` is the key of `${repo}/.claude/worktrees/slot-1` |
-| `${claude_tmp}` | Claude Code's per-user temporary root (`$TMPDIR/claude-<uid>`) | `${claude_tmp}/${repo_key}/<session>/scratchpad` |
+| `${claude_tmp}` | Claude Code's per-user temporary root, `/private/tmp/claude-<uid>` | `${claude_tmp}/${repo_key}/<session>/scratchpad` |
 | `${cwd}` | the directory a Unity CLI command ran in | `Not a Unity project (ProjectVersion.txt not found at ${cwd}).` |
 
-Only these braced names are variables: fill them with a literal string replacement, not
-`os.Expand`, because some captures contain a literal `$schema` key. `make check-paths`, run in CI,
-fails if a home-directory path appears anywhere in the repository.
+Only these braced names are variables. `internal/pathvars` fills them (`Fill`, for tests) and puts
+them back (`Scrub`, for new captures) by literal string replacement, not `os.Expand`, because some
+captures contain a literal `$schema` key; any variable `${x}` also gives `${x_key}` and `${x_lc}`.
+`make check-paths`, run in CI, fails if a home-directory path or a macOS temporary directory appears
+anywhere in the repository.
 
-**Never edit a fixture.** If upool's parsing has to change, the change must be matched by a new
+**Never edit a capture.** If upool's parsing has to change, the change must be matched by a new
 capture from a real Editor or a real Claude Code session, with its paths replaced as above, added as
-a new file with its source recorded here. A fixture that disagrees with the code is a bug report
-against the code, not the fixture.
+a new file with its source recorded here. A capture that disagrees with the code is a bug report
+against the code, not the capture. `make check-captures`, run in CI, fails when a change modifies,
+renames or removes anything under `captures/`; adding a file passes.
 
-The "Spike log" column names the file in the spike's `logs/` folder each fixture came from. That
+The "Spike log" column names the file in the spike's `logs/` folder each capture came from. That
 folder is not in this repository.
 
-## hooks/
+### Re-capturing
+
+The Unity CLI and Claude Code both change between releases, so the captures are meant to be taken
+again: write the new ones to a scratch directory and diff them against `captures/` to see what
+moved, and add any that upool needs as new files.
+
+- **Unity CLI replies:** `scripts/capture-unity.sh <name> <unity arguments…>`, run in the state the
+  "What it is" column below describes (which Editors are open, from which directory). It writes
+  `<name>.json` (pretty-printed, or `<name>.raw.txt` when stdout is not JSON), `<name>.stderr.txt`
+  when stderr is not empty, and `<name>.exit` with the exit code, all with paths replaced. It
+  refuses to overwrite a file.
+- **Hook stdin:** register a copy of `scripts/capture-hook.sh` for the event, outside `~/Documents`
+  (the desktop app runs `WorktreeCreate` from a helper that cannot read there). It saves each stdin
+  under `~/.upool-capture/` and then runs the hook it wraps, if any, on the same stdin; a
+  `WorktreeCreate` capture must wrap a command that prints a worktree path, or the session aborts.
+  Replace the paths with `go run ./scripts/scrubpaths --var repo=<path> … < <file>` before adding
+  the file here.
+
+Running either script needs a real Editor or the desktop app, so it is a manual check, never a
+claim in a pull request.
+
+### captures/hooks/
 
 Hook stdin as Claude Code delivered it, with paths as variables. Session ids are the spike's.
 
-| Fixture | Spike log | Section | What it is |
+| Capture | Spike log | Section | What it is |
 |---|---|---|---|
 | `cli-session-create.json` | `create-input.json` | §2 T7.4–T7.5; §5 | `WorktreeCreate` from `claude -p --worktree probe` |
 | `cli-session-start.json` | `session-input.json` | §2 T7.5; §5 | `SessionStart` of the same CLI session, `cwd` = the new worktree |
@@ -69,13 +102,16 @@ Hook stdin as Claude Code delivered it, with paths as variables. Session ids are
 | `sibling-b4-start.json` | `test-a/session-1791844966.json` | §8 B.4 | its `SessionStart` |
 | `sibling-b4-remove.json` | `test-a/remove-1791844977.json` | §8 B.4 | its remove on archive |
 
-## unity/
+The file names say what kind of request each one is. The test for hook classification
+(docs/contracts.md (a)) runs over every file here and checks each one against its name.
+
+### captures/unity/
 
 Unity CLI 1.0.0-beta.13 output with `--format json`. Exit codes are in
 [docs/contracts.md](../docs/contracts.md) (d); where the spike did not record one, the contract says
 so.
 
-| Fixture | Spike log | Section | What it is |
+| Capture | Spike log | Section | What it is |
 |---|---|---|---|
 | `status-three-editors.json` | `b1-status.json` | §8 B.1 | `unity status`, three headless Editors `ready` |
 | `status-one-editor.json` | `t6-targeting.txt`, A | §2 T6.4 | `unity status` from `/tmp`, one batch Editor |
@@ -97,44 +133,23 @@ so.
 | `run-not-a-unity-project.json` | `b3-run.json` | §8 B.3 | `unity run --command editor_status` from `/tmp` with the variable: `COMMAND_FAILED`, exit 6 |
 | `cache-key-project-path-invalid.json` | `d1-cache-key.txt`, `--project-path form` | §8 D.1 | `unity cache key --project-path`: `INVALID_COMMAND_ARGS` |
 
-### unity/projections/
+The spike also recorded `jq` projections of some replies, not full envelopes. They cannot be
+replayed, so they live in [docs/evidence/](../docs/evidence/README.md) with the desktop app's log
+excerpts.
 
-The spike recorded only a `jq` projection of these responses, not the full envelope. The fields
-present are verbatim; fields missing from a projection were dropped by the spike's `jq` filter, not
-by the CLI. Use them for codes and messages only.
+### captures/git/
 
-| Fixture | Spike log | Section | What it is |
-|---|---|---|---|
-| `command-eval-ambiguous-editor.json` | `b-targeting.txt`, B2c | §8 B.2 | `eval` from `/tmp` with three Editors up: `AMBIGUOUS_EDITOR` with the full message |
-| `command-eval-ambiguous-editor-codes.json` | `b-targeting.txt`, B2f | §8 B.2 | `eval` from `clone3` (no Editor) with three up: error codes only |
-| `command-list-no-pipeline-instance.json` | `t6-targeting.txt`, E | §2 T6.4 | `unity command` with the variable naming a project with no Editor (exit 6) |
-| `status-env-no-instances.json` | `t6-targeting.txt`, H | §2 T6.4 | `unity status` with the variable naming a project with no Editor |
-| `status-project-path-no-instances.json` | `t6-targeting.txt`, H2 | §2 T6.4 | the same with `--project-path` |
-| `status-until-ready-closed-project.json` | `t6-targeting.txt`, J2 | §2 T6.5 | `--until-ready --timeout 15` on an existing project with no Editor: 15.12 s |
-| `build-not-a-unity-project.json` | `b-targeting.txt`, B3c | §8 B.3 | `unity build --list-profiles` from `/tmp` with the variable |
-| `cache-key-data.json` | `d1-cache-key.txt`, run1 | §8 D.1 | the key object of `unity cache key`; run2, after a `.cs` edit, after revert and on main were byte-identical |
+Git output that the release and remove rules are built on. Tests do not parse these files: they
+build the same states with real git in a temporary repository (an untracked file; a
+`scriptingDefineSymbols` line with the same set in a different order) and run upool against that.
+The captures are the reference for what those states look like.
 
-## logs/
-
-`~/Library/Logs/Claude/main.log` excerpts from the desktop app, copied as the spike recorded them.
-
-| Fixture | Spike log | Section | What it shows |
-|---|---|---|---|
-| `desktop-probe-main.log` | `desktop-probe/main-log-excerpt.txt` | §2 T7.6; §2 TB; §5 | the hook under `~/Documents` failing (`Operation not permitted`, `worktree_hook_failed`); a project-scope hook's overlay and auto-trust skipped as "provenance not vouched"; the archive sequence |
-| `sibling-slot-main.log` | `test-a/main-log-excerpt.txt` | §8 A.5–A.8 | user-scope hook outside the managed directory: overlay and auto-trust skipped for location; four "already in use" refusals; archive and reuse sequences; `worktree=36ms`–`56ms` timings |
-| `managed-slot-main.log` | `test-e/main-log-excerpt.txt` | §9 E.5–E.7 | slot in `.claude/worktrees`: overlay lines, "Auto-trusted worktree … (inherited from …)", one refusal, archive and reuse |
-| `subagent-session-main.log` | `test-f/main-log-excerpt.txt` | §9 F.3 | the subagent test's session: no worktree lines at all, because subagent worktrees never reach the app |
-
-## git/
-
-Git output that the release and remove rules are built on.
-
-| Fixture | Spike log | Section | What it is |
+| Capture | Spike log | Section | What it is |
 |---|---|---|---|
 | `projectsettings-define-reorder.diff` | `d3-clone1-projectsettings.diff` | §8 D.3; §9 G | the only observed define-order churn: `scriptingDefineSymbols` reordered, same set; the noise rule reverts exactly this |
 | `remove-status-untracked.txt` | `test-a/remove-status-1791774813.txt` | §8 A.8 | `git status --porcelain` taken by the remove hook after session 3: `?? spike-reuse.txt`; the slot must be parked |
 
-## Captured but not copied
+### Captured but not copied
 
 Kept only in the spike's `logs/` folder, because nothing in upool parses them: the Unity Editor logs
 (`*-run*.log`, `cold*.log`, `conc*.log`, `mem-*.log`, `b-headless-*.log`, `headless.log`,
@@ -149,3 +164,11 @@ every project in the capturing machine's Unity Hub, the `unity vcs git worktree`
 command and their home-redacted paths fit no variable, and the
 `jq` projections of successful calls (`b-targeting.txt` B2a–B2g except B2c and B2f, B3d;
 `t6-targeting.txt` D, D2, F, F2, G; `b5-close.txt`). The spike report quotes what matters from them.
+
+## golden/
+
+upool's own expected output: `--json` envelopes, human-readable `status`, hook stdout. Unlike a
+capture, a golden file changes whenever upool's output changes on purpose. Each package that
+compares against golden files defines an `-update` flag, so regenerate them with
+`go test ./internal/<package> -update`, read the diff, and commit it with the change that caused
+it. Golden files use the same path variables as captures, which keeps `make check-paths` passing.

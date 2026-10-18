@@ -20,8 +20,8 @@ body:
     id: fixtures
     attributes:
       label: Fixtures
-      description: Files under testdata/ the change must pass against, or "none".
-      placeholder: testdata/hooks/desktop-session-create.json
+      description: Files under testdata/captures/ the change must pass against, or "none".
+      placeholder: testdata/captures/hooks/desktop-session-create.json
     validations:
       required: true
   - type: textarea
