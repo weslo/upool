@@ -3,7 +3,8 @@
 The external behaviour `upool` depends on, extracted from [design.md](design.md) and
 [spike-report.md](spike-report.md). Every row cites its source. Where the two documents disagree,
 the spike report wins and a footnote says so. Fixture names refer to files under
-[`testdata/`](../testdata/README.md). Nothing here is new design: gaps are listed under
+[`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
+[`docs/evidence/`](evidence/README.md). Nothing here is new design: gaps are listed under
 [Open questions](#open-questions), not filled.
 
 Citation keys:
@@ -61,14 +62,14 @@ by `session_id` (S§7 item 3; D-route).
 
 | Rule | Source |
 |---|---|
-| stdout carries the worktree path and nothing else; every other byte goes to stderr. The app treats a path "selected from multi-line output" as not vouched | D-route; D-commands; `logs/desktop-probe-main.log` |
+| stdout carries the worktree path and nothing else; every other byte goes to stderr. The app treats a path "selected from multi-line output" as not vouched | D-route; D-commands; `evidence/logs/desktop-probe-main.log` |
 | Any non-zero exit aborts the session with `worktree_hook_failed`; there is no fallback to the app's own creation | S§2 T7.6; S§8 A.7; S§8 "What this changes (updated)", hook scope row |
-| A path held by a live session is refused: `WorktreeCreate hook failed: hook printed "<path>", which is already in use by worktree "<name>"`, then `worktree_hook_failed`; no `WorktreeRemove` follows a refusal | S§8 A.7; S§9 E.7; `logs/sibling-slot-main.log`, `logs/managed-slot-main.log` |
-| Only a path inside `<repo>/.claude/worktrees` gets the config overlay and auto-trust ("Auto-trusted worktree … (inherited from <repo>)"); elsewhere the log says "hook returned a path outside the managed worktree directory" | S§8 A.5; S§9 E.5; `logs/managed-slot-main.log`, `logs/sibling-slot-main.log` |
+| A path held by a live session is refused: `WorktreeCreate hook failed: hook printed "<path>", which is already in use by worktree "<name>"`, then `worktree_hook_failed`; no `WorktreeRemove` follows a refusal | S§8 A.7; S§9 E.7; `evidence/logs/sibling-slot-main.log`, `evidence/logs/managed-slot-main.log` |
+| Only a path inside `<repo>/.claude/worktrees` gets the config overlay and auto-trust ("Auto-trusted worktree … (inherited from <repo>)"); elsewhere the log says "hook returned a path outside the managed worktree directory" | S§8 A.5; S§9 E.5; `evidence/logs/managed-slot-main.log`, `evidence/logs/sibling-slot-main.log` |
 | The overlay copies only files the slot lacks ("Skipped 3 gitignored .claude files already present") and skips links to directories (21 under `.claude/skills`) | S§9 E.5; S§10 |
-| The hook must be registered at user scope (`~/.claude/settings.json`, exec form); from a project settings file the app logs "hook came from a repo-committed settings tier … (provenance not vouched)" | S§2 TB; S§8 A.2–3, A.5; `logs/desktop-probe-main.log` |
+| The hook must be registered at user scope (`~/.claude/settings.json`, exec form); from a project settings file the app logs "hook came from a repo-committed settings tier … (provenance not vouched)" | S§2 TB; S§8 A.2–3, A.5; `evidence/logs/desktop-probe-main.log` |
 | The hook script must live outside `~/Documents`: under it, `getcwd` and `bash` failed with `Operation not permitted` | S§2 T7.6; S§7 |
-| Handing out a pre-made slot took `worktree=36ms` to `112ms`, against `4634ms` for a `git worktree add` inside the hook | S§8 A.5; S§9 E.5; `logs/sibling-slot-main.log`; `logs/desktop-probe-main.log` |
+| Handing out a pre-made slot took `worktree=36ms` to `112ms`, against `4634ms` for a `git worktree add` inside the hook | S§8 A.5; S§9 E.5; `evidence/logs/sibling-slot-main.log`; `evidence/logs/desktop-probe-main.log` |
 | A user-scope create hook runs for every repository and every subagent; there is no matcher | S§9 "What this changes (updated)", blast radius row; D-route |
 
 ### WorktreeRemove fields
@@ -121,13 +122,13 @@ by `session_id` (S§7 item 3; D-route).
 | Command | Honours `UNITY_PROJECT_PATH` | Project argument | Source |
 |---|---|---|---|
 | `command` (list, `eval`, `save_all`, …) | yes; beats cwd; a path with no Editor fails `COMMAND_FAILED: No Pipeline instance found for project: <path>` instead of falling back | `--project-path` also accepted | S§2 T6.4; S§8 B.2–B.3; `unity/command-eval-no-pipeline-instance.json` |
-| `status` | yes; the listing is filtered to that project; none running → `STATUS_NO_INSTANCES` | `--project-path` also accepted | S§2 T6.4; S§8 B.4; `unity/projections/status-env-no-instances.json` |
+| `status` | yes; the listing is filtered to that project; none running → `STATUS_NO_INSTANCES` | `--project-path` also accepted | S§2 T6.4; S§8 B.4; `evidence/unity-projections/status-env-no-instances.json` |
 | `recompile` | yes | — | S§2 T6.4; `unity/recompile-up-to-date.json` |
 | `list`, `job`, `mcp` | yes, per the beta.13 release notes; not measured | — | D-intro; D-editors |
 | `open` | yes, per the release notes; not measured (the spike always passed the path) | positional `<path>` | D-intro; S§8 C.1; `unity/open-gui.json` |
 | `test` | **no**: from `/tmp` with the variable set, `COMMAND_FAILED: Not a Unity project (ProjectVersion.txt not found at /private/tmp).`, exit 6 | positional `[project]`; `unity test <path> --mode EditMode` works | S§2 T6.6; `unity/test-not-a-unity-project.json`, `unity/test-positional.json` |
 | `run` | **no**: same error, exit 6 | positional `[project]`; `unity run <path> --command <name>` reaches a live Editor instead of booting one | S§8 B.3; `unity/run-not-a-unity-project.json` |
-| `build` | **no**: same error | positional `[project]`; no `--project-path` | S§8 B.3; `unity/projections/build-not-a-unity-project.json` |
+| `build` | **no**: same error | positional `[project]`; no `--project-path` | S§8 B.3; `evidence/unity-projections/build-not-a-unity-project.json` |
 | `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors | S§8 B.5, C.6; D-editors; `unity/close-gui.json` |
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
 
@@ -137,7 +138,7 @@ Resolution without the variable:
 |---|---|---|---|
 | exactly 1 | anywhere, including `/tmp` and a slot with no Editor | that one Editor: cwd is ignored and the call silently lands in the wrong slot | S§2 T6.4; `unity/command-eval-misrouted.json` |
 | 2 or more | inside a running project, including a subdirectory | that project | S§8 B.2 |
-| 2 or more | outside every running project (`/tmp`, a slot with no Editor) | `AMBIGUOUS_EDITOR` | S§8 B.2; `unity/projections/command-eval-ambiguous-editor.json` |
+| 2 or more | outside every running project (`/tmp`, a slot with no Editor) | `AMBIGUOUS_EDITOR` | S§8 B.2; `evidence/unity-projections/command-eval-ambiguous-editor.json` |
 | any | any, with `UNITY_PROJECT_PATH` set | the variable wins | S§8 B.2 (added row) |
 
 Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every session **and** pass
@@ -148,11 +149,11 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 ### Unity CLI envelope
 
 `{"success": bool, "command": string, "data": object | array | null, "errors": [{"code": string, "message": string}], "warnings": [string]}`
-(every full envelope under `testdata/unity/`). Quirks seen in the captures:
+(every full envelope under `testdata/captures/unity/`). Quirks seen in the captures:
 
 | Quirk | Source |
 |---|---|
-| `command` is not a stable verb: `"status"`, `"command"`, `"command eval"`, `"unity command eval"` (on the failing eval), `"command save_all"`, `"cache"`, `"vcs git worktree add"` | `testdata/unity/*.json` |
+| `command` is not a stable verb: `"status"`, `"command"`, `"command eval"`, `"unity command eval"` (on the failing eval), `"command save_all"`, `"cache"`, `"vcs git worktree add"` | `testdata/captures/unity/*.json` |
 | The `recompile` capture has no top-level `errors` or `warnings` | `unity/recompile-up-to-date.json` |
 | `unity open` printed `Warning: "<path>" was not found in the Hub project registry, opening as a file path.` before the JSON and repeated it in `warnings` | `unity/open-gui.raw.txt` |
 | `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim (upool never calls it) | S§5 |
@@ -163,13 +164,13 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 | Exit | `errors[].code` | Message (captured) | When | Source | Fixture |
 |---|---|---|---|---|---|
 | 0 | — | — | success | S§2; S§8 | `unity/status-*.json`, `close-*.json`, … |
-| 6 | `STATUS_NO_INSTANCES` | No Unity Editor instances found with the Pipeline package installed. Open Unity and install the Pipeline package, or run unity pipeline install. | `status --until-ready --timeout N` after waiting the **whole** timeout (15.1 s for 15) for a non-existent path or a project with no Editor | S§2 T6.5; D-editors | `unity/status-until-ready-no-instances.json`, `unity/projections/status-until-ready-closed-project.json` |
-| not recorded | `STATUS_NO_INSTANCES` | same | `status` filtered by the variable or `--project-path` to a project with no Editor | S§2 T6.4 | `unity/projections/status-env-no-instances.json`, `status-project-path-no-instances.json` |
-| 6 | `COMMAND_FAILED` | No Pipeline instance found for project: `<path>`. Make sure Unity Editor is running with the Pipeline package installed. | `unity command` with the variable naming a project that has no Editor | S§2 T6.4 (exit code from the spike's `commands.log`) | `unity/command-eval-no-pipeline-instance.json`, `unity/projections/command-list-no-pipeline-instance.json` |
+| 6 | `STATUS_NO_INSTANCES` | No Unity Editor instances found with the Pipeline package installed. Open Unity and install the Pipeline package, or run unity pipeline install. | `status --until-ready --timeout N` after waiting the **whole** timeout (15.1 s for 15) for a non-existent path or a project with no Editor | S§2 T6.5; D-editors | `unity/status-until-ready-no-instances.json`, `evidence/unity-projections/status-until-ready-closed-project.json` |
+| not recorded | `STATUS_NO_INSTANCES` | same | `status` filtered by the variable or `--project-path` to a project with no Editor | S§2 T6.4 | `evidence/unity-projections/status-env-no-instances.json`, `status-project-path-no-instances.json` |
+| 6 | `COMMAND_FAILED` | No Pipeline instance found for project: `<path>`. Make sure Unity Editor is running with the Pipeline package installed. | `unity command` with the variable naming a project that has no Editor | S§2 T6.4 (exit code from the spike's `commands.log`) | `unity/command-eval-no-pipeline-instance.json`, `evidence/unity-projections/command-list-no-pipeline-instance.json` |
 | 6 | `COMMAND_FAILED` | Not a Unity project (ProjectVersion.txt not found at /private/tmp). | `test` or `run` with no positional path, outside a project | S§2 T6.6; S§8 B.3 | `unity/test-not-a-unity-project.json`, `unity/run-not-a-unity-project.json` |
-| not recorded | `COMMAND_FAILED` | same | `build` with no positional path | S§8 B.3 | `unity/projections/build-not-a-unity-project.json` |
+| not recorded | `COMMAND_FAILED` | same | `build` with no positional path | S§8 B.3 | `evidence/unity-projections/build-not-a-unity-project.json` |
 | not recorded | `COMMAND_FAILED` | Pipeline server returned 400 Bad Request: Internal Server Error. Main thread operation timed out after 5000ms | first `eval` on a freshly opened GUI Editor; **the code ran anyway**, so re-query side effects instead of retrying | S§8 C.3; D-editors | `unity/command-eval-main-thread-timeout.json` |
-| not recorded | `AMBIGUOUS_EDITOR` | Multiple Unity Editors are running with Pipeline servers: … Pass --project-path \<path\> with one of the project paths listed above to choose one, or run the command from inside one of those project directories. | 2 or more Editors, cwd outside them, variable unset | S§8 B.2 | `unity/projections/command-eval-ambiguous-editor.json` |
+| not recorded | `AMBIGUOUS_EDITOR` | Multiple Unity Editors are running with Pipeline servers: … Pass --project-path \<path\> with one of the project paths listed above to choose one, or run the command from inside one of those project directories. | 2 or more Editors, cwd outside them, variable unset | S§8 B.2 | `evidence/unity-projections/command-eval-ambiguous-editor.json` |
 | not recorded | `INVALID_COMMAND_ARGS` | error: unknown option '--project-path' | `cache key --project-path` | S§8 D.1 | `unity/cache-key-project-path-invalid.json` |
 | 7 | — | — | **never observed** in any capture | — | none; see [Open questions](#open-questions) |
 
@@ -192,12 +193,12 @@ exits 0, and `worktree-create` exits non-zero only to abort the session (D-route
 
 All three files live under `~/.upool/`, never under a TCC-protected folder, because the create hook
 reads them from the disclaimed helper (D-commands). Each is one JSON document rewritten atomically
-under an OS file lock that is held only across the read-modify-write, never across a 26 s clone or a
-235 s import (D-commands). The design names the data but, apart from `lease_id` and `confirmed`,
+under one OS file lock, `~/.upool/lock`, shared by all three and held only across the
+read-modify-write, never across a 26 s clone or a 235 s import (D-commands). The design names the data but, apart from `lease_id` and `confirmed`,
 not the keys; the snake_case names below are descriptive placeholders and the types are the JSON
 types the descriptions imply (see [Open questions](#open-questions)).
 
-### `~/.upool/pools/<repo-key>/state.json` (with `state.lock` beside it)
+### `~/.upool/pools/<repo-key>/state.json`
 
 Pool:
 
@@ -373,51 +374,67 @@ Other defaults from the same paragraph: `ready = 1`, `max_slots = 3`, `shrink_af
 
 ## Open questions
 
-1. **Unity CLI exit 7.** No capture shows it. What produces it, and what should upool do with it?
-   `internal/output` defines no constant for 7 until this is answered.
-2. **Unrecorded exit codes.** The exits for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the
-   first-eval `COMMAND_FAILED` timeout, `build`'s "Not a Unity project" and `status` filtered to a
-   project with no Editor (without `--until-ready`) were not recorded, and `AMBIGUOUS_EDITOR` exists
-   only as a jq projection. `test/fakeunity` needs all of them; a new capture should supply them.
-3. **upool's exit 1 and 6.** Is 1 the generic failure for every command or only `which`'s "not in a
-   slot"? Does upool pass the Unity CLI's exit 6 through unchanged from its wrappers?
-4. **`warming`.** Neither document names it. Is it a persisted state (the "acquisition incomplete"
-   entry), and does `refresh`'s re-warm take a ready slot out of circulation while it runs?
-5. **`needs-reset`.** `take` lists `needs-reset` as a skip reason (D-leases), yet the `SessionStart`
-   hook "runs the deferred reset if the slot is marked `needs-reset`" (D-env), which only happens if
-   the create hook handed such a slot out. Does the pooled create branch accept `needs-reset` slots?
-   If not, what resets them?
-6. **Leases outside the hook.** Do leases from a Terminal `take`, `upool run` or a subagent's explicit
-   `take` start `confirmed: true`? If not, they would expire after `confirm_timeout` with no
-   `SessionStart` to confirm them.
-7. **Schema keys.** The design gives no key names (except `lease_id` and `confirmed`), no timestamp
-   format, no schema-version field and no derivation for `<repo-key>`. The placeholders in (e) need a
-   decision before M0's state types.
-8. **Saved scene list.** Where does `upool close` keep `Library/LastSceneManagerSetup.txt` between a
-   headless open and its close?
-9. **Cold-import charge.** Is a cold-importing Editor charged 4.5 GB instead of its 2.5 GB or on top
-   of it, is 4.5 GB a setting, and is the `max_editors` formula in (h) the intended one?
-10. **Clone commit.** The spike cloned at the seed's `HEAD`; the design says "clone at base". If base
-    differs from the seed's `HEAD`, step 6 leaves the slot dirty. Must the seed be at base, or does
-    the recipe check base out after step 6?
-11. **WorktreeCreate wait.** The pooled branch may wait up to 20 s for a slot. How long the desktop app
-    waits for a create hook before failing was never measured.
-12. **`unity open` warning line.** Was the `Warning: …` line before the JSON on stdout or stderr? A
-    parser that expects bare JSON on stdout breaks if it was stdout.
-13. **Pooled-repo match.** Does a pooled request require stdin `cwd` to equal the registered main
-    checkout, or may it be a subdirectory? Every capture had `cwd` at the repository root.
-14. **Other `SessionStart` sources.** Only `source: "startup"` was captured. Should `take --confirm`
-    behave differently on `resume`, `clear` or `compact`?
-15. **CLI remove and `SessionEnd`.** No `WorktreeRemove` or `SessionEnd` stdin exists for a logged-in
-    CLI session, so those code paths have no fixture (D-unverified; S§8 A.9).
-16. **GoReleaser `brews`.** The design and the bootstrap ask for a `brews` section that writes
-    `Formula/upool.rb`; GoReleaser 2.10 and later deprecate `brews` in favour of `homebrew_casks`.
-    Keep the formula or move to a cask before the first release in M4?
+Each question keeps its number wherever it is cited.
+
+### Decide before Stage 2
+
+These define M0's state types. M0 and M1 run one issue at a time, so a `decision-needed` issue for
+any of them would stall the whole chain: answer each one here before Stage 2 (design.md,
+Appendix A) starts.
+
+- **4. `warming`.** Neither document names it. Is it a persisted state (the "acquisition incomplete"
+  entry), and does `refresh`'s re-warm take a ready slot out of circulation while it runs?
+- **5. `needs-reset`.** `take` lists `needs-reset` as a skip reason (D-leases), yet the
+  `SessionStart` hook "runs the deferred reset if the slot is marked `needs-reset`" (D-env), which
+  only happens if the create hook handed such a slot out. Does the pooled create branch accept
+  `needs-reset` slots? If not, what resets them?
+- **6. Leases outside the hook.** Do leases from a Terminal `take`, `upool run` or a subagent's
+  explicit `take` start `confirmed: true`? If not, they would expire after `confirm_timeout` with no
+  `SessionStart` to confirm them.
+- **7. Schema keys.** The design gives no key names (except `lease_id` and `confirmed`), no timestamp
+  format, no schema-version field and no derivation for `<repo-key>`. The placeholders in (e) need a
+  decision before M0's state types.
+- **10. Clone commit.** The spike cloned at the seed's `HEAD`; the design says "clone at base". If
+  base differs from the seed's `HEAD`, step 6 leaves the slot dirty. Must the seed be at base, or
+  does the recipe check base out after step 6?
+
+### Other open questions
+
+- **1. Unity CLI exit 7.** No capture shows it. What produces it, and what should upool do with it?
+  `internal/output` defines no constant for 7 until this is answered.
+- **2. Unrecorded exit codes.** The exits for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the
+  first-eval `COMMAND_FAILED` timeout, `build`'s "Not a Unity project" and `status` filtered to a
+  project with no Editor (without `--until-ready`) were not recorded, and `AMBIGUOUS_EDITOR` exists
+  only as a jq projection. The fake `unity` needs all of them; a new capture with
+  `scripts/capture-unity.sh`, which records exit codes, should supply them.
+- **3. upool's exit 1 and 6.** Is 1 the generic failure for every command or only `which`'s "not in
+  a slot"? Does upool pass the Unity CLI's exit 6 through unchanged from its wrappers?
+- **8. Saved scene list.** Where does `upool close` keep `Library/LastSceneManagerSetup.txt` between
+  a headless open and its close?
+- **9. Cold-import charge.** Is a cold-importing Editor charged 4.5 GB instead of its 2.5 GB or on
+  top of it, is 4.5 GB a setting, and is the `max_editors` formula in (h) the intended one?
+- **11. WorktreeCreate wait.** The pooled branch may wait up to 20 s for a slot. How long the desktop
+  app waits for a create hook before failing was never measured.
+- **12. `unity open` warning line.** Was the `Warning: …` line before the JSON on stdout or stderr? A
+  parser that expects bare JSON on stdout breaks if it was stdout. `scripts/capture-unity.sh` keeps
+  stdout and stderr apart, so a new capture answers this.
+- **13. Pooled-repo match.** Does a pooled request require stdin `cwd` to equal the registered main
+  checkout, or may it be a subdirectory? Every capture had `cwd` at the repository root.
+- **14. Other `SessionStart` sources.** Only `source: "startup"` was captured. Should
+  `take --confirm` behave differently on `resume`, `clear` or `compact`?
+- **15. CLI remove and `SessionEnd`.** No `WorktreeRemove` or `SessionEnd` stdin exists for a
+  logged-in CLI session, so those code paths have no fixture (D-unverified; S§8 A.9).
+- **16. GoReleaser `brews`.** The design and the bootstrap ask for a `brews` section that writes
+  `Formula/upool.rb`; GoReleaser 2.10 and later deprecate `brews` in favour of `homebrew_casks`.
+  Keep the formula or move to a cask before the first release in M4? A cask is quarantined by
+  macOS on install, and the binary is not signed. A quarantined binary in the create hook would
+  likely fail every worktree session with `worktree_hook_failed`, so keeping the formula avoids
+  this unless the binary is signed and notarized.
 
 [^1]: The design (D-route) calls the desktop `session_id` "the app's own id" and the spike (S§2 TB)
     writes it as `local_<id>`. The captured stdin carries the bare UUID (`e8c6f3e6-…`); only
     `main.log` adds the `local_` prefix (compare `hooks/sibling-session1-create.json` with
-    `logs/sibling-slot-main.log`). Per the spike's own captures, strip `local_` before comparing.
+    `evidence/logs/sibling-slot-main.log`). Per the spike's own captures, strip `local_` before comparing.
 [^2]: The design (D-env) says the export "reached the Bash tool in both the CLI and the desktop app on
     2.1.295". The spike confirmed delivery only through the desktop app (S§2 T7.5; S§7); the
     standalone CLI run stopped at "Not logged in" before any Bash call (S§2 T7.4; S§8 A.9). The spike

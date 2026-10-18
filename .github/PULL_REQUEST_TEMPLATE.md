@@ -5,7 +5,7 @@ Closes #
 
 ## Verified against
 
-<!-- The testdata/ fixtures and the commands you ran, with their results. -->
+<!-- The testdata/captures/ files and the commands you ran, with their results. -->
 
 ## Manual gate still open
 

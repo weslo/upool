@@ -32,7 +32,7 @@ The command surface copies the conventions the pool tools converged on: an acqui
 | `upool doctor [--fix]` | Verifies APFS clone sharing, `.claude/worktrees` gitignored, every slot in `git worktree list`, hook scripts outside `~/Documents`, stale leases, dead Editor PIDs, Unity CLI ≥ beta.13, Claude Code ≥ 2.1.295 |
 | `upool run <name> -- <cmd...>` | Launcher: `take`, export `UNITY_PROJECT_PATH`, run the agent, `release` on exit; the agent-agnostic path |
 
-State placement is where v1 was wrong twice. v1 put the pool beside the repository and its `state.json` with it; the spike shows the slots belong *inside* the repository, in the app's managed directory, and the state belongs in the home directory, because the two have different readers. The desktop app runs `WorktreeCreate` through `Claude.app/Contents/Helpers/disclaimer`, and from that process `bash` could not open a script under `~/Documents` (`Operation not permitted`), `head` and `getcwd` failed with EPERM, and only `ls -d` and, unexplained, `git` worked (spike §2 T7.6; spike §2 TB). So the hook reads nothing under a TCC-protected folder: the hook scripts live in `~/.upool/hooks/`, the per-pool `state.json` and `state.lock` in `~/.upool/pools/<repo-key>/`, the pool registry and Editor ledger in `~/.upool/`, and the user config at `~/.config/upool/config.toml`. The slots go to `<repo>/.claude/worktrees/slot-N`: a slot there was auto-trusted ("inherited from" the repo), received the app's config overlay, was handed out in 56 to 112 ms against 4,634 ms for a hook-made git checkout, and was reused by a later session once the first was archived (spike §8 A.5; spike §9 E.5; spike §9 E.7). v1's reasons for sibling placement dissolve: APFS `clonefile` needs the same volume, which a directory inside the repo satisfies trivially; the gitignore-clutter complaints were about unignored directories, and `.claude/worktrees` must be gitignored anyway (here `.gitignore:43 .claude/` covers it, and `doctor` checks with `git check-ignore`) (spike §9 E.1); and the docs' refusal of a hook-created directory inside a repository applies only to directories "with no git metadata at all" ([Claude Code worktrees](https://code.claude.com/docs/en/worktrees)). Locking follows both pool tools: one JSON file rewritten atomically under an OS file lock held only across the read-modify-write, never across a 26 s clone or a 235 s import, with durable ownership in a lease record (random `lease_id`, holder, worktree path, timestamp, `confirmed` flag) ([warmtree on PyPI](https://pypi.org/project/warmtree/); [treehouse README](https://github.com/kunchenguid/treehouse)); `doctor` warns when a pool is on a network or cloud-synced volume, where `flock` is advisory ([flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)).
+State placement is where v1 was wrong twice. v1 put the pool beside the repository and its `state.json` with it; the spike shows the slots belong *inside* the repository, in the app's managed directory, and the state belongs in the home directory, because the two have different readers. The desktop app runs `WorktreeCreate` through `Claude.app/Contents/Helpers/disclaimer`, and from that process `bash` could not open a script under `~/Documents` (`Operation not permitted`), `head` and `getcwd` failed with EPERM, and only `ls -d` and, unexplained, `git` worked (spike §2 T7.6; spike §2 TB). So the hook reads nothing under a TCC-protected folder: the hook scripts live in `~/.upool/hooks/`, the per-pool `state.json` in `~/.upool/pools/<repo-key>/`, the pool registry, the Editor ledger and the one lock over all of them, `~/.upool/lock`, in `~/.upool/`, and the user config at `~/.config/upool/config.toml`. The slots go to `<repo>/.claude/worktrees/slot-N`: a slot there was auto-trusted ("inherited from" the repo), received the app's config overlay, was handed out in 56 to 112 ms against 4,634 ms for a hook-made git checkout, and was reused by a later session once the first was archived (spike §8 A.5; spike §9 E.5; spike §9 E.7). v1's reasons for sibling placement dissolve: APFS `clonefile` needs the same volume, which a directory inside the repo satisfies trivially; the gitignore-clutter complaints were about unignored directories, and `.claude/worktrees` must be gitignored anyway (here `.gitignore:43 .claude/` covers it, and `doctor` checks with `git check-ignore`) (spike §9 E.1); and the docs' refusal of a hook-created directory inside a repository applies only to directories "with no git metadata at all" ([Claude Code worktrees](https://code.claude.com/docs/en/worktrees)). Locking follows both pool tools: each JSON file is rewritten atomically under an OS file lock held only across the read-modify-write, never across a 26 s clone or a 235 s import, with durable ownership in a lease record (random `lease_id`, holder, worktree path, timestamp, `confirmed` flag) ([warmtree on PyPI](https://pypi.org/project/warmtree/); [treehouse README](https://github.com/kunchenguid/treehouse)). Where those tools lock one file, `upool` takes one lock, `~/.upool/lock`, for all of its state: `take` reads the Editor ledger and `release` writes both a pool's state and the ledger, so a lock per file would need a fixed order to avoid deadlock, and a handful of agents doing millisecond rewrites never contend for one lock in practice. `doctor` warns when a pool is on a network or cloud-synced volume, where `flock` is advisory ([flock(2)](https://man7.org/linux/man-pages/man2/flock.2.html)).
 
 Configuration is two TOML files with the precedence every surveyed tool uses, flag, then `UPOOL_*` env, then committed `.upool.toml`, then user config, then defaults, with "unknown keys are errors" as in warmtree ([worktrunk config](https://worktrunk.dev/config/); [clig.dev](https://clig.dev/)). The repo file is optional and carries only data (`ready`, `max_slots`, `base`, lane folder lists), never commands, because every tool in the space either ignores repo-supplied executables or trust-gates them ([treehouse README](https://github.com/kunchenguid/treehouse)). The defaults change where the spike measured: `ready = 1`; `max_slots = 3`, kept, since disk permits dozens at 0.4 GB each and Editors are the limit; `max_cold_imports = 1`, kept as a cheap default rather than a safety rule; `editor_ram_budget_gb = RAM/4` with `editor_ram_gb = 2.5` and `helper_ram_gb = 2`, from which `max_editors` is derived unless set (3 on this machine); `shrink_after = 14d`; and `agent_ttl = 24h` for the subagent worktree collector (spike §6; spike §8 "What this changes"). Project detection stays a directory containing `ProjectSettings/ProjectVersion.txt` ([editors-install.md](https://github.com/Unity-Technologies/unity-agent-plugin/blob/main/skills/unity-cli/references/editors-install.md)). The repo file is the human-readable marker that a project is pooled and the thing `init` reads on a fresh clone; the hook never reads it, because `head` on a file under `~/Documents` failed with EPERM from the disclaimed helper, so the hook routes on `~/.upool/registry.json`, which `init` writes from Terminal (spike §2 TB). Distribution is a Go static binary through GitHub Releases and a Homebrew tap, for the reasons in the repository section below ([Homebrew tap docs](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)).
 
@@ -119,7 +119,7 @@ Leave out, with reasons the evidence supplies: a daemon (no surviving tool has o
 
 ## Repository, CI and Homebrew distribution
 
-**Language: Go (decided 2026-10-13).** The binary runs in three places with different budgets: the hook, which the desktop app's disclaimed helper executes at every worktree session start; `which`, `path` and `status`, which agents call between tool steps; and `take`, which clones for 26 s under a lock it must not hold. A static binary starts in milliseconds with no runtime on the machine, which rules out Node (the desktop helper cannot be assumed to have it) and makes Python via `uv` a second choice: `uv` is one more install, and Homebrew packaging of Python tools means vendoring every wheel. Go cross-compiles darwin/arm64 and darwin/amd64 from one `go build`, GoReleaser turns a tag into a GitHub Release with checksums and pushes a Homebrew formula to a tap repository without a hand-written formula, and treehouse is the precedent in this niche ([treehouse README](https://github.com/kunchenguid/treehouse)). Rust would serve equally, at a slower iteration pace for agents writing it. Dependencies stay at a TOML parser and, if wanted, one CLI framework; file locking, JSON, process inspection and `clonefile` via `cp -cR` are stdlib or shell.
+**Language: Go (decided 2026-10-13).** The binary runs in three places with different budgets: the hook, which the desktop app's disclaimed helper executes at every worktree session start; `which`, `path` and `status`, which agents call between tool steps; and `take`, which clones for 26 s under a lock it must not hold. A static binary starts in milliseconds with no runtime on the machine, which rules out Node (the desktop helper cannot be assumed to have it) and makes Python via `uv` a second choice: `uv` is one more install, and Homebrew packaging of Python tools means vendoring every wheel. Go cross-compiles darwin/arm64 and darwin/amd64 from one `go build`, GoReleaser turns a tag into a GitHub Release with checksums and pushes a Homebrew formula to a tap repository without a hand-written formula, and treehouse is the precedent in this niche ([treehouse README](https://github.com/kunchenguid/treehouse)). Rust would serve equally, at a slower iteration pace for agents writing it. Dependencies stay at a TOML parser, if wanted one CLI framework, and, for tests only, `github.com/rogpeppe/go-internal/testscript`; file locking, JSON, process inspection and `clonefile` via `cp -cR` are stdlib or shell.
 
 **Name: `upool` (checked 2026-10-13).** Free on Homebrew (`brew search upool` returns only the unrelated cask `utools`), PyPI and crates.io. npm has an abandoned `upool` from 2014 ("Job queue pool for each user," 0 stars, last release 0.2.1), which blocks `npx upool` but nothing else; it only matters if an npm install path is ever wanted.
 
@@ -127,46 +127,57 @@ Leave out, with reasons the evidence supplies: a daemon (no surviving tool has o
 
 ```text
 upool/
-  cmd/upool/main.go                 entry point, subcommand dispatch
-  internal/config/                  .upool.toml + ~/.config/upool/config.toml, precedence, unknown-key errors
+  cmd/upool/main.go                 entry point: main calls run(args, stdin, stdout, stderr, getenv), which tests call in-process; subcommand dispatch, the only writer of stdout
+  internal/config/                  .upool.toml + ~/.config/upool/config.toml (never os.UserConfigDir), precedence, unknown-key errors
   internal/registry/                ~/.upool/registry.json, repo keys, pool lookup by stdin cwd
-  internal/pool/                    state.json + state.lock, slots, leases, confirm, park, reset
+  internal/pool/                    state.json, slots, leases, confirm, park, reset; the slot lifecycle as a pure transition function
   internal/clone/                   whole-checkout clone recipe, instance-file strip, staleness check
-  internal/unity/                   wrappers: open, status --until-ready, save_all, close, recompile, test; positional-path rules
+  internal/unity/                   one verb table for the targeting rules; wrappers: open, status --until-ready, save_all, close, recompile, test; Response, the lenient reply type
   internal/ledger/                  ~/.upool/editors.json, RAM budget, cold-import semaphore, dead-PID reclaim
-  internal/hooks/                   WorktreeCreate/Remove/SessionStart logic (the shell scripts only exec `upool hook <event>`)
-  internal/output/                  JSON envelope, exit codes, path-only stdout discipline
+  internal/hooks/                   WorktreeCreate/Remove/SessionStart logic; handlers return (path, error) (the shell scripts only exec `upool hook <event>`)
+  internal/output/                  JSON envelope, exit codes
+  internal/git/                     every git call, with UNITY_SKIP_HOOKS and -C; status --porcelain=v1 -z and worktree list --porcelain parsing
+  internal/paths/                   the canonical path key: symlinks resolved, cleaned, case folded on case-insensitive volumes
+  internal/proc/                    process liveness by PID plus start time, for leases and the ledger
+  internal/statefile/               the one ~/.upool/lock, atomic write-temp-and-rename for every state file
+  internal/pathvars/                fills and scrubs the path variables in testdata/captures (tests, capture scripts)
   assets/hooks/*.sh                 three-line scripts installed to ~/.upool/hooks/ (go:embed)
   assets/skill/upool/SKILL.md       installed to ~/.claude/skills/upool (go:embed)
   assets/claude-md-block.md         marked block `init` upserts into CLAUDE.md (go:embed)
-  test/fakeunity/                   stand-in `unity` binary for CI: status/command/recompile/open/close/test/cache key
-  testdata/hooks/*.json             the spike's captured stdin: desktop session, CLI session, subagent
-  testdata/unity/*.json             captured `--format json` envelopes and error codes
-  testdata/logs/                    main.log excerpts (refusal, overlay, auto-trust, archive)
+  scripts/capture-unity.sh          records a Unity CLI reply, its stderr and exit code as a new capture
+  scripts/capture-hook.sh           records hook stdin during a manual gate, then runs the hook it wraps
+  scripts/scrubpaths/               replaces machine paths with the testdata variables
+  testdata/captures/hooks/*.json    the spike's captured stdin: desktop session, CLI session, subagent
+  testdata/captures/unity/*.json    captured `--format json` envelopes and error codes
+  testdata/captures/git/            git output the remove and release rules are built on
+  testdata/golden/                  upool's own expected output, regenerated with -update
+  docs/evidence/                    main.log excerpts and jq projections from the spike; no test reads them
   docs/design.md                    this document
   docs/spike-report.md              the measurements, verbatim
   docs/contracts.md                 the extracted contracts, one table each: hook stdin fields, per-command targeting, exit codes, state schema
   docs/manual-gates/M*.md           checks only a human on a real Mac can run, one file per milestone
-  .github/workflows/ci.yml          vet, lint, unit tests on ubuntu; clone and lock tests on macos-latest (APFS)
+  .github/workflows/ci.yml          path and capture checks, vet, lint, race-enabled tests on ubuntu and macos-latest (APFS)
   .github/workflows/release.yml     GoReleaser on tag v*
   .github/ISSUE_TEMPLATE/task.yml   the issue form the planning prompt (Appendix A, stage 2) fills in
   .github/PULL_REQUEST_TEMPLATE.md  "Closes #N", what was tested, which manual gate (if any) is still open
   .goreleaser.yaml                  darwin/arm64 + darwin/amd64, archives, checksums, brews: → weslo/homebrew-tap
-  Makefile                          build, test, lint, fakeunity, release-dry-run
+  Makefile                          build, test, lint (check-paths, check-captures, vet, golangci-lint), release-dry-run
   README.md  LICENSE  CONTRIBUTING.md  CHANGELOG.md
 ```
 
 Hook scripts stay trivial on purpose: each is `exec /path/to/upool hook worktree-create` (the path baked in by `setup`, since `PATH` under the helper is not the user's shell `PATH`), so logic lives in Go where it is tested, and the script that must live outside `~/Documents` never changes after install.
 
+Five rules hold the layout together. Every path `upool` compares, a lease's worktree path, stdin `cwd` against the registry, the working directory in `which`, goes through `internal/paths` first: macOS spells one directory as `/var` and `/private/var`, or `/tmp` and `/private/tmp` (the Unity captures show the second), APFS is case-insensitive by default, and the desktop app stores lowercased paths, so a plain string comparison would leak leases. All of `~/.upool/` sits under one lock, `~/.upool/lock` (see the state placement paragraph above). `internal/unity` sends every call through one table that says, per verb, whether it honours `UNITY_PROJECT_PATH` and whether it takes the path positionally, and the slot lifecycle is a pure function from state and event to state; both are tested row by row against `docs/contracts.md` (c) and (f). Hook handlers return the worktree path and an error, and only the dispatcher writes stdout, so nothing else can reach it. Unity CLI replies decode into the lenient `unity.Response`, never into `upool`'s own `output.Envelope`, which stays strict, so a field a new CLI adds cannot leak into `upool`'s output.
+
 **The files that make the repo usable.**
 
 - `README.md`: what it does in two sentences; the quickstart as three commands (`brew install weslo/tap/upool`, `upool setup`, `cd <project> && upool init`); how a session gets a slot (five bullets, no internals); requirements (macOS on APFS, Unity CLI 1.0.0-beta.13 or later, Claude Code 2.1.295 or later, git); what it does not do; a status line saying which phases are shipped; links to `docs/design.md` and `docs/contracts.md`. The README is the only prose an agent reads before trying the tool, so the three commands must be exactly right.
 - `LICENSE`: MIT, which every surveyed tool in the space uses.
-- `CONTRIBUTING.md`: build and test commands; the rule that every behaviour against Unity or Claude Code is tested against `test/fakeunity` and the `testdata/` fixtures, and that anything needing a real Editor or the desktop app is a manual gate listed under `docs/manual-gates/`, never a claim in a PR; one PR per issue; CI green before a human review, and a human merges every PR (reviewers may use agents to help them read, but the approval is theirs); no new dependencies without an issue.
+- `CONTRIBUTING.md`: build and test commands; the rule that every behaviour against Unity or Claude Code is tested against the fake `unity` (the test binary standing in for the CLI) and the captures under `testdata/captures/`, which are never edited; the test approach (layers, isolation, golden files); and that anything needing a real Editor or the desktop app is a manual gate listed under `docs/manual-gates/`, never a claim in a PR; one PR per issue; CI green before a human review, and a human merges every PR (reviewers may use agents to help them read, but the decision to merge is theirs); no new dependencies without an issue.
 - `CHANGELOG.md`: kept by hand under Keep a Changelog headings; GoReleaser reads it for release notes.
-- `ci.yml`: on push and pull request, `go vet`, `golangci-lint` (default linters only), `go test ./...` on `ubuntu-latest`; a second job on `macos-latest` running the tests tagged `//go:build darwin` that exercise `cp -cR` sharing, `flock`, and the clone recipe against a temporary git repo. Tests tagged `//go:build unity` need a real Editor and never run in CI.
+- `ci.yml`: on pull requests and pushes to `main`, one job on `ubuntu-latest` and `macos-latest` with the Go version from `go.mod`: `make check-paths`, `make check-captures`, `go vet`, `golangci-lint` (default linters only) and `go test -race -shuffle=on ./...`. On macOS that includes the tests tagged `//go:build darwin` that exercise `cp -cR` sharing, `flock`, and the clone recipe against a temporary git repo. Tests tagged `//go:build unity` need a real Editor and never run in CI.
 - `release.yml`: on tag `v*`, GoReleaser with a `HOMEBREW_TAP_TOKEN` secret (a fine-grained token with contents write on the tap repository only). The tap is a second repository named `homebrew-tap` with nothing in it but the generated `Formula/upool.rb`; users run `brew install weslo/tap/upool` and later `brew upgrade upool`. Plain `brew install upool` with no tap prefix means homebrew-core, whose notability rules (age, stars, maintained releases) are not met by a new project, so it is a later step, not a launch requirement ([Homebrew tap docs](https://docs.brew.sh/How-to-Create-and-Maintain-a-Tap)).
-- Repository settings: squash merges only; branch protection on `main` requiring a pull request and the CI checks, with no required approval, because GitHub does not let a pull request's author approve it and a one-maintainer repository has no one else to (the human merge is the review); labels `phase:0` to `phase:4`, `manual-gate`, `blocked`, `decision-needed`; milestones M0 to M4.
+- Repository settings: squash merges only; branch protection on `main` requiring a pull request and the CI checks `ci (ubuntu-latest)` and `ci (macos-latest)`, and nothing more: no required approval, because GitHub does not let a pull request's author approve it and a one-maintainer repository has no one else to (the human merge is the review); branches need not be up to date with `main` before merging; and administrators, which includes the maintainer and any agent working with the maintainer's credentials, are not bound by it and can push to `main` directly. This is lighter than the plan first set out, deliberately: stricter protection slowed solo agentic work, so it stays this way and is not a gap to close. `CODEOWNERS` stays in place for the day reviews are required. Labels `phase:0` to `phase:4`, `manual-gate`, `blocked`, `decision-needed`; milestones M0 to M4.
 - Versioning: `v0.1.0` when Phase 1 passes its manual gate; `v0.2.0` for Phase 2; semver from there. No tag before the gate script in `docs/manual-gates/` for that milestone has been run on a real Mac.
 
 ## Appendix A: execution plan from a blank repository
@@ -178,7 +189,7 @@ The plan assumes nothing but an empty GitHub repository, the two documents from 
 1. Create the empty **public** repository `weslo/upool` on GitHub (no README, no license; the bootstrap agent writes them so they match the docs). Public keeps branch protection, macOS CI minutes and the tap free of plan and token requirements. Create a second empty repository `weslo/homebrew-tap`; it stays empty until M4.
 2. Clone `upool` wherever your projects live; `~/Documents/...` is fine. The `~/Documents` restriction the spike found applies only to the hook scripts and pool state, which `setup` keeps under `~/.upool/`, and the pooled Unity projects themselves were under `~/Documents` throughout the spike.
 3. Put the inputs where the bootstrap prompt expects them: `docs-input/design.md` (this document), `docs-input/spike-report.md` and `docs-input/spike-logs/`, copied from `~/Documents/.upool-spike/down/` (`spike-report.md` and its `logs/`, which holds the captured hook stdin JSON, Unity CLI JSON envelopes, `main.log` excerpts and the Editor logs). These are read by the bootstrap agent and deleted from the tree once their contents are committed in their final places.
-4. `gh auth status` must succeed with repo and workflow scopes. Install Go 1.23 or later and `golangci-lint`.
+4. `gh auth status` must succeed with repo and workflow scopes. Install Go 1.27 or later and `golangci-lint`.
 5. The tap repository is `weslo/homebrew-tap`, also public, so the install line everywhere is `brew install weslo/tap/upool`.
 6. Reviews are by humans: every PR waits for a human to review and merge it. Reviewers may use agents to help them read a diff; the decision stays with the person.
 
@@ -243,7 +254,8 @@ Then produce, on a branch named bootstrap, in this order:
    Scaffold, M1 Pool core, M2 Claude Code integration, M3 Editor governance, M4 Hygiene and release,
    each with the one-line description from docs/design.md's build order; set the repository to
    squash-merge only; and add branch protection on main requiring a pull request and the ci.yml
-   checks, with no required approvals.
+   checks, with no required approvals, no up-to-date requirement and no enforcement for
+   administrators.
 7. Delete docs-input/. Run `make build test lint` and confirm CI is green on the branch. Open a PR
    titled "Bootstrap repository" with the template filled in, and stop. Do not merge it.
 
@@ -254,7 +266,7 @@ into docs/contracts.md under a heading "Open questions" and continue.
 
 ### Stage 2: planning prompt
 
-Run after the bootstrap PR is merged.
+Run after the bootstrap PR is merged, and only once every question under "Decide before Stage 2" in `docs/contracts.md` has its answer written there: those answers define M0's state types.
 
 ```text
 You are planning the build of `upool`, a Go command-line tool. The design is decided; your job is to
@@ -264,19 +276,25 @@ Read, in full, before anything else: docs/design.md, docs/spike-report.md, docs/
 CONTRIBUTING.md, testdata/README.md, and the tree under testdata/. Treat the design as settled.
 Where the design leaves something open, including anything under "Open questions" in
 docs/contracts.md, do not resolve it: file an issue labelled `decision-needed` that states the
-question, the options, and what each would change, and mark dependent issues `blocked`.
+question, the options, and what each would change, and mark dependent issues `blocked`. The
+questions under "Decide before Stage 2" in docs/contracts.md are the exception: they must already be
+answered there. If any is not, stop and say which.
 
 The five milestones already exist. Fill them as follows, matching the build order in docs/design.md:
 
 - M0 Scaffold (foundations, no user-facing commands): config loading with precedence and
-  unknown-key errors; the state.json, registry.json and editors.json types from docs/contracts.md
-  with atomic write under a file lock and a test that two processes cannot both acquire; the exit
-  code and envelope package completed; path-only stdout discipline as a helper; test/fakeunity, a
-  Go program installed as `unity` on PATH for tests that replays testdata/unity for status, command,
-  recompile, open, close, test and cache key, honours UNITY_PROJECT_PATH for the commands that do
-  and ignores it for the ones that don't, and returns the captured exit codes; a `make fakeunity`
-  target and an integration-test harness that creates a temporary git repo with a fake Unity
-  project (ProjectSettings/ProjectVersion.txt, a Library/ with marker files).
+  unknown-key errors; internal/statefile, the one ~/.upool/lock with atomic write, and a test that
+  two processes cannot both hold it; the state.json, registry.json and editors.json types from
+  docs/contracts.md on top of it; internal/paths, internal/proc and internal/git as the layout in
+  docs/design.md describes them; the exit code and envelope package completed; the command
+  dispatcher, in which hook handlers return (path, error) and only the dispatcher writes stdout;
+  the fake `unity`, which is the test binary itself acting as the CLI when a test invokes it
+  through a `unity` symlink first on PATH: it records each call's arguments, UNITY_PROJECT_PATH and
+  working directory for the test to assert on, and replies with the next scripted capture from
+  testdata/captures/unity and its exit code, without imitating how Unity picks an Editor; and an
+  integration-test harness that creates a temporary git repo with a fake Unity project
+  (ProjectSettings/ProjectVersion.txt, a Library/ with marker files) under a temporary HOME. Every
+  issue follows the test approach in CONTRIBUTING.md.
 - M1 Pool core: init, take, release, which, path, status, doctor; the whole-checkout clone recipe
   with the instance-file strip and the `.claude/worktrees` exclusion; the staleness check; lease
   ids with conditional release and the confirmed flag; dead-PID reclaim with parking; the
@@ -300,7 +318,7 @@ Create the issues with .github/ISSUE_TEMPLATE/task.yml and these rules:
 2. Every issue names the section of docs/design.md or docs/contracts.md it implements, the fixtures
    it must pass against, and its acceptance test in one sentence a reviewer can run. "Works" is not
    acceptance; "`go test ./internal/pool -run TestTakeRefusesConfirmedLease` passes against
-   testdata/hooks/desktop-session-create.json" is.
+   testdata/captures/hooks/desktop-session-create.json" is.
 3. If the behaviour can only be verified with a real Unity Editor or the Claude desktop app, label
    the issue `manual-gate`, make the exact check (commands, what to look for, in which log) part of
    the issue's deliverable as an entry in docs/manual-gates/M<n>.md, and state in the issue that the
@@ -334,14 +352,16 @@ docs/manual-gates entry, open the PR with "Manual gate still open: yes", and say
 human must run. If more than two pull requests are already open, stop and say so.
 
 Then: branch `issue-<n>` from main; implement exactly what the issue says, citing the design section
-it names; add or extend tests against test/fakeunity and the fixtures the issue lists; run
-`make build test lint`; update CHANGELOG.md under Unreleased; open a pull request with the template
-filled in ("Closes #<n>", what changed, verified against which fixtures and commands, manual gate
-status); and stop. A human reviews and merges; do not request, perform or simulate a review.
+it names; add or extend tests against the fake `unity` and the captures the issue lists, as
+CONTRIBUTING.md describes; run `make build test lint`; update CHANGELOG.md under Unreleased; open
+a pull request with the template filled in ("Closes #<n>", what changed, verified against which
+fixtures and commands, manual gate status); and stop. A human reviews and merges; do not request,
+perform or simulate a review.
 
-Rules: do not touch files outside the issue's scope; do not add dependencies; do not edit anything
-under testdata/ except to add a new capture that the issue asked for; do not resolve a
-`decision-needed` question yourself; if the issue cannot be completed as written, comment on it
+Rules: do not touch files outside the issue's scope; do not add dependencies; do not edit or
+remove anything under testdata/captures/, and add a capture only when the issue asks for one;
+regenerate testdata/golden/ with -update only where the issue changes upool's output; do not resolve
+a `decision-needed` question yourself; if the issue cannot be completed as written, comment on it
 with what is wrong and stop without opening a PR.
 ```
 
