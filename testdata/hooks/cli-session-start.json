@@ -1,0 +1,7 @@
+{
+  "session_id": "3965aa22-ae6d-4000-9c6e-c5d6f22043c1",
+  "transcript_path": "${home}/.claude/projects/${spike_key}-cc-probe/3965aa22-ae6d-4000-9c6e-c5d6f22043c1.jsonl",
+  "cwd": "${spike}/cc-probe",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

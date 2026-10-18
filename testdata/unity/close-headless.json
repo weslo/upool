@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "command": "close",
+  "data": {
+    "project": "${spike}/clone1",
+    "pid": 30315,
+    "closed": true,
+    "method": "graceful",
+    "reason": "closed"
+  },
+  "errors": [],
+  "warnings": []
+}

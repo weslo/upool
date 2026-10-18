@@ -1,0 +1,32 @@
+{
+  "success": true,
+  "command": "status",
+  "data": {
+    "count": 3,
+    "instances": [
+      {
+        "port": 7801,
+        "project": "${spike}/clone1",
+        "version": "6000.4.11f1",
+        "pid": 82364,
+        "state": "ready"
+      },
+      {
+        "port": 7800,
+        "project": "${spike}/clone2",
+        "version": "6000.4.11f1",
+        "pid": 82372,
+        "state": "ready"
+      },
+      {
+        "port": 7802,
+        "project": "${spike}/ta",
+        "version": "6000.4.11f1",
+        "pid": 82375,
+        "state": "ready"
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": []
+}

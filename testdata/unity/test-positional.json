@@ -1,0 +1,19 @@
+{
+  "success": true,
+  "command": "test",
+  "data": {
+    "projectPath": "${spike}/clone1",
+    "output": "${spike}/logs/t6-test-results.xml",
+    "reports": {
+      "nunit": "${spike}/logs/t6-test-results.xml",
+      "junit": null
+    },
+    "coverage": {
+      "requested": false,
+      "enabled": false,
+      "output": null
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

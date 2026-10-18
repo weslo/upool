@@ -1,0 +1,475 @@
+{
+  "success": true,
+  "command": "command",
+  "data": {
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7801,
+      "projectPath": "${spike}/clone1"
+    },
+    "server": {
+      "version": "0.0.1",
+      "port": 7801
+    },
+    "commands": [
+      {
+        "name": "capture_game_view",
+        "description": "Render the game view to a PNG. source=camera (default) renders a camera and misses Screen Space - Overlay UI; source=screen captures the composited backbuffer incl. overlay canvases (Play Mode only). Returns it inline as base64, unless save_path is set (path-only result; pass include_inline_image=true to get both).",
+        "tags": [
+          "capture"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "width",
+            "description": "Output width in px (default 1280; capped 4096).",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 1280
+          },
+          {
+            "name": "height",
+            "description": "Output height in px (default 720; capped 4096).",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 720
+          },
+          {
+            "name": "camera",
+            "description": "Optional camera name (source=camera only); defaults to Camera.main, else the first enabled camera.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "save_path",
+            "description": "Optional project-relative path to write the PNG (e.g. Screenshots/foo.png). When set, the result omits the inline base64 image unless include_inline_image=true.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "include_inline_image",
+            "description": "Also return the image inline as base64 when save_path is set (default false: path-only result). Only meaningful together with save_path.",
+            "type": "Boolean",
+            "required": false,
+            "defaultValue": false
+          },
+          {
+            "name": "max_resolution",
+            "description": "Cap on the inline image's longest edge (e.g. 512). Only applies when an inline image is returned (no save_path, or save_path + include_inline_image=true); the save_path file keeps the requested resolution.",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 0
+          },
+          {
+            "name": "source",
+            "description": "What to capture: 'camera' (default) renders a camera (misses Screen Space - Overlay UI); 'screen' captures the composited game view incl. overlay canvases (HUDs), Play Mode only.",
+            "type": "String",
+            "required": false,
+            "defaultValue": "camera"
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "capture_game_view",
+          "description": "Render the game view to a PNG. source=camera (default) renders a camera and misses Screen Space - Overlay UI; source=screen captures the composited backbuffer incl. overlay canvases (Play Mode only). Returns it inline as base64, unless save_path is set (path-only result; pass include_inline_image=true to get both).",
+          "properties": {
+            "width": {
+              "type": "integer",
+              "description": "Output width in px (default 1280; capped 4096).",
+              "default": 1280
+            },
+            "height": {
+              "type": "integer",
+              "description": "Output height in px (default 720; capped 4096).",
+              "default": 720
+            },
+            "camera": {
+              "type": "string",
+              "description": "Optional camera name (source=camera only); defaults to Camera.main, else the first enabled camera."
+            },
+            "save_path": {
+              "type": "string",
+              "description": "Optional project-relative path to write the PNG (e.g. Screenshots/foo.png). When set, the result omits the inline base64 image unless include_inline_image=true."
+            },
+            "include_inline_image": {
+              "type": "boolean",
+              "description": "Also return the image inline as base64 when save_path is set (default false: path-only result). Only meaningful together with save_path.",
+              "default": false
+            },
+            "max_resolution": {
+              "type": "integer",
+              "description": "Cap on the inline image's longest edge (e.g. 512). Only applies when an inline image is returned (no save_path, or save_path + include_inline_image=true); the save_path file keeps the requested resolution.",
+              "default": 0
+            },
+            "source": {
+              "type": "string",
+              "description": "What to capture: 'camera' (default) renders a camera (misses Screen Space - Overlay UI); 'screen' captures the composited game view incl. overlay canvases (HUDs), Play Mode only.",
+              "default": "camera"
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Capture.CaptureCommands.CaptureGameView"
+          }
+        }
+      },
+      {
+        "name": "capture_scene_view",
+        "description": "Render the active Scene View to a PNG. Returns it inline as base64, unless save_path is set (path-only result; pass include_inline_image=true to get both).",
+        "tags": [
+          "capture"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "width",
+            "description": "Output width in px (default 1280; capped 4096).",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 1280
+          },
+          {
+            "name": "height",
+            "description": "Output height in px (default 720; capped 4096).",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 720
+          },
+          {
+            "name": "save_path",
+            "description": "Optional project-relative path to write the PNG (e.g. Screenshots/foo.png). When set, the result omits the inline base64 image unless include_inline_image=true.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "include_inline_image",
+            "description": "Also return the image inline as base64 when save_path is set (default false: path-only result). Only meaningful together with save_path.",
+            "type": "Boolean",
+            "required": false,
+            "defaultValue": false
+          },
+          {
+            "name": "max_resolution",
+            "description": "Cap on the inline image's longest edge (e.g. 512). Only applies when an inline image is returned (no save_path, or save_path + include_inline_image=true); the save_path file keeps the requested resolution.",
+            "type": "Int32",
+            "required": false,
+            "defaultValue": 0
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "capture_scene_view",
+          "description": "Render the active Scene View to a PNG. Returns it inline as base64, unless save_path is set (path-only result; pass include_inline_image=true to get both).",
+          "properties": {
+            "width": {
+              "type": "integer",
+              "description": "Output width in px (default 1280; capped 4096).",
+              "default": 1280
+            },
+            "height": {
+              "type": "integer",
+              "description": "Output height in px (default 720; capped 4096).",
+              "default": 720
+            },
+            "save_path": {
+              "type": "string",
+              "description": "Optional project-relative path to write the PNG (e.g. Screenshots/foo.png). When set, the result omits the inline base64 image unless include_inline_image=true."
+            },
+            "include_inline_image": {
+              "type": "boolean",
+              "description": "Also return the image inline as base64 when save_path is set (default false: path-only result). Only meaningful together with save_path.",
+              "default": false
+            },
+            "max_resolution": {
+              "type": "integer",
+              "description": "Cap on the inline image's longest edge (e.g. 512). Only applies when an inline image is returned (no save_path, or save_path + include_inline_image=true); the save_path file keeps the requested resolution.",
+              "default": 0
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Capture.CaptureCommands.CaptureSceneView"
+          }
+        }
+      },
+      {
+        "name": "create_prefab",
+        "description": "Save a GameObject as a prefab asset at a project path; the source becomes a connected instance.",
+        "tags": [
+          "prefabs"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "source",
+            "description": "Reference to the source GameObject to save as a prefab (globalId/path/guid/instanceId/hierarchyPath).",
+            "type": "ObjectRef",
+            "required": true,
+            "defaultValue": null
+          },
+          {
+            "name": "path",
+            "description": "Prefab asset path relative to the authoring root (the Assets/ prefix is optional and the .prefab extension is added if missing). e.g. Prefabs/Enemy or Prefabs/Enemy.prefab",
+            "type": "String",
+            "required": true,
+            "defaultValue": null
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "create_prefab",
+          "description": "Save a GameObject as a prefab asset at a project path; the source becomes a connected instance.",
+          "properties": {
+            "source": {
+              "type": "string",
+              "description": "Reference to the source GameObject to save as a prefab (globalId/path/guid/instanceId/hierarchyPath)."
+            },
+            "path": {
+              "type": "string",
+              "description": "Prefab asset path relative to the authoring root (the Assets/ prefix is optional and the .prefab extension is added if missing). e.g. Prefabs/Enemy or Prefabs/Enemy.prefab"
+            }
+          },
+          "required": [
+            "source",
+            "path"
+          ],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Prefabs.PrefabCommands.CreatePrefab"
+          }
+        }
+      },
+      {
+        "name": "create_scene",
+        "description": "Create a new scene and save it to the given path under the authoring root.",
+        "tags": [
+          "scenes"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "path",
+            "description": "Scene path relative to the authoring root (default Assets/); the Assets/ prefix and the .unity extension are optional. e.g. Scenes/Level1",
+            "type": "String",
+            "required": true,
+            "defaultValue": null
+          },
+          {
+            "name": "additive",
+            "description": "Open the new scene additively alongside currently open scenes instead of replacing them.",
+            "type": "Boolean",
+            "required": false,
+            "defaultValue": false
+          },
+          {
+            "name": "template",
+            "description": "Initial contents: 'empty' (default) for a blank scene, or 'default' to seed a Main Camera + Directional Light matching Unity's built-in 3D template.",
+            "type": "String",
+            "required": false,
+            "defaultValue": "empty"
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "create_scene",
+          "description": "Create a new scene and save it to the given path under the authoring root.",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Scene path relative to the authoring root (default Assets/); the Assets/ prefix and the .unity extension are optional. e.g. Scenes/Level1"
+            },
+            "additive": {
+              "type": "boolean",
+              "description": "Open the new scene additively alongside currently open scenes instead of replacing them.",
+              "default": false
+            },
+            "template": {
+              "type": "string",
+              "description": "Initial contents: 'empty' (default) for a blank scene, or 'default' to seed a Main Camera + Directional Light matching Unity's built-in 3D template.",
+              "default": "empty"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.CreateScene"
+          }
+        }
+      },
+      {
+        "name": "save_all",
+        "description": "Save all open scenes that have unsaved changes.",
+        "tags": [
+          "scenes"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "save_all",
+          "description": "Save all open scenes that have unsaved changes.",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.SaveAll"
+          }
+        }
+      },
+      {
+        "name": "save_prefab_contents",
+        "description": "Open a prefab asset in an isolated prefab stage, apply a declarative edit, and save it back (nested-prefab safe).",
+        "tags": [
+          "prefabs"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "prefab",
+            "description": "Reference to the prefab asset to edit (path/guid/globalId).",
+            "type": "ObjectRef",
+            "required": true,
+            "defaultValue": null
+          },
+          {
+            "name": "rename_child",
+            "description": "Optional child name (relative path under the root, e.g. 'Body/Head') to rename.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "new_name",
+            "description": "New name for the child identified by rename_child.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "set_active_child",
+            "description": "Optional child name (relative path under the root) whose active state to set.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          },
+          {
+            "name": "active",
+            "description": "Active state to apply when set_active_child is provided.",
+            "type": "Boolean",
+            "required": false,
+            "defaultValue": true
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "save_prefab_contents",
+          "description": "Open a prefab asset in an isolated prefab stage, apply a declarative edit, and save it back (nested-prefab safe).",
+          "properties": {
+            "prefab": {
+              "type": "string",
+              "description": "Reference to the prefab asset to edit (path/guid/globalId)."
+            },
+            "rename_child": {
+              "type": "string",
+              "description": "Optional child name (relative path under the root, e.g. 'Body/Head') to rename."
+            },
+            "new_name": {
+              "type": "string",
+              "description": "New name for the child identified by rename_child."
+            },
+            "set_active_child": {
+              "type": "string",
+              "description": "Optional child name (relative path under the root) whose active state to set."
+            },
+            "active": {
+              "type": "boolean",
+              "description": "Active state to apply when set_active_child is provided.",
+              "default": true
+            }
+          },
+          "required": [
+            "prefab"
+          ],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Prefabs.PrefabCommands.SavePrefabContents"
+          }
+        }
+      },
+      {
+        "name": "save_scene",
+        "description": "Save an open scene. Saves the active scene when no path is given.",
+        "tags": [
+          "scenes"
+        ],
+        "package": "Unity.Pipeline.Editor",
+        "mainThreadRequired": true,
+        "runtimeOnly": false,
+        "parameters": [
+          {
+            "name": "path",
+            "description": "Path of the open scene to save (authoring-root relative; Assets/ prefix and .unity optional). Omit to save the active scene.",
+            "type": "String",
+            "required": false,
+            "defaultValue": null
+          }
+        ],
+        "schema": {
+          "$schema": "http://json-schema.org/draft-07/schema#",
+          "type": "object",
+          "title": "save_scene",
+          "description": "Save an open scene. Saves the active scene when no path is given.",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the open scene to save (authoring-root relative; Assets/ prefix and .unity optional). Omit to save the active scene."
+            }
+          },
+          "required": [],
+          "additionalProperties": false,
+          "x-command-metadata": {
+            "mainThreadRequired": true,
+            "methodName": "Unity.Pipeline.Editor.Commands.Scenes.SceneCommands.SaveScene"
+          }
+        }
+      }
+    ],
+    "count": 7,
+    "total": 7,
+    "offset": 0,
+    "limit": null
+  },
+  "errors": [],
+  "warnings": []
+}

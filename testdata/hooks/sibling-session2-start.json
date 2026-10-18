@@ -1,0 +1,8 @@
+{
+  "session_id": "f4066cd7-2e80-4ce1-9ec5-0c1f21e8c4a0",
+  "transcript_path": "${home}/.claude/projects/${spike_key}-ta/f4066cd7-2e80-4ce1-9ec5-0c1f21e8c4a0.jsonl",
+  "cwd": "${spike}/ta",
+  "scratchpad_dir": "${claude_tmp}/${spike_key}-ta/f4066cd7-2e80-4ce1-9ec5-0c1f21e8c4a0/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

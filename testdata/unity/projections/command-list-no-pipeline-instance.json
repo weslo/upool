@@ -1,0 +1,10 @@
+{
+  "success": false,
+  "target": null,
+  "errors": [
+    {
+      "code": "COMMAND_FAILED",
+      "message": "No Pipeline instance found for project: ${spike}/clone2. Make sure Unity Editor is running with the Pipeline package installed."
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "session_id": "65d40ae0-886a-45de-ba41-a8beaf3c1f5b",
+  "transcript_path": "${home}/.claude/projects/${home_key}--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b.jsonl",
+  "cwd": "${home}/.upool-probe/cc-shell-command-output-8ff578",
+  "scratchpad_dir": "${claude_tmp}/${home_key}--upool-probe-cc-shell-command-output-8ff578/65d40ae0-886a-45de-ba41-a8beaf3c1f5b/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

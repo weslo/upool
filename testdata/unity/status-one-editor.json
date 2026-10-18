@@ -1,0 +1,18 @@
+{
+  "success": true,
+  "command": "status",
+  "data": {
+    "count": 1,
+    "instances": [
+      {
+        "port": 7800,
+        "project": "${spike}/clone1",
+        "version": "6000.4.11f1",
+        "pid": 30315,
+        "state": "ready"
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": []
+}

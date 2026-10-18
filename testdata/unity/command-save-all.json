@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "command": "command save_all",
+  "data": {
+    "command": "save_all",
+    "parameters": {},
+    "result": {
+      "saved": true,
+      "scenes": [
+        "Assets/Down/States/Startup/Startup.unity"
+      ]
+    },
+    "target": {
+      "host": "127.0.0.1",
+      "port": 7800,
+      "projectPath": "${spike}/clone1"
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

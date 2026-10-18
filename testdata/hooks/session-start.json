@@ -1,0 +1,8 @@
+{
+  "session_id": "ab4a1e90-99d3-4e01-9d28-c5c8722c4092",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-slot-1/ab4a1e90-99d3-4e01-9d28-c5c8722c4092.jsonl",
+  "cwd": "${repo}/.claude/worktrees/slot-1",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-slot-1/ab4a1e90-99d3-4e01-9d28-c5c8722c4092/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}
