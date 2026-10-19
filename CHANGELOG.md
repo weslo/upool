@@ -80,3 +80,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   stderr. Each call logs its arguments, `UNITY_PROJECT_PATH` and working directory, which
   `Calls` returns, and takes the next reply; a call beyond the script fails the test. It never
   chooses an Editor. Nothing uses it yet.
+- `internal/testenv`, the harness later tests run upool in: `New(t, opts...)` makes a temporary
+  HOME (holding only an empty `.config`) and, beside it, a git repository with one commit on
+  `main` holding a fake Unity project: `ProjectVersion.txt` (`6000.4.11f1`), two scripts under
+  `Assets/Scripts`, a `ProjectSettings.asset` with a `scriptingDefineSymbols` line, a gitignored
+  `Library/` whose `ScriptAssemblies` are newer than every script, and gitignored `CLAUDE.md`,
+  `AGENTS.md`, `.claude/settings.local.json` and `.agents/skills/x` with the relative
+  `.claude/skills/x` link. `.claude/worktrees` is not ignored, which is `upool init`'s job. Options
+  give a stale Library, an open Editor (`Library/EditorInstance.json`), uncommitted changes, and
+  a second commit on a `feature` branch so HEAD is one commit past `main`. Paths are canonical;
+  `Getenv`, `Setenv` and `Environ` hold the environment (HOME, this process's PATH, no system git
+  config and a fixed git identity), and `SetMtime`, `WriteFile` and `Git` change the project.
+  Nothing uses it yet.
