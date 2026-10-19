@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,7 +46,7 @@ type result struct {
 }
 
 // dispatch runs args through a dispatcher with the given tables, env and stdin, as run does with
-// the real ones.
+// the real ones. Its working directory is env's PWD, as a shell would set it.
 func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 	env map[string]string, stdin string, args ...string) result {
 	t.Helper()
@@ -57,7 +58,15 @@ func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 		stdout:   &out,
 		stderr:   &errOut,
 		getenv:   func(key string) string { return env[key] },
-		now:      func() time.Time { return clock },
+		environ: func() []string {
+			var entries []string
+			for _, k := range slices.Sorted(maps.Keys(env)) {
+				entries = append(entries, k+"="+env[k])
+			}
+			return entries
+		},
+		getwd: func() (string, error) { return env["PWD"], nil },
+		now:   func() time.Time { return clock },
 	}
 	code := d.run(args)
 	return result{code, out.String(), errOut.String()}
@@ -244,6 +253,7 @@ func TestHandlerGetsTheProcessBoundaryButNotStdout(t *testing.T) {
 	}}
 	env := testEnv(t)
 	env["UPOOL_READY"] = "2"
+	env["PWD"] = tempDir(t)
 	r := dispatch(t, commands, nil, env, "payload", "probe", "x", "--json")
 	if r.code != output.ExitOK {
 		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
@@ -265,6 +275,13 @@ func TestHandlerGetsTheProcessBoundaryButNotStdout(t *testing.T) {
 	}
 	if v := got.getenv("UPOOL_READY"); v != "2" {
 		t.Errorf("getenv(UPOOL_READY) = %q, want %q", v, "2")
+	}
+	if entries := got.environ(); !slices.Contains(entries, "UPOOL_READY=2") ||
+		!slices.Contains(entries, "HOME="+env["HOME"]) {
+		t.Errorf("environ() = %q, want UPOOL_READY=2 and HOME among them", entries)
+	}
+	if wd, err := got.getwd(); err != nil || wd != env["PWD"] {
+		t.Errorf("getwd() = %q, %v, want %q, nil", wd, err, env["PWD"])
 	}
 	if got.home != env["HOME"] {
 		t.Errorf("home = %q, want %q", got.home, env["HOME"])

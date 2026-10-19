@@ -30,6 +30,11 @@ type invocation struct {
 	stderr io.Writer
 	// getenv looks up an environment variable.
 	getenv func(string) string
+	// environ returns the whole environment as "KEY=value" entries, the environment a handler
+	// gives the git it runs (internal/git), which getenv cannot list.
+	environ func() []string
+	// getwd returns the working directory, from which `upool init` finds its repository.
+	getwd func() (string, error)
 	// home is $HOME as getenv reports it, "" when unset; internal/config and internal/statefile
 	// refuse a home directory that is not absolute.
 	home string
@@ -72,6 +77,8 @@ type dispatcher struct {
 	stdout   io.Writer
 	stderr   io.Writer
 	getenv   func(string) string
+	environ  func() []string
+	getwd    func() (string, error)
 	now      func() time.Time
 }
 
@@ -153,13 +160,15 @@ func (d *dispatcher) hook(args []string) int {
 // invocation returns what a handler gets for args and fs.
 func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 	return &invocation{
-		args:   args,
-		flags:  fs,
-		stdin:  d.stdin,
-		stderr: d.stderr,
-		getenv: d.getenv,
-		home:   d.getenv("HOME"),
-		now:    d.now,
+		args:    args,
+		flags:   fs,
+		stdin:   d.stdin,
+		stderr:  d.stderr,
+		getenv:  d.getenv,
+		environ: d.environ,
+		getwd:   d.getwd,
+		home:    d.getenv("HOME"),
+		now:     d.now,
 	}
 }
 

@@ -103,3 +103,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.config/upool` as they found them; and the M1 captures are committed, with
   `make check-paths check-captures` passing. A last section says what to record on the Build plan
   issue.
+- `upool init [--json]`, run inside a Unity project's git repository, registers the project as a
+  pool without cloning a slot yet. It refuses, changing nothing, outside a git repository, when
+  `ProjectSettings/ProjectVersion.txt` is not at the repository's root (naming a project it finds
+  in a subdirectory), when git tracks anything under `Library/`, and while an Editor has the
+  project open (`Library/EditorInstance.json` or `ProtocolInstance.json` present). Otherwise it
+  adds `.claude/worktrees/` to `.gitignore` unless git already ignores it; takes `base` from
+  `UPOOL_BASE`, `.upool.toml` or `~/.config/upool/config.toml`, or else uses origin's default
+  branch, or else the current branch, and says which; writes `.upool.toml` with `ready`,
+  `max_slots` and `base` if there is none; creates `~/.upool/pools/<repo-key>/state.json` with no
+  slots, keeping one already there for the repository; and adds the repository to
+  `~/.upool/registry.json`. A repository already registered is reported, and init exits 0.
+  Usage now lists it.

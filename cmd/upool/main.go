@@ -15,7 +15,9 @@ var version = "dev"
 
 // commandTable is upool's commands by name. Each arrives with its own issue, so usage lists only
 // those that work (docs/design.md, "One binary, a dozen commands, one JSON file per pool").
-var commandTable = map[string]command{}
+var commandTable = map[string]command{
+	"init": initCommand,
+}
 
 // hookTable is the events `upool hook <event>` handles, one per hook script that `upool setup`
 // installs. The handlers are stubs until M2; failExit follows docs/contracts.md (d).
@@ -35,7 +37,9 @@ func main() {
 }
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
-// exit code.
+// exit code. The rest of the boundary, the clock, the working directory and the environment's
+// full list, it takes from the process; a test of a command that reads them builds a dispatcher
+// with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
 		commands: commandTable,
@@ -44,6 +48,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		stdout:   stdout,
 		stderr:   stderr,
 		getenv:   getenv,
+		environ:  os.Environ,
+		getwd:    os.Getwd,
 		now:      time.Now,
 	}
 	return d.run(args)
