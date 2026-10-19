@@ -14,3 +14,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `internal/paths`: `Key`, the canonical form every path upool compares goes through (absolute,
   symlinks resolved on the longest existing prefix, cleaned, lowercased on a case-insensitive
   volume), and `Within` for comparing keys. Nothing calls it yet.
+- `internal/proc`: `Start`, a process's start time to the microsecond from sysctl
+  `kern.proc.pid` (an unsupported error off macOS), and `Alive`, which counts a process alive only
+  while its PID and start time both match, so a reused PID reads as dead. The `Checker` interface
+  lets later tests inject liveness. Nothing calls it yet.
