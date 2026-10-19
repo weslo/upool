@@ -9,11 +9,12 @@ Two kinds of file live here, under different rules:
 
 ## captures/
 
-These files are the contract. Each one was captured on a real Mac during the spike
+These files are the contract. Each one was captured on a real Mac, during the spike
 (2026-10-11 to 2026-10-12, macOS 15.7.3, Unity CLI 1.0.0-beta.13, Claude Code 2.1.295, desktop app
-2.31226.1) and is reproduced verbatim except for paths: JSON pretty-printed with `jq .`, text copied
-byte for byte. [docs/contracts.md](../docs/contracts.md) explains what each one proves; the
-"Section" column below points into [docs/spike-report.md](../docs/spike-report.md).
+2.31226.1) unless its row names a later source, and is reproduced verbatim except for paths: JSON
+pretty-printed with `jq .`, text copied byte for byte. [docs/contracts.md](../docs/contracts.md)
+explains what each one proves; the "Section" column below points into
+[docs/spike-report.md](../docs/spike-report.md).
 
 **Paths are variables.** No path from the capturing machine is committed. Each one is replaced by
 the variable for its role, and a test fills the variables with the temporary directories it creates
@@ -136,6 +137,27 @@ so.
 The spike also recorded `jq` projections of some replies, not full envelopes. They cannot be
 replayed, so they live in [docs/evidence/](../docs/evidence/README.md) with the desktop app's log
 excerpts.
+
+Captures added after the spike come from `scripts/capture-unity.sh`, run during the manual-gate
+check that the "Source" column names, with the CLI version that produced them. A row marked
+**pending** is a capture that check has not added yet: whoever runs it names the files it wrote and
+replaces **pending** with the version and the date.
+
+| Capture | Source | Version | What it is |
+|---|---|---|---|
+| `version.*` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `unity --version`: the version `doctor` checks against 1.0.0-beta.13 |
+| `cache-key.*` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `unity cache key <project> --format json` from inside the project, the path positional, so it is `${cwd}`: the key the staleness checks compare across checkouts (contracts (g) step 7, A20) |
+
+### captures/claude/
+
+Claude Code's own output, other than hook stdin: stdout as printed, with paths replaced by
+`scripts/scrubpaths`, and the exit code in a `.exit` file beside it. These were taken after the
+spike, so each row names its source as the table above does, and a **pending** row works the same
+way.
+
+| Capture | Source | Version | What it is |
+|---|---|---|---|
+| `version.txt`, `version.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `claude --version`, from the CLI on `PATH` or the desktop app's bundled binary (the row says which): the version `doctor` checks against 2.1.295 |
 
 ### captures/git/
 

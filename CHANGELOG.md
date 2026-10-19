@@ -92,3 +92,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Getenv`, `Setenv` and `Environ` hold the environment (HOME, this process's PATH, no system git
   config and a fixed git identity), and `SetMtime`, `WriteFile` and `Git` change the project.
   Nothing uses it yet.
+- `docs/manual-gates/M0.md`, M0's manual gate, with its first check, "Capture the M1 replies":
+  the commands that record `unity --version`, `unity cache key` and `claude --version` as new
+  captures for M1's `doctor` and staleness checks, and what each must show. `testdata/README.md`
+  lists the three captures as pending until a human runs the check and adds them.
