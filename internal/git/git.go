@@ -1,0 +1,280 @@
+// Package git is the only way upool runs git (docs/design.md, "Repository, CI and Homebrew
+// distribution", the internal/git row of the layout): every call goes through a Runner, and the
+// default one, Exec, runs `git -C <dir> …` with UNITY_SKIP_HOOKS=1.
+//
+// The directory is always given with -C and must be absolute, so no call depends on the process's
+// working directory: a hook runs wherever the desktop app's helper starts it, and a slot is never
+// the directory upool was started in. UNITY_SKIP_HOOKS is set on every call so that Unity's managed
+// git hooks cannot hang a checkout or a reset (docs/design.md, "Slot lifecycle: seed only from a
+// Library current at HEAD, refresh on handout, reset without `-x`").
+//
+// Status, WorktreeList and HeadReachable are the reads the slot lifecycle is built on: a slot is
+// clean when Status reports nothing and HeadReachable is true (docs/contracts.md (f) Slot
+// lifecycle, the definition of clean; A5), and a slot that left WorktreeList is missing ((f)
+// transition 17).
+//
+// The environment is always a parameter; nothing here reads the process's own (CONTRIBUTING.md,
+// "Process state comes in through run").
+package git
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strings"
+)
+
+// skipHooks is added to every git call's environment by Exec, after the caller's, so a caller's own
+// UNITY_SKIP_HOOKS cannot turn it off.
+const skipHooks = "UNITY_SKIP_HOOKS=1"
+
+// Result is what one git command returned.
+type Result struct {
+	Stdout []byte
+	Stderr []byte
+	// ExitCode is git's exit status: 0 for success.
+	ExitCode int
+}
+
+// Runner runs one git command, `git -C <dir> <args…>`, with env as its whole environment
+// ("KEY=value" entries). A command that ran and failed is a Result with a non-zero ExitCode and a
+// nil error; the error is for a command that could not be run or finish, such as git missing from
+// PATH, a relative dir, or ctx ending. Unit tests replace it with recorded output.
+type Runner interface {
+	Run(ctx context.Context, dir string, env []string, args ...string) (Result, error)
+}
+
+// Exec is the Runner that runs the git binary found on the process's PATH.
+type Exec struct{}
+
+var _ Runner = Exec{}
+
+// Run runs `git -C dir args…` with env plus UNITY_SKIP_HOOKS=1 as its environment. dir must be
+// absolute: -C resolves a relative one against the process's working directory.
+func (Exec) Run(ctx context.Context, dir string, env []string, args ...string) (Result, error) {
+	if !filepath.IsAbs(dir) {
+		return Result{}, fmt.Errorf("running git in %q: directory is not absolute", dir)
+	}
+	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
+	// exec keeps the last of duplicate keys, so skipHooks wins over a caller's UNITY_SKIP_HOOKS.
+	cmd.Env = append(slices.Clip(env), skipHooks)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	res := Result{Stdout: stdout.Bytes(), Stderr: stderr.Bytes()}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && ctx.Err() == nil {
+		res.ExitCode = exit.ExitCode()
+		return res, nil
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		return res, fmt.Errorf("running %s: %w", command(dir, args), err)
+	}
+	return res, nil
+}
+
+// Client runs upool's git reads through Runner, each with Env as git's whole environment.
+type Client struct {
+	Runner Runner
+	Env    []string
+}
+
+// run runs one command and returns its stdout, or an error carrying git's stderr when it exits
+// non-zero.
+func (c Client) run(ctx context.Context, dir string, args ...string) ([]byte, error) {
+	res, err := c.Runner.Run(ctx, dir, c.Env, args...)
+	if err != nil {
+		return nil, err
+	}
+	if res.ExitCode != 0 {
+		msg := strings.TrimSpace(string(res.Stderr))
+		return nil, fmt.Errorf("%s: exit status %d: %s", command(dir, args), res.ExitCode, msg)
+	}
+	return res.Stdout, nil
+}
+
+// command is how errors name a git call.
+func command(dir string, args []string) string {
+	return strings.Join(append([]string{"git", "-C", dir}, args...), " ")
+}
+
+// StatusEntry is one entry of `git status --porcelain=v1`.
+type StatusEntry struct {
+	// XY is the two status letters: index then worktree, "??" for an untracked path.
+	XY string
+	// Path is the path relative to the worktree's top level; an untracked directory ends in "/".
+	Path string
+	// OrigPath is the path a rename or copy came from, and empty for every other entry.
+	OrigPath string
+}
+
+// statusArgs is the status call. --untracked-files=normal is git's default, given explicitly so
+// that a user's status.showUntrackedFiles=no cannot hide the untracked file that parks a slot
+// (testdata/captures/git/remove-status-untracked.txt). Ignored files are never listed, so a
+// gitignored Library/ does not make a slot dirty.
+var statusArgs = []string{"status", "--porcelain=v1", "-z", "--untracked-files=normal"}
+
+// Status returns the worktree at dir's `git status --porcelain=v1 -z` entries, in git's order. No
+// entries is the first half of docs/contracts.md (f)'s definition of clean; HeadReachable is the
+// second.
+func (c Client) Status(ctx context.Context, dir string) ([]StatusEntry, error) {
+	out, err := c.run(ctx, dir, statusArgs...)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := parseStatus(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", command(dir, statusArgs), err)
+	}
+	return entries, nil
+}
+
+// parseStatus parses porcelain v1 with -z: each entry is "XY PATH" and a NUL, and a rename or copy
+// is followed by its original path and another NUL. Paths are never quoted under -z.
+func parseStatus(out []byte) ([]StatusEntry, error) {
+	fields, err := nulFields(out)
+	if err != nil {
+		return nil, err
+	}
+	var entries []StatusEntry
+	for i := 0; i < len(fields); i++ {
+		f := fields[i]
+		if len(f) < 4 || f[2] != ' ' {
+			return nil, fmt.Errorf("malformed entry %q", f)
+		}
+		e := StatusEntry{XY: f[:2], Path: f[3:]}
+		if strings.ContainsAny(e.XY, "RC") {
+			i++
+			if i == len(fields) {
+				return nil, fmt.Errorf("entry %q has no original path", f)
+			}
+			e.OrigPath = fields[i]
+		}
+		entries = append(entries, e)
+	}
+	return entries, nil
+}
+
+// Worktree is one record of `git worktree list --porcelain`.
+type Worktree struct {
+	// Path is the worktree's top level as git prints it, before internal/paths makes it canonical.
+	Path string
+	// HEAD is the object name HEAD points at; empty for a bare repository.
+	HEAD string
+	// Branch is the full ref checked out, such as "refs/heads/main"; empty when Detached or Bare.
+	Branch   string
+	Detached bool
+	Bare     bool
+	Locked   bool
+	// LockReason is the reason given to `git worktree lock --reason`, empty when there was none.
+	LockReason string
+	// Prunable reports that git would prune the worktree, such as when its directory is gone.
+	Prunable bool
+	// PrunableReason is git's reason, such as "gitdir file points to non-existent location".
+	PrunableReason string
+}
+
+// worktreeListArgs is the list call. -z makes a path or lock reason with a newline in it parse,
+// and leaves the lock reason unquoted.
+var worktreeListArgs = []string{"worktree", "list", "--porcelain", "-z"}
+
+// WorktreeList returns every worktree of the repository at repo, the main one first, from
+// `git worktree list --porcelain -z`. repo can be any of its worktrees.
+func (c Client) WorktreeList(ctx context.Context, repo string) ([]Worktree, error) {
+	out, err := c.run(ctx, repo, worktreeListArgs...)
+	if err != nil {
+		return nil, err
+	}
+	wts, err := parseWorktreeList(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", command(repo, worktreeListArgs), err)
+	}
+	return wts, nil
+}
+
+// parseWorktreeList parses the porcelain format with -z: one "label value" or bare "label"
+// attribute per NUL-terminated line, each record opened by "worktree <path>" and closed by an empty
+// line. git says new attributes may be added, so a label this does not know is skipped.
+func parseWorktreeList(out []byte) ([]Worktree, error) {
+	lines, err := nulFields(out)
+	if err != nil {
+		return nil, err
+	}
+	var wts []Worktree
+	open := false
+	for _, line := range lines {
+		if line == "" {
+			if !open {
+				return nil, errors.New("empty record")
+			}
+			open = false
+			continue
+		}
+		label, value, _ := strings.Cut(line, " ")
+		if label == "worktree" {
+			if open {
+				return nil, fmt.Errorf("record for %q is not terminated", wts[len(wts)-1].Path)
+			}
+			wts = append(wts, Worktree{Path: value})
+			open = true
+			continue
+		}
+		if !open {
+			return nil, fmt.Errorf("attribute %q outside a record", line)
+		}
+		wt := &wts[len(wts)-1]
+		switch label {
+		case "HEAD":
+			wt.HEAD = value
+		case "branch":
+			wt.Branch = value
+		case "detached":
+			wt.Detached = true
+		case "bare":
+			wt.Bare = true
+		case "locked":
+			wt.Locked, wt.LockReason = true, value
+		case "prunable":
+			wt.Prunable, wt.PrunableReason = true, value
+		}
+	}
+	if open {
+		return nil, fmt.Errorf("record for %q is not terminated", wts[len(wts)-1].Path)
+	}
+	return wts, nil
+}
+
+// headReachableArgs is the reachability call: every ref whose history contains HEAD.
+var headReachableArgs = []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)"}
+
+// HeadReachable reports whether some ref contains the HEAD of the worktree at dir:
+// `git for-each-ref --contains HEAD` prints at least one line. It is false for a commit made on a
+// detached HEAD, which a reset to base would orphan, so such a slot is dirty however clean Status
+// says it is (docs/contracts.md (f), the definition of clean; A5).
+func (c Client) HeadReachable(ctx context.Context, dir string) (bool, error) {
+	out, err := c.run(ctx, dir, headReachableArgs...)
+	if err != nil {
+		return false, err
+	}
+	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// nulFields splits NUL-terminated output into its fields. Output that does not end in a NUL was cut
+// short, and is an error.
+func nulFields(out []byte) ([]string, error) {
+	if len(out) == 0 {
+		return nil, nil
+	}
+	if out[len(out)-1] != 0 {
+		return nil, errors.New("output does not end in a NUL")
+	}
+	return strings.Split(string(out[:len(out)-1]), "\x00"), nil
+}
