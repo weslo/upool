@@ -36,8 +36,8 @@ func TestAnythingElsePrintsUsageAndFails(t *testing.T) {
 		if stdout != "" {
 			t.Errorf("%q: stdout = %q, want empty", args, stdout)
 		}
-		if stderr != usage {
-			t.Errorf("%q: stderr = %q, want the usage text", args, stderr)
+		if want := usage(commandTable); stderr != want {
+			t.Errorf("%q: stderr = %q, want the usage text %q", args, stderr, want)
 		}
 	}
 }
