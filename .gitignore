@@ -13,5 +13,8 @@ go.work.sum
 # Claude Code worktrees and upool slots
 .claude/worktrees/
 
+# Project-local agent skills, kept per developer and never committed
+.claude/skills/
+
 # macOS
 .DS_Store
