@@ -95,8 +95,7 @@ func (c Client) run(ctx context.Context, dir string, args ...string) ([]byte, er
 		return nil, err
 	}
 	if res.ExitCode != 0 {
-		msg := strings.TrimSpace(string(res.Stderr))
-		return nil, fmt.Errorf("%s: exit status %d: %s", command(dir, args), res.ExitCode, msg)
+		return nil, exitError(dir, args, res)
 	}
 	return res.Stdout, nil
 }
@@ -265,6 +264,83 @@ func (c Client) HeadReachable(ctx context.Context, dir string) (bool, error) {
 		return false, err
 	}
 	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
+// topLevelArgs is the call that finds a worktree's top level.
+var topLevelArgs = []string{"rev-parse", "--show-toplevel"}
+
+// TopLevel returns the top level of the worktree containing dir, from
+// `git rev-parse --show-toplevel`, with symlinks resolved as git resolves them. `upool init` takes
+// it as the repository to register (docs/design.md, "One binary, a dozen commands, one JSON file
+// per pool", the `init` row). Outside a repository it is an error carrying git's message.
+func (c Client) TopLevel(ctx context.Context, dir string) (string, error) {
+	out, err := c.run(ctx, dir, topLevelArgs...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(out), "\n"), nil
+}
+
+// LsFiles returns the tracked paths under dir that match pathspecs, relative to dir and in git's
+// order, from `git ls-files -z -- <pathspecs…>`; no pathspecs lists every tracked path. `init`
+// refuses a repository that tracks anything under Library/, Unity's own check (docs/design.md,
+// "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without
+// `-x`").
+func (c Client) LsFiles(ctx context.Context, dir string, pathspecs ...string) ([]string, error) {
+	args := append([]string{"ls-files", "-z", "--"}, pathspecs...)
+	out, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	files, err := nulFields(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", command(dir, args), err)
+	}
+	return files, nil
+}
+
+// CheckIgnore reports whether git ignores path, relative to dir, from
+// `git check-ignore -q -- <path>`: exit 0 when it does, 1 when it does not. The path need not
+// exist, and a path inside an ignored directory is ignored, which is how `init` and `doctor` find
+// that .claude/worktrees is ignored (docs/contracts.md (g) Clone recipe, the preconditions).
+func (c Client) CheckIgnore(ctx context.Context, dir, path string) (bool, error) {
+	_, ignored, err := c.runStatus(ctx, dir, "check-ignore", "-q", "--", path)
+	return ignored, err
+}
+
+// SymbolicRef returns the ref that the symbolic ref name points at, shortened, from
+// `git symbolic-ref -q --short <name>`, and false when name is not a symbolic ref: it does not
+// exist, or it is a detached HEAD. `init` defaults base to refs/remotes/origin/HEAD's target, else
+// HEAD's, the current branch (A17).
+func (c Client) SymbolicRef(ctx context.Context, dir, name string) (string, bool, error) {
+	res, ok, err := c.runStatus(ctx, dir, "symbolic-ref", "-q", "--short", name)
+	if err != nil || !ok {
+		return "", false, err
+	}
+	return strings.TrimSuffix(string(res.Stdout), "\n"), true, nil
+}
+
+// runStatus runs a call that answers with its exit status, 0 for yes and 1 for no, as
+// check-ignore and symbolic-ref -q do. It returns the result and whether the call exited 0; any
+// other exit is an error carrying git's stderr.
+func (c Client) runStatus(ctx context.Context, dir string, args ...string) (Result, bool, error) {
+	res, err := c.Runner.Run(ctx, dir, c.Env, args...)
+	if err != nil {
+		return Result{}, false, err
+	}
+	switch res.ExitCode {
+	case 0:
+		return res, true, nil
+	case 1:
+		return res, false, nil
+	}
+	return Result{}, false, exitError(dir, args, res)
+}
+
+// exitError is the error for a call that exited with a status its caller does not expect.
+func exitError(dir string, args []string, res Result) error {
+	msg := strings.TrimSpace(string(res.Stderr))
+	return fmt.Errorf("%s: exit status %d: %s", command(dir, args), res.ExitCode, msg)
 }
 
 // nulFields splits NUL-terminated output into its fields. Output that does not end in a NUL was cut

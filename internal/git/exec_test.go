@@ -309,3 +309,99 @@ func TestExecReportsEndedContext(t *testing.T) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
 }
+
+func TestTopLevelFindsTheRootFromASubdirectory(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	sub := filepath.Join(repo, "Assets", "Scripts")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, dir := range []string{repo, sub} {
+		got, err := c.TopLevel(context.Background(), dir)
+		if err != nil || got != repo {
+			t.Errorf("TopLevel(%s) = %q, %v, want %q, nil", dir, got, err, repo)
+		}
+	}
+}
+
+func TestTopLevelOutsideARepositoryIsAnError(t *testing.T) {
+	dir := tempDir(t)
+	env := append(gitEnv(t), "GIT_CEILING_DIRECTORIES="+filepath.Dir(dir))
+	c := Client{Runner: Exec{}, Env: env}
+	got, err := c.TopLevel(context.Background(), dir)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("TopLevel = %q, %v, want an error saying not a git repository", got, err)
+	}
+}
+
+// Only tracked paths under the pathspec are listed: not an ignored file, not a sibling whose name
+// starts the same way, and not a Library/ below the top level.
+func TestLsFilesListsTrackedPathsUnderThePathspec(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	writeFile(t, repo, ".gitignore", "/Library/\n")
+	writeFile(t, repo, "Library/ignored.asset", "x\n")
+	writeFile(t, repo, "Library/forced.asset", "x\n")
+	writeFile(t, repo, "Library/sub/forced two.asset", "x\n")
+	writeFile(t, repo, "LibraryNotes.txt", "x\n")
+	writeFile(t, repo, "Packages/Library/x.txt", "x\n")
+	must(t, c, repo, "add", ".gitignore", "LibraryNotes.txt", "Packages")
+	must(t, c, repo, "add", "-f", "Library/forced.asset", "Library/sub/forced two.asset")
+	got, err := c.LsFiles(context.Background(), repo, "Library/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"Library/forced.asset", "Library/sub/forced two.asset"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LsFiles(Library/) = %q, want %q", got, want)
+	}
+	if got, err := c.LsFiles(context.Background(), repo, "Assets/"); err != nil || len(got) != 0 {
+		t.Errorf("LsFiles(Assets/) = %q, %v, want nothing", got, err)
+	}
+}
+
+// A path inside an ignored directory is ignored whether the directory or a parent is named, and
+// whether or not the path exists.
+func TestCheckIgnoreReportsPathsUnderIgnoredDirectories(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	for gitignore, want := range map[string]bool{
+		"":                      false,
+		"/Library/\n":           false,
+		".claude/\n":            true,
+		"/.claude/worktrees/\n": true,
+		".claude/worktrees/\n":  true,
+	} {
+		writeFile(t, repo, ".gitignore", gitignore)
+		got, err := c.CheckIgnore(context.Background(), repo, ".claude/worktrees/slot-1")
+		if err != nil || got != want {
+			t.Errorf(".gitignore %q: CheckIgnore = %v, %v, want %v, nil", gitignore, got, err, want)
+		}
+	}
+}
+
+func TestSymbolicRefFollowsHEADAndOriginHEAD(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	ctx := context.Background()
+	if got, ok, err := c.SymbolicRef(ctx, repo, "HEAD"); err != nil || !ok || got != "main" {
+		t.Errorf("SymbolicRef(HEAD) = %q, %v, %v, want main, true, nil", got, ok, err)
+	}
+	const originHEAD = "refs/remotes/origin/HEAD"
+	if got, ok, err := c.SymbolicRef(ctx, repo, originHEAD); err != nil || ok {
+		t.Errorf("SymbolicRef(%s) with no origin = %q, %v, %v, want false, nil", originHEAD, got,
+			ok, err)
+	}
+	must(t, c, repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+	must(t, c, repo, "symbolic-ref", originHEAD, "refs/remotes/origin/trunk")
+	if got, ok, err := c.SymbolicRef(ctx, repo, originHEAD); err != nil || !ok ||
+		got != "origin/trunk" {
+		t.Errorf("SymbolicRef(%s) = %q, %v, %v, want origin/trunk, true, nil", originHEAD, got, ok,
+			err)
+	}
+	must(t, c, repo, "checkout", "-q", "--detach")
+	if got, ok, err := c.SymbolicRef(ctx, repo, "HEAD"); err != nil || ok {
+		t.Errorf("SymbolicRef(HEAD) when detached = %q, %v, %v, want false, nil", got, ok, err)
+	}
+}
