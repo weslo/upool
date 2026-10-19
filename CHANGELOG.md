@@ -57,3 +57,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   in either file is an error naming the file and the key, and so is any key in `.upool.toml` but
   `ready`, `max_slots` and `base`. The TOML parser is `github.com/BurntSushi/toml`, upool's first
   dependency. Nothing calls it yet.
+- `internal/output`: `Fail` and `NoTarget`, the errors commands return, which carry the exit code
+  (`ExitFailure` or `ExitNoTarget`), an upool error code (`COMMAND_FAILED`, the Unity CLI's
+  catch-all, or `NOT_IN_SLOT`; every code is a constant there) and a message, and keep both
+  through `fmt.Errorf` wrapping. `Render` prints a command's result and returns its exit code: with
+  `--json`, only the envelope on stdout, indented as the Unity CLI's are, with the error as its
+  one `errors[]` entry; otherwise the data's human form on stdout and each warning and the error
+  on stderr after `upool: `. Any other error renders as `COMMAND_FAILED` with exit 1. Nothing
+  calls it yet.

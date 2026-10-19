@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "command": "which",
+  "data": {
+    "name": "slot-1",
+    "path": "${repo}/.claude/worktrees/slot-1"
+  },
+  "errors": [],
+  "warnings": []
+}
