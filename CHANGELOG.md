@@ -65,3 +65,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   one `errors[]` entry; otherwise the data's human form on stdout and each warning and the error
   on stderr after `upool: `. Any other error renders as `COMMAND_FAILED` with exit 1. Nothing
   calls it yet.
+- `upool hook worktree-create`, `upool hook worktree-remove` and `upool hook session-start`, what
+  the hook scripts will run, print `not implemented` on stderr and nothing on stdout until M2.
+  `worktree-create` exits 1; the other two exit 0, as Claude Code's hooks need
+  (docs/contracts.md (d)). On success a hook will print exactly the worktree path and a newline.
+- The command dispatcher every command plugs into: a table of commands, each with its own flags
+  accepted before or after its arguments (`upool take x --json`) and ending at `--`, and `--json`
+  on every command, including for a bad flag. Usage lists only the commands that work, so it is
+  unchanged for now.

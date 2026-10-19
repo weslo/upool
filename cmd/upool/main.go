@@ -2,9 +2,10 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"io"
 	"os"
+	"time"
 
 	"github.com/weslo/upool/internal/output"
 )
@@ -12,10 +13,22 @@ import (
 // version is set at build time with -ldflags "-X main.version=<version>".
 var version = "dev"
 
-const usage = `usage: upool --version
+// commandTable is upool's commands by name. Each arrives with its own issue, so usage lists only
+// those that work (docs/design.md, "One binary, a dozen commands, one JSON file per pool").
+var commandTable = map[string]command{}
 
-No commands are implemented yet; docs/design.md lists the planned ones.
-`
+// hookTable is the events `upool hook <event>` handles, one per hook script that `upool setup`
+// installs. The handlers are stubs until M2; failExit follows docs/contracts.md (d).
+var hookTable = map[string]hook{
+	"worktree-create": {handle: notImplemented, failExit: output.ExitFailure},
+	"worktree-remove": {handle: notImplemented, failExit: output.ExitOK},
+	"session-start":   {handle: notImplemented, failExit: output.ExitOK},
+}
+
+// errNotImplemented is what the stub hook handlers return.
+var errNotImplemented = errors.New("not implemented")
+
+func notImplemented(*invocation) (string, error) { return "", errNotImplemented }
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
@@ -24,12 +37,14 @@ func main() {
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
 // exit code.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
-	if len(args) == 1 && args[0] == "--version" {
-		if _, err := fmt.Fprintln(stdout, "upool", version); err != nil {
-			return output.ExitFailure
-		}
-		return output.ExitOK
+	d := dispatcher{
+		commands: commandTable,
+		hooks:    hookTable,
+		stdin:    stdin,
+		stdout:   stdout,
+		stderr:   stderr,
+		getenv:   getenv,
+		now:      time.Now,
 	}
-	_, _ = fmt.Fprint(stderr, usage) // nowhere left to report a failure to write stderr
-	return output.ExitFailure
+	return d.run(args)
 }
