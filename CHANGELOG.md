@@ -96,3 +96,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the commands that record `unity --version`, `unity cache key` and `claude --version` as new
   captures for M1's `doctor` and staleness checks, and what each must show. `testdata/README.md`
   lists the three captures as pending until a human runs the check and adds them.
+- `docs/manual-gates/M0.md`, M0's other four checks, run in order after the first: with the real
+  Unity CLI and Hub installed, `go test -race -shuffle=on ./...` passes and starts no Unity
+  process; the darwin tests in `internal/paths`, `internal/proc` and `internal/statefile` pass on
+  the home volume, which `internal/paths` reports case-insensitive; the tests leave `~/.upool` and
+  `~/.config/upool` as they found them; and the M1 captures are committed, with
+  `make check-paths check-captures` passing. A last section says what to record on the Build plan
+  issue.
