@@ -145,8 +145,8 @@ replaces **pending** with the version and the date.
 
 | Capture | Source | Version | What it is |
 |---|---|---|---|
-| `version.*` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `unity --version`: the version `doctor` checks against 1.0.0-beta.13 |
-| `cache-key.*` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `unity cache key <project> --format json` from inside the project, the path positional, so it is `${cwd}`: the key the staleness checks compare across checkouts (contracts (g) step 7, A20) |
+| `version.raw.txt`, `version.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | 1.0.0-beta.13, 2026-10-19 | `unity --version`: the version `doctor` checks against 1.0.0-beta.13 |
+| `cache-key.json`, `cache-key.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | 1.0.0-beta.13, 2026-10-19 | `unity cache key <project> --format json` from inside the project, the path positional, so it is `${cwd}`: the key the staleness checks compare across checkouts (contracts (g) step 7, A20) |
 
 ### captures/claude/
 
@@ -157,7 +157,7 @@ way.
 
 | Capture | Source | Version | What it is |
 |---|---|---|---|
-| `version.txt`, `version.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | **pending** | `claude --version`, from the CLI on `PATH` or the desktop app's bundled binary (the row says which): the version `doctor` checks against 2.1.295 |
+| `version.txt`, `version.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | 2.1.299, 2026-10-19 | `claude --version`, from the desktop app's bundled binary, there being no CLI on `PATH`: the version `doctor` checks against 2.1.295 |
 
 ### captures/git/
 
