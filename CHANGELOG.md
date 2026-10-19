@@ -73,3 +73,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   accepted before or after its arguments (`upool take x --json`) and ending at `--`, and `--json`
   on every command, including for a bad flag. Usage lists only the commands that work, so it is
   unchanged for now.
+- `internal/unity/fake`, the fake `unity` tests run in place of the Unity CLI: the test binary
+  itself, which `fake.Main` turns into the CLI when it runs as `unity`. `fake.Install` puts a
+  `unity` symlink to it first on a PATH for the code under test, with a script of replies, each a
+  capture from `testdata/captures/unity/` with its variables filled, an exit code and optional
+  stderr. Each call logs its arguments, `UNITY_PROJECT_PATH` and working directory, which
+  `Calls` returns, and takes the next reply; a call beyond the script fails the test. It never
+  chooses an Editor. Nothing uses it yet.
