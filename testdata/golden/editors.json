@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "editors": [
+    {
+      "project": "${repo}/.claude/worktrees/slot-1",
+      "pid": 51207,
+      "mode": "gui",
+      "opened_by_upool": true,
+      "cold_import": false,
+      "charge_gb": 2.5
+    },
+    {
+      "project": "${repo}/.claude/worktrees/slot-2",
+      "pid": 51388,
+      "mode": "headless",
+      "opened_by_upool": false,
+      "cold_import": true,
+      "charge_gb": 4.5
+    }
+  ]
+}

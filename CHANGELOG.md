@@ -28,3 +28,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `<repo-key>` (the path's last element, `-`, and 8 hex digits of its SHA-256); `Lookup`, an exact
   match on the canonical path; and `Add`, which registers a path idempotently under the lock.
   Nothing calls it yet.
+- `internal/pool` and `internal/ledger`: the `~/.upool/pools/<repo-key>/state.json` types (the
+  pool, its slots with the seven lifecycle states as constants, leases, agent worktrees and the
+  refresh job) and the `~/.upool/editors.json` type, each with `Load` and an `Update` that rewrites
+  the file under the lock. Both decode strictly and refuse a `schema_version` above 1, as the
+  registry does; nullable fields round-trip `null`, empty arrays are written as `[]`, and every
+  timestamp is written in UTC. The `refresh_job` object's keys, which the contract had left
+  unnamed, are `pid` and `pid_start`. Nothing calls them yet.
