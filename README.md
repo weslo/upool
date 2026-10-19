@@ -49,8 +49,8 @@ passes.
 | Status | Milestone | What it delivers | Release |
 |---|---|---|---|
 | ✅ Done | Bootstrap ([#1](https://github.com/weslo/upool/pull/1), [#7](https://github.com/weslo/upool/pull/7)) | The repository: design documents, spike captures, CI and the release pipeline | — |
-| 🔜 Next | Planning ([#2](https://github.com/weslo/upool/issues/2)) | Each milestone below split into issues, once the questions under "Decide before Stage 2" in [docs/contracts.md](docs/contracts.md) are answered | — |
-| ⬜ Planned | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
+| ✅ Done | Planning ([#2](https://github.com/weslo/upool/issues/2), [#10](https://github.com/weslo/upool/pull/10)) | Each milestone below split into issues, listed in the [Build plan](https://github.com/weslo/upool/issues/107) | — |
+| 🚧 In progress | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
 | ⬜ Planned | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
 | ⬜ Planned | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `setup` and the worktree hooks that hand each session a slot, plus the skill and `run` | v0.2.0 |
 | ⬜ Planned | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
