@@ -1,7 +1,7 @@
 // Package pool is a repository's pool of slots: the ~/.upool/pools/<repo-key>/state.json document
 // with its slots, their leases, the agent worktrees the create hook made and the one refresh job
-// (docs/contracts.md (e) State schemas), and the slot states of docs/contracts.md (f) Slot
-// lifecycle.
+// (docs/contracts.md (e) State schemas), and docs/contracts.md (f) Slot lifecycle: the slot states,
+// and Next, the transitions between them as a pure function.
 //
 // The keys are exactly the snake_case names in (e), in its order, and the types its JSON types
 // (A7). Timestamps are written as RFC 3339 strings in UTC; a process start time keeps the

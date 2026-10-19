@@ -35,3 +35,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   registry does; nullable fields round-trip `null`, empty arrays are written as `[]`, and every
   timestamp is written in UTC. The `refresh_job` object's keys, which the contract had left
   unnamed, are `pid` and `pid_start`. Nothing calls them yet.
+- `internal/pool`: `Next`, the slot lifecycle of docs/contracts.md (f) as a pure function from a
+  slot and an event to the slot's next state: one of the seven states, or `removed` or `missing`.
+  The events are the causes in (f), each carrying the facts `Next` cannot read from the slot
+  (clean or dirty, holder alive, Editor live, a ready slot available); an event (f) gives no
+  transition for is an error naming the state and the event. Nothing calls it yet.
