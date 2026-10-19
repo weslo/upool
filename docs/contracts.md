@@ -218,7 +218,7 @@ Pool:
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool.toml` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool.toml` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
 | `agent_worktrees` | array of agent worktree | subagent worktrees made by the hook | hook (subagent branch), `prune` | D-route |
-| `refresh_job` | object (PID, start time) or null | the one detached top-up job, announced in `status` | `take --confirm` (spawns), `refresh` (clears) | D-build; D-env |
+| `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`: its PID and that process's start time, so a reused PID is not mistaken for it | `take --confirm` (spawns), `refresh` (clears) | D-build; D-env; A7 |
 
 Slot:
 
@@ -476,7 +476,9 @@ Appendix A) could start. All five are answered (maintainer decision, 2026-10-18)
   has a top-level `schema_version`, `1` for now: a newer version is refused, an older one migrated
   on the next write. `<repo-key>` is the canonical path's last element, a `-`, and the first 8 hex
   digits of the SHA-256 of the canonical path (`down-3f9a1c2e`); the registry stays the source of
-  truth ((e)).
+  truth ((e)). The `refresh_job` object, which (e) first gave only as "PID, start time", has the
+  keys `pid` and `pid_start`, both always set while the object is present
+  ([#38](https://github.com/weslo/upool/issues/38)).
 - **10. Clone commit.** The spike cloned at the seed's `HEAD`; the design says "clone at base". If
   base differs from the seed's `HEAD`, step 6 leaves the slot dirty. Must the seed be at base, or
   does the recipe check base out after step 6?
