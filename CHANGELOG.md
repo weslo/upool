@@ -23,3 +23,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   of a state file under that lock that writes a temporary file, syncs it and renames it over the
   old one; and `Read`, which needs no lock because every write is a whole-file rename. Nothing calls
   it yet.
+- `internal/registry`: the `~/.upool/registry.json` type, decoded strictly (an unknown key is an
+  error, and a `schema_version` above 1 is refused with a message to upgrade upool); `Key`, the
+  `<repo-key>` (the path's last element, `-`, and 8 hex digits of its SHA-256); `Lookup`, an exact
+  match on the canonical path; and `Add`, which registers a path idempotently under the lock.
+  Nothing calls it yet.
