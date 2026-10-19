@@ -18,3 +18,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kern.proc.pid` (an unsupported error off macOS), and `Alive`, which counts a process alive only
   while its PID and start time both match, so a reused PID reads as dead. The `Checker` interface
   lets later tests inject liveness. Nothing calls it yet.
+- `internal/statefile`: `Lock`, the one `flock` on `~/.upool/lock` (creating `~/.upool` with mode
+  0700), which waits for the holder and gives up when its context ends; `Update`, a read-modify-write
+  of a state file under that lock that writes a temporary file, syncs it and renames it over the
+  old one; and `Read`, which needs no lock because every write is a whole-file rename. Nothing calls
+  it yet.
