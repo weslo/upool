@@ -40,3 +40,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   The events are the causes in (f), each carrying the facts `Next` cannot read from the slot
   (clean or dirty, holder alive, Editor live, a ready slot available); an event (f) gives no
   transition for is an error naming the state and the event. Nothing calls it yet.
+- `internal/git`, the only way upool runs git: a `Runner` interface and its default, `Exec`, which
+  runs `git -C <dir>` with `UNITY_SKIP_HOOKS=1` in an environment the caller passes, and refuses a
+  relative directory rather than depend on the working directory. On top of it, `Status` parses
+  `status --porcelain=v1 -z` (with untracked files listed whatever `status.showUntrackedFiles`
+  says), `WorktreeList` parses `worktree list --porcelain -z` (path, HEAD, branch or detached,
+  bare, locked and prunable with their reasons), and `HeadReachable` reports whether
+  `for-each-ref --contains HEAD` prints a ref, the second half of a clean slot. Nothing calls it
+  yet.
