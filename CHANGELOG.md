@@ -48,3 +48,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bare, locked and prunable with their reasons), and `HeadReachable` reports whether
   `for-each-ref --contains HEAD` prints a ref, the second half of a clean slot. Nothing calls it
   yet.
+- `internal/config`: `Load` resolves each setting from a flag, its `UPOOL_*` variable
+  (`UPOOL_MAX_SLOTS`), the repository's `.upool.toml`, `~/.config/upool/config.toml`, then its
+  default, and records which one set it. The defaults are `ready` 1, `max_slots` 3,
+  `max_cold_imports` 1, `editor_ram_budget_gb` physical RAM / 4, `editor_ram_gb` 2.5,
+  `helper_ram_gb` 2, `shrink_after` 14d, `agent_ttl` 24h and `confirm_timeout` 60s; `base` and
+  `max_editors` have none. Durations are a whole number and one unit, s, m, h or d. An unknown key
+  in either file is an error naming the file and the key, and so is any key in `.upool.toml` but
+  `ready`, `max_slots` and `base`. The TOML parser is `github.com/BurntSushi/toml`, upool's first
+  dependency. Nothing calls it yet.
