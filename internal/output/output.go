@@ -1,5 +1,8 @@
 // Package output holds upool's JSON envelope and exit codes, which mirror the Unity CLI's own
-// (docs/contracts.md, section d).
+// (docs/contracts.md, section d), the errors commands return to carry them, and Render, which
+// prints every command's result the same way. Envelope is strict, unlike the lenient
+// unity.Response, so nothing the Unity CLI adds can reach upool's output (docs/design.md,
+// "Repository, CI and Homebrew distribution").
 package output
 
 import "encoding/json"

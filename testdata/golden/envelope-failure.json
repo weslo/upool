@@ -1,0 +1,12 @@
+{
+  "success": false,
+  "command": "which",
+  "data": null,
+  "errors": [
+    {
+      "code": "NOT_IN_SLOT",
+      "message": "${repo}/Assets is not inside a slot"
+    }
+  ],
+  "warnings": []
+}
