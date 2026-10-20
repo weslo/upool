@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -17,21 +18,25 @@ import (
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
 )
 
 // doctorUsage is doctor's usage line, which its handler also names when it refuses arguments.
-// --fix arrives with #56.
-const doctorUsage = "doctor [--json]"
+const doctorUsage = "doctor [--fix] [--json]"
 
 // doctorCommand is `upool doctor`: it checks the preconditions of the pool containing the working
 // directory, as status finds it, and reports each check (docs/design.md, "One binary, a dozen
-// commands, one JSON file per pool", the `doctor` row). It changes nothing, beyond the scratch
-// files the clone-sharing check writes and removes, and exits 1 if any check fails. The version
-// checks arrive with #57, and the hook and Editor checks in M2 and M3.
+// commands, one JSON file per pool", the `doctor` row). Without --fix it changes nothing, beyond
+// the scratch files the clone-sharing check writes and removes; with --fix it also repairs what is
+// safe to repair, interrupted clones and slots whose directory is gone (#56). It exits 1 if any
+// check fails. The version checks arrive with #57, and the hook and Editor checks in M2 and M3.
 var doctorCommand = command{
 	usage: doctorUsage,
-	setup: func(*flag.FlagSet) handler { return doctor },
+	setup: func(fs *flag.FlagSet) handler {
+		fix := fs.Bool("fix", false, "remove interrupted clones and drop missing ready slots")
+		return func(inv *invocation) (any, []string, error) { return doctor(inv, *fix) }
+	},
 }
 
 // checkResult is how a check came out.
@@ -87,8 +92,8 @@ var cloudFolders = []string{"Library/CloudStorage", "Library/Mobile Documents"}
 
 // doctor is doctor's handler. It reads the pool as status does, under ~/.upool/lock, then runs
 // every check without the lock, so that a check that fails to run is reported as a failure rather
-// than ending the run.
-func doctor(inv *invocation) (any, []string, error) {
+// than ending the run. A repair takes the lock again only to write state.json.
+func doctor(inv *invocation, fix bool) (any, []string, error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
 			doctorUsage)
@@ -124,7 +129,9 @@ func doctor(inv *invocation) (any, []string, error) {
 	g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
 	r := doctorReport{Repo: repo}
 	r.Checks = append(r.Checks, gitignoreCheck(ctx, g, repo), libraryCheck(ctx, g, repo))
-	r.Checks = append(r.Checks, slotChecks(ctx, g, repo, rp.pool.Slots)...)
+	sd := slotDoctor{g: g, proc: proc.System{}, home: inv.home, key: rp.repo.Key, repo: repo,
+		fix: fix}
+	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
 	}
@@ -172,49 +179,192 @@ func libraryCheck(ctx context.Context, g git.Client, repo string) doctorCheck {
 	return doctorCheck{checkLibrary, checkPass, "git tracks nothing under Library/"}
 }
 
-// slotChecks checks each slot: it is a directory on disk, `git worktree list` lists it, and its
-// .git file points back into <repo>/.git/worktrees/ (docs/design.md, "Route Claude Code's
-// worktrees through the pool: three branches in one hook": doctor checks that each slot is still
-// on disk and in the list; docs/contracts.md (f) transition 17). A creating slot is skipped: it is
-// mid-clone, or its owner died, which `doctor --fix` handles (#56).
-func slotChecks(ctx context.Context, g git.Client, repo string, slots []pool.Slot) []doctorCheck {
-	listed, listErr := worktreeKeys(ctx, g, repo)
-	var checks []doctorCheck
+// slotDoctor checks a pool's slots and, with fix, repairs those that are safe to repair.
+type slotDoctor struct {
+	g    git.Client
+	proc proc.Checker
+	// home and key name the pool's state.json, and repo is its main checkout.
+	home, key, repo string
+	fix             bool
+	// listed are the keys of the worktrees `git worktree list` lists, or listErr why it could not
+	// be read.
+	listed  map[string]bool
+	listErr error
+}
+
+// checks checks each slot in slots, the pool as doctor read it: a creating slot by its owner, and
+// every other slot by its presence.
+func (d *slotDoctor) checks(ctx context.Context, slots []pool.Slot) []doctorCheck {
+	d.listed, d.listErr = worktreeKeys(ctx, d.g, d.repo)
+	checks := make([]doctorCheck, 0, len(slots))
 	for _, s := range slots {
 		if s.State == pool.StateCreating {
-			continue
+			checks = append(checks, d.creating(ctx, s))
+		} else {
+			checks = append(checks, d.present(ctx, s))
 		}
-		var problems []string
-		info, err := os.Stat(s.Path)
-		onDisk := err == nil && info.IsDir()
-		switch {
-		case errors.Is(err, os.ErrNotExist):
-			problems = append(problems, s.Path+" is not on disk")
-		case err != nil:
-			problems = append(problems, fmt.Sprintf("checking %s: %v", s.Path, err))
-		case !onDisk:
-			problems = append(problems, s.Path+" is not a directory")
-		}
-		if listErr != nil {
-			problems = append(problems, listErr.Error())
-		} else if key, err := paths.Key(s.Path); err != nil {
-			problems = append(problems, err.Error())
-		} else if !listed[key] {
-			problems = append(problems, "git worktree list does not list it")
-		}
-		if onDisk {
-			if err := clone.CheckBacklink(repo, s.Path); err != nil {
-				problems = append(problems, err.Error())
-			}
-		}
-		if len(problems) > 0 {
-			checks = append(checks, doctorCheck{s.Name, checkFail, strings.Join(problems, "; ")})
-			continue
-		}
-		checks = append(checks, doctorCheck{s.Name, checkPass,
-			"on disk, in git worktree list, and its .git points back into the main checkout"})
 	}
 	return checks
+}
+
+// creating checks a creating slot: it passes while its owner is alive, and fails once the owner is
+// gone, the clone interrupted. With fix, an interrupted clone is removed: its worktree
+// registration if `git worktree add` got that far, then its directory and its entry
+// (docs/contracts.md (f) transition 21; A4). A slot with no owner recorded counts as one whose
+// owner is gone.
+func (d *slotDoctor) creating(ctx context.Context, s pool.Slot) doctorCheck {
+	alive, err := ownerAlive(d.proc, s)
+	if err != nil {
+		return failedCheck(s.Name, err)
+	}
+	if alive {
+		return doctorCheck{s.Name, checkPass, fmt.Sprintf("being cloned by process %d",
+			*s.OwnerPID)}
+	}
+	reason := "an interrupted clone: its owner is gone"
+	if s.OwnerPID != nil {
+		reason = fmt.Sprintf("an interrupted clone: its owner, process %d, is gone", *s.OwnerPID)
+	}
+	if !d.fix {
+		return doctorCheck{s.Name, checkFail, reason + "; upool doctor --fix removes it"}
+	}
+	if err := d.removeClone(ctx, s); err != nil {
+		return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; removing it: %v", reason, err)}
+	}
+	return doctorCheck{s.Name, checkPass, "fixed: removed " + reason}
+}
+
+// ownerAlive reports whether a slot's owner, the process cloning it, is alive at the start time
+// recorded with it, so that a reused PID reads as dead (internal/proc).
+func ownerAlive(c proc.Checker, s pool.Slot) (bool, error) {
+	if s.OwnerPID == nil || s.OwnerPIDStart == nil {
+		return false, nil
+	}
+	alive, err := c.Alive(*s.OwnerPID, *s.OwnerPIDStart)
+	if err != nil {
+		return false, fmt.Errorf("checking %s's owner, process %d: %w", s.Name, *s.OwnerPID, err)
+	}
+	return alive, nil
+}
+
+// removeClone removes the interrupted clone s: `git worktree remove --force` if git lists it,
+// its directory, and then its entry, if it is still the same creating slot. It refuses a path
+// outside the pool's .claude/worktrees, so that a damaged state.json cannot point it elsewhere.
+func (d *slotDoctor) removeClone(ctx context.Context, s pool.Slot) error {
+	key, err := paths.Key(s.Path)
+	if err != nil {
+		return err
+	}
+	worktrees, err := paths.Key(filepath.Join(d.repo, filepath.FromSlash(".claude/worktrees")))
+	if err != nil {
+		return err
+	}
+	if key == worktrees || !paths.Within(key, worktrees) {
+		return fmt.Errorf("%s is not inside %s/.claude/worktrees", s.Path, d.repo)
+	}
+	if d.listErr != nil {
+		return d.listErr
+	}
+	if d.listed[key] {
+		if err := d.g.WorktreeRemove(ctx, d.repo, s.Path); err != nil {
+			return err
+		}
+	}
+	if err := os.RemoveAll(s.Path); err != nil {
+		return fmt.Errorf("removing %s: %w", s.Path, err)
+	}
+	return d.drop(ctx, s, pool.DeadOwner{})
+}
+
+// present checks that a slot is a directory on disk, that `git worktree list` lists it, and that
+// its .git file points back into <repo>/.git/worktrees/ (docs/design.md, "Route Claude Code's
+// worktrees through the pool: three branches in one hook": doctor checks that each slot is still
+// on disk and in the list). A slot that has left the disk is missing ((f) transition 17); with fix,
+// a ready one with no lease is dropped from the pool, after `git worktree prune` drops its
+// registration, so that a later clone replaces it. A leased, parked or needs-reset slot is never
+// dropped, and nor is one whose directory is still on disk, which may hold work.
+func (d *slotDoctor) present(ctx context.Context, s pool.Slot) doctorCheck {
+	var problems []string
+	info, err := os.Stat(s.Path)
+	gone := errors.Is(err, os.ErrNotExist)
+	onDisk := err == nil && info.IsDir()
+	switch {
+	case gone:
+		problems = append(problems, s.Path+" is not on disk")
+	case err != nil:
+		problems = append(problems, fmt.Sprintf("checking %s: %v", s.Path, err))
+	case !onDisk:
+		problems = append(problems, s.Path+" is not a directory")
+	}
+	key, keyErr := paths.Key(s.Path)
+	switch {
+	case d.listErr != nil:
+		problems = append(problems, d.listErr.Error())
+	case keyErr != nil:
+		problems = append(problems, keyErr.Error())
+	case !d.listed[key]:
+		problems = append(problems, "git worktree list does not list it")
+	}
+	if onDisk {
+		if err := clone.CheckBacklink(d.repo, s.Path); err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
+	if len(problems) == 0 {
+		return doctorCheck{s.Name, checkPass,
+			"on disk, in git worktree list, and its .git points back into the main checkout"}
+	}
+	reason := strings.Join(problems, "; ")
+	if !gone || s.State != pool.StateReady || s.Lease != nil || d.listErr != nil ||
+		keyErr != nil {
+		return doctorCheck{s.Name, checkFail, reason}
+	}
+	if !d.fix {
+		return doctorCheck{s.Name, checkFail, reason + "; upool doctor --fix drops it"}
+	}
+	if err := d.dropMissing(ctx, s, d.listed[key]); err != nil {
+		return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; dropping it: %v", reason, err)}
+	}
+	return doctorCheck{s.Name, checkPass, "fixed: dropped it from the pool, since " + reason}
+}
+
+// dropMissing drops the missing ready slot s from the pool, after `git worktree prune` if git still
+// lists it.
+func (d *slotDoctor) dropMissing(ctx context.Context, s pool.Slot, listed bool) error {
+	if listed {
+		if err := d.g.WorktreePrune(ctx, d.repo); err != nil {
+			return err
+		}
+	}
+	return d.drop(ctx, s, pool.Missing{})
+}
+
+// drop removes s's entry from state.json under the lock, once the pool lifecycle agrees that e
+// takes it out of the pool, and only if the entry is still as doctor read it: same name, path,
+// state and lease. Anything else means another process changed it meanwhile, which is an error.
+func (d *slotDoctor) drop(ctx context.Context, s pool.Slot, e pool.Event) error {
+	if _, err := pool.Next(s, e); err != nil {
+		return err
+	}
+	return pool.Update(ctx, d.home, d.key, func(p *pool.Pool) error {
+		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
+		if i < 0 {
+			return fmt.Errorf("%s left state.json meanwhile", s.Name)
+		}
+		cur := p.Slots[i]
+		if cur.Path != s.Path || cur.State != s.State || (cur.Lease == nil) != (s.Lease == nil) ||
+			!samePID(cur.OwnerPID, s.OwnerPID) {
+			return fmt.Errorf("%s changed in state.json meanwhile: it is now %s", s.Name,
+				cur.State)
+		}
+		p.Slots = slices.Delete(p.Slots, i, i+1)
+		return nil
+	})
+}
+
+// samePID reports whether two optional PIDs are the same.
+func samePID(a, b *int) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
 }
 
 // worktreeKeys returns the internal/paths keys of every worktree `git worktree list` lists in

@@ -295,7 +295,146 @@ func TestDoctorRefusesArguments(t *testing.T) {
 	p := newDoctorPool(t)
 	r := runIn(t, p.Env, p.Repo, "doctor", "slot-1")
 	if r.code != output.ExitFailure || !strings.Contains(r.stderr,
-		`unexpected arguments ["slot-1"]; usage: upool doctor [--json]`) {
+		`unexpected arguments ["slot-1"]; usage: upool doctor [--fix] [--json]`) {
 		t.Errorf("exit = %d, stderr %q; want 1 and the usage", r.code, r.stderr)
+	}
+}
+
+// findCheck returns the check named name among checks, failing the test if there is none.
+func findCheck(t *testing.T, checks []doctorCheck, name string) doctorCheck {
+	t.Helper()
+	for _, c := range checks {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("checks = %+v, want one named %s", checks, name)
+	return doctorCheck{}
+}
+
+// slotNames returns the names of the slots in the harness pool's state.json.
+func (p doctorPool) slotNames(t *testing.T) []string {
+	t.Helper()
+	pl, err := pool.Load(p.Home, p.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, s := range pl.Slots {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
+// listed reports whether `git worktree list` in the harness pool lists path.
+func (p doctorPool) listed(path string) bool {
+	return strings.Contains(p.Git("worktree", "list", "--porcelain"), "worktree "+path+"\n")
+}
+
+// A ready slot with no lease whose directory is gone is reported, and --fix drops it, pruning a
+// registration git still has, so that a later clone replaces it ((f) transition 17).
+func TestDoctorFixDropsAMissingReadySlot(t *testing.T) {
+	tests := []struct {
+		name   string
+		remove func(t *testing.T, p doctorPool)
+		reason string
+	}{
+		{"its directory deleted", func(t *testing.T, p doctorPool) {
+			if err := os.RemoveAll(p.slot("slot-2")); err != nil {
+				t.Fatal(err)
+			}
+		}, "SLOT is not on disk"},
+		{"removed with git worktree remove", func(_ *testing.T, p doctorPool) {
+			p.Git("worktree", "remove", p.slot("slot-2"))
+		}, "SLOT is not on disk; git worktree list does not list it"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newDoctorPool(t)
+			tt.remove(t, p)
+			reason := strings.ReplaceAll(tt.reason, "SLOT", p.slot("slot-2"))
+
+			r := runIn(t, p.Env, p.Repo, "doctor", "--json")
+			if c := findCheck(t, doctorChecks(t, r), "slot-2"); r.code != output.ExitFailure ||
+				c.Result != checkFail || c.Reason != reason+"; upool doctor --fix drops it" {
+				t.Errorf("without --fix: exit %d, slot-2 %s %q; want 1 and a failure saying "+
+					"--fix drops it", r.code, c.Result, c.Reason)
+			}
+			if names := p.slotNames(t); len(names) != 2 {
+				t.Errorf("slots without --fix = %v, want both kept", names)
+			}
+
+			r = runIn(t, p.Env, p.Repo, "doctor", "--fix", "--json")
+			if r.code != output.ExitOK {
+				t.Errorf("--fix: exit = %d, want %d", r.code, output.ExitOK)
+			}
+			checkResults(t, doctorChecks(t, r), "slot-2", checkPass,
+				"fixed: dropped it from the pool, since "+reason)
+			if names := p.slotNames(t); strings.Join(names, " ") != "slot-1" {
+				t.Errorf("slots after --fix = %v, want slot-1 alone", names)
+			}
+			if p.listed(p.slot("slot-2")) {
+				t.Errorf("git worktree list still lists slot-2 after --fix")
+			}
+
+			r = runIn(t, p.Env, p.Repo, "doctor", "--json")
+			if checks := doctorChecks(t, r); r.code != output.ExitOK ||
+				len(checks) != len(wantChecks())-1 {
+				t.Errorf("doctor after --fix: exit %d, checks %+v; want 0, without slot-2",
+					r.code, checks)
+			}
+		})
+	}
+}
+
+// --fix never touches a leased, unconfirmed, parked or needs-reset slot, nor one whose directory
+// is still on disk, which may hold work: each stays reported, and stays in the pool.
+func TestDoctorFixLeavesEveryOtherMissingSlot(t *testing.T) {
+	gone := func(t *testing.T, p doctorPool) {
+		if err := os.RemoveAll(p.slot("slot-2")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lease := &pool.Lease{LeaseID: "id", Holder: "alice", AcquiredAt: clock, Confirmed: true,
+		Lane: "script"}
+	tests := []struct {
+		name   string
+		state  pool.State
+		lease  *pool.Lease
+		breaks func(t *testing.T, p doctorPool)
+	}{
+		{"leased", pool.StateLeased, lease, gone},
+		{"leased, unconfirmed", pool.StateLeasedUnconfirmed, lease, gone},
+		{"parked", pool.StateParked, nil, gone},
+		{"needs-reset", pool.StateNeedsReset, nil, gone},
+		{"on disk but unregistered", pool.StateReady, nil, func(t *testing.T, p doctorPool) {
+			if err := os.RemoveAll(p.Path(".git/worktrees/slot-2")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newDoctorPool(t)
+			p.update(t, func(pl *pool.Pool) {
+				pl.Slots[1].State, pl.Slots[1].Lease = tt.state, tt.lease
+			})
+			tt.breaks(t, p)
+			_, statErr := os.Stat(p.slot("slot-2"))
+
+			r := runIn(t, p.Env, p.Repo, "doctor", "--fix", "--json")
+			c := findCheck(t, doctorChecks(t, r), "slot-2")
+			if r.code != output.ExitFailure || c.Result != checkFail ||
+				strings.Contains(c.Reason, "--fix") {
+				t.Errorf("exit %d, slot-2 %s %q; want 1 and a failure --fix does not offer to "+
+					"repair", r.code, c.Result, c.Reason)
+			}
+			if names := p.slotNames(t); len(names) != 2 {
+				t.Errorf("slots = %v, want slot-2 kept", names)
+			}
+			if _, err := os.Stat(p.slot("slot-2")); (err == nil) != (statErr == nil) {
+				t.Errorf("slot-2 on disk: before %v, after %v; want it as it was", statErr, err)
+			}
+		})
 	}
 }

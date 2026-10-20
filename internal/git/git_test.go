@@ -104,6 +104,13 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 				"/work/repo/.claude/worktrees/slot-1", "0123abcd")
 		}, []string{"worktree", "add", "--no-checkout", "--detach",
 			"/work/repo/.claude/worktrees/slot-1", "0123abcd"}},
+		{"WorktreeRemove", func(c Client) error {
+			return c.WorktreeRemove(context.Background(), "/work/slot",
+				"/work/repo/.claude/worktrees/slot-1")
+		}, []string{"worktree", "remove", "--force", "/work/repo/.claude/worktrees/slot-1"}},
+		{"WorktreePrune", func(c Client) error {
+			return c.WorktreePrune(context.Background(), "/work/slot")
+		}, []string{"worktree", "prune"}},
 		{"Reset", func(c Client) error {
 			return c.Reset(context.Background(), "/work/slot")
 		}, []string{"reset", "-q"}},
