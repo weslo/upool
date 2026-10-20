@@ -473,3 +473,36 @@ func TestDiffSidesAndCheckoutPathOnAWorktree(t *testing.T) {
 		t.Errorf("status = %q, want README.md and bin.dat still modified", status)
 	}
 }
+
+// WorktreeRemove takes a worktree with untracked files away, registration and directory, and
+// WorktreePrune drops the registration of one whose directory is already gone.
+func TestWorktreeRemoveAndPrune(t *testing.T) {
+	c := realGit(t)
+	repo, head := newRepo(t, c)
+	removed, deleted := filepath.Join(repo, "wt-removed"), filepath.Join(repo, "wt-deleted")
+	for _, wt := range []string{removed, deleted} {
+		if err := c.WorktreeAdd(context.Background(), repo, wt, head); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, removed, "half-copied.txt", "partial\n")
+	if err := c.WorktreeRemove(context.Background(), repo, removed); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(deleted); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.WorktreePrune(context.Background(), repo); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(removed); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s: stat error = %v, want it removed", removed, err)
+	}
+	wts, err := c.WorktreeList(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wts) != 1 || wts[0].Path != repo {
+		t.Errorf("worktrees = %+v, want the main one alone", wts)
+	}
+}

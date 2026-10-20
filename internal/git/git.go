@@ -438,6 +438,22 @@ func (c Client) WorktreeAdd(ctx context.Context, repo, path, commit string) erro
 	return err
 }
 
+// WorktreeRemove removes the worktree at path, its registration and its directory, run in repo:
+// `git worktree remove --force <path>`, which removes it even with changes or untracked files.
+// `doctor --fix` removes an interrupted clone with it (docs/contracts.md (f) transition 21).
+func (c Client) WorktreeRemove(ctx context.Context, repo, path string) error {
+	_, err := c.run(ctx, repo, "worktree", "remove", "--force", path)
+	return err
+}
+
+// WorktreePrune drops the registration of every worktree of the repository at repo whose directory
+// is gone: `git worktree prune`. `doctor --fix` runs it before dropping a missing slot's entry
+// (docs/contracts.md (f) transition 17).
+func (c Client) WorktreePrune(ctx context.Context, repo string) error {
+	_, err := c.run(ctx, repo, "worktree", "prune")
+	return err
+}
+
 // Reset rebuilds the index of the worktree at dir from HEAD and leaves its files alone:
 // `git reset -q` ((g) step 6). After WorktreeAdd's --no-checkout the index is empty, so this is
 // what makes the copied files tracked again; it took 7.3 to 7.7 s in the spike.

@@ -199,3 +199,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Outside every registered pool, doctor exits 1. `internal/paths` gains `StatVolume` (macOS), and
   `internal/clone` gains `ProbeSharing` (macOS) and exports `CheckBacklink`. Usage now lists
   doctor.
+- `upool doctor --fix` repairs what is safe to repair. A `creating` slot is now checked by its owner
+  process. It passes while that process is alive at its recorded start time, and fails as an
+  interrupted clone once the process is gone. `--fix` removes an interrupted clone: its worktree
+  registration with `git worktree remove --force` if git lists it, its directory, and its entry,
+  refusing any path outside `.claude/worktrees`. A `ready` slot with no lease whose directory is
+  gone fails, as before, and the reason now says `--fix` drops it. `--fix` runs
+  `git worktree prune` and drops the entry, so that a later clone replaces it. A fixed check
+  passes with a reason that starts `fixed:`. `--fix` never touches a leased, unconfirmed, parked
+  or `needs-reset` slot, nor a slot whose directory is still on disk. `internal/git` gains
+  `WorktreeRemove` and `WorktreePrune`.
