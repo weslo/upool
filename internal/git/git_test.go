@@ -79,6 +79,10 @@ func TestReadsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.TopLevel(context.Background(), "/work/slot")
 			return err
 		}, []string{"rev-parse", "--show-toplevel"}},
+		{"Head", func(c Client) error {
+			_, err := c.Head(context.Background(), "/work/slot")
+			return err
+		}, []string{"rev-parse", "HEAD"}},
 		{"LsFiles", func(c Client) error {
 			_, err := c.LsFiles(context.Background(), "/work/slot", "Library/")
 			return err
@@ -301,6 +305,10 @@ func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 		},
 		"TopLevel": func(c Client) error {
 			_, err := c.TopLevel(context.Background(), "/work/none")
+			return err
+		},
+		"Head": func(c Client) error {
+			_, err := c.Head(context.Background(), "/work/none")
 			return err
 		},
 		"LsFiles": func(c Client) error {

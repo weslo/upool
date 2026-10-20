@@ -335,6 +335,20 @@ func TestTopLevelOutsideARepositoryIsAnError(t *testing.T) {
 	}
 }
 
+func TestHeadNamesTheCheckedOutCommit(t *testing.T) {
+	c := realGit(t)
+	repo, first := newRepo(t, c)
+	if got, err := c.Head(context.Background(), repo); err != nil || got != first {
+		t.Errorf("Head = %q, %v, want %q, nil", got, err, first)
+	}
+	writeFile(t, repo, "README.md", "changed\n")
+	must(t, c, repo, "commit", "-q", "-am", "second")
+	must(t, c, repo, "checkout", "-q", "--detach", first)
+	if got, err := c.Head(context.Background(), repo); err != nil || got != first {
+		t.Errorf("Head on a detached HEAD = %q, %v, want %q, nil", got, err, first)
+	}
+}
+
 // Only tracked paths under the pathspec are listed: not an ignored file, not a sibling whose name
 // starts the same way, and not a Library/ below the top level.
 func TestLsFilesListsTrackedPathsUnderThePathspec(t *testing.T) {

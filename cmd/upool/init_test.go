@@ -218,6 +218,45 @@ func TestInitRefusesOpenEditor(t *testing.T) {
 	}
 }
 
+// A stale Library would hand the first slot, and every clone after it, a recompile
+// (docs/contracts.md (g) step 1), so init refuses it and says how to bring it current.
+func TestInitRefusesStaleLibrary(t *testing.T) {
+	const fix = "open the project in Unity, let it finish importing and compiling, quit it, " +
+		"then run upool init again"
+	tests := []struct {
+		name   string
+		setup  func(t *testing.T) *testenv.Env
+		reason string
+	}{
+		{"a script newer than ScriptAssemblies", func(t *testing.T) *testenv.Env {
+			return newInitEnv(t, testenv.StaleLibrary())
+		}, testenv.PlayerScript + " (modified 2026-10-12T23:00:00Z) is newer than " +
+			"Library/ScriptAssemblies (modified 2026-10-12T22:00:00Z)"},
+		{"no ScriptAssemblies", func(t *testing.T) *testenv.Env {
+			e := newInitEnv(t)
+			if err := os.RemoveAll(e.Path("Library/ScriptAssemblies")); err != nil {
+				t.Fatal(err)
+			}
+			return e
+		}, "it has no Library/ScriptAssemblies"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := tt.setup(t)
+			r := runIn(t, e, e.Repo, "init")
+			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
+				"the Library in "+e.Repo+" is stale: "+tt.reason+": "+fix)
+		})
+	}
+}
+
+// Uncommitted changes are not staleness: the clone reverts what the seed left ((g) step 7).
+func TestInitAcceptsADirtyCheckoutWithACurrentLibrary(t *testing.T) {
+	e := newInitEnv(t, testenv.UncommittedChanges())
+	mustInit(t, e)
+	checkPool(t, e, "main")
+}
+
 // addOrigin gives e's repository an origin, a bare repository beside it whose default branch is
 // trunk, holding main's commit, fetched so that refs/remotes/origin/HEAD is origin/trunk.
 func addOrigin(t *testing.T, e *testenv.Env) {
