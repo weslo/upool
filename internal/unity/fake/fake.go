@@ -7,6 +7,9 @@
 // UNITY_PROJECT_PATH and working directory, then answered with the next scripted capture from
 // testdata/captures/unity/ and its exit code. It never chooses an Editor: targeting rules
 // (docs/contracts.md (c)) are asserted on the recorded calls, on what upool sent.
+//
+// InstallClaude makes the same fake answer as `claude`, from testdata/captures/claude/, for the one
+// Claude Code command upool runs itself: `claude --version`, which doctor checks (#57).
 package fake
 
 import (
@@ -18,13 +21,18 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/weslo/upool/internal/pathvars"
 )
 
-// name is the command the fake answers to, and the name of the symlink Install makes.
-const name = "unity"
+// The commands the fake answers to: the names of the symlinks Install and InstallClaude make, and
+// of the directories under testdata/captures/ their replies come from.
+const (
+	unityName  = "unity"
+	claudeName = "claude"
+)
 
 // The files Install writes beside the symlink, where the fake finds them.
 const (
@@ -34,11 +42,16 @@ const (
 
 // Reply is one scripted answer: what a call prints and how it exits.
 type Reply struct {
-	// Capture is a file under testdata/captures/unity/, such as "close-gui.json". Once its
-	// variables are filled, it is written to stdout byte for byte.
+	// Capture is a file under testdata/captures/unity/, or testdata/captures/claude/ for
+	// InstallClaude, such as "close-gui.json". Once its variables are filled, it is written to
+	// stdout byte for byte.
 	Capture string
 	// Vars fill the capture's path variables (testdata/README.md) with the test's own paths.
 	Vars []pathvars.Var
+	// Replace, when not empty, makes the reply a copy of the capture with each old string replaced
+	// by its new one, given in pairs as strings.NewReplacer takes them: a value no CLI printed,
+	// such as a version below upool's minimum. The capture itself is never changed.
+	Replace []string
 	// Exit is the exit code: the one docs/contracts.md (d) gives for the capture.
 	Exit int
 	// Stderr, when not empty, is written to stderr.
@@ -57,7 +70,7 @@ type Call struct {
 	Dir string
 }
 
-// Unity is an installed fake.
+// Unity is an installed fake: a fake Unity CLI, or from InstallClaude a fake Claude Code CLI.
 type Unity struct {
 	// PATH is the PATH to hand to the code under test: the fake's directory, then this process's
 	// PATH, so that git and the rest are still found.
@@ -66,6 +79,9 @@ type Unity struct {
 	t   testing.TB
 	dir string
 }
+
+// Dir is the directory holding the fake's symlink, to put on a PATH of the test's own making.
+func (u *Unity) Dir() string { return u.dir }
 
 // answer is a Reply as the fake replays it, with its capture read and filled.
 type answer struct {
@@ -79,6 +95,19 @@ type answer struct {
 // the script exits non-zero and fails the test when it ends.
 func Install(t testing.TB, replies ...Reply) *Unity {
 	t.Helper()
+	return install(t, unityName, replies)
+}
+
+// InstallClaude makes a fake `claude`, as Install makes a fake `unity`, answering with captures
+// from testdata/captures/claude/.
+func InstallClaude(t testing.TB, replies ...Reply) *Unity {
+	t.Helper()
+	return install(t, claudeName, replies)
+}
+
+// install makes a fake that answers as name.
+func install(t testing.TB, name string, replies []Reply) *Unity {
+	t.Helper()
 	dir := t.TempDir()
 	// A relative os.Args[0] would resolve against the symlink's directory, not the cwd.
 	self, err := filepath.Abs(os.Args[0])
@@ -90,13 +119,16 @@ func Install(t testing.TB, replies ...Reply) *Unity {
 	}
 	script := make([]answer, 0, len(replies))
 	for _, r := range replies {
-		raw, err := os.ReadFile(filepath.Join(capturesDir(), r.Capture))
+		raw, err := os.ReadFile(filepath.Join(capturesDir(name), r.Capture))
 		if err != nil {
 			t.Fatal(err)
 		}
 		filled, err := pathvars.Fill(string(raw), r.Vars...)
 		if err != nil {
 			t.Fatalf("filling %s: %v", r.Capture, err)
+		}
+		if len(r.Replace) > 0 {
+			filled = strings.NewReplacer(r.Replace...).Replace(filled)
 		}
 		a := answer{Stdout: []byte(filled), Stderr: []byte(r.Stderr), Exit: r.Exit}
 		script = append(script, a)
@@ -120,8 +152,8 @@ func Install(t testing.TB, replies ...Reply) *Unity {
 			return
 		}
 		if len(calls) > len(script) {
-			t.Errorf("unity called %d times, want at most %d, the script's replies; "+
-				"calls beyond it: %+v", len(calls), len(script), calls[len(script):])
+			t.Errorf("%s called %d times, want at most %d, the script's replies; "+
+				"calls beyond it: %+v", name, len(calls), len(script), calls[len(script):])
 		}
 	})
 	return u
@@ -137,11 +169,11 @@ func (u *Unity) Calls() []Call {
 	return calls
 }
 
-// capturesDir is testdata/captures/unity/, found from this file's path so that it does not depend
-// on which package's tests are running.
-func capturesDir() string {
+// capturesDir is testdata/captures/<name>/, found from this file's path so that it does not
+// depend on which package's tests are running.
+func capturesDir(name string) string {
 	_, file, _, _ := runtime.Caller(0) // without it, the read that follows names the missing file
-	return filepath.Join(filepath.Dir(file), "..", "..", "..", "testdata", "captures", "unity")
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "testdata", "captures", name)
 }
 
 // readLog reads the calls the log at path records; a missing log means no calls yet.

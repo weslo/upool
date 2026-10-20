@@ -209,3 +209,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   passes with a reason that starts `fixed:`. `--fix` never touches a leased, unconfirmed, parked
   or `needs-reset` slot, nor a slot whose directory is still on disk. `internal/git` gains
   `WorktreeRemove` and `WorktreePrune`.
+- `upool doctor` checks the Unity CLI's and Claude Code's versions. It runs `unity --version` and
+  `claude --version`, found on the caller's `PATH` and bounded at 10 s each, and reads the version
+  as the captures print it (`1.0.0-beta.13`, `2.1.299 (Claude Code)`). The checks `unity-cli` and
+  `claude-code` fail below 1.0.0-beta.13 and 2.1.295, compared by semantic-versioning precedence:
+  beta.12 is below beta.13, beta.100 above it, and 1.0.0 above every 1.0.0 prerelease. They also
+  fail when the version cannot be read or `--version` fails, and warn when the tool is not on
+  `PATH`. The fake `unity` in tests (`internal/unity/fake`) now also answers as `claude`, from
+  `testdata/captures/claude/` (`InstallClaude`), and `Reply.Replace` replays a copy of a capture
+  with a value substituted.

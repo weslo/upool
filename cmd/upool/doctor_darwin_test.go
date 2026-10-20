@@ -13,6 +13,8 @@ import (
 func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 	e := newInitEnv(t)
 	mustInit(t, e)
+	unity, claude := capturedTools(t)
+	fakeTools(t, e, unity, claude)
 	r := runIn(t, e, e.Repo, "doctor", "--json")
 	if r.code != output.ExitOK {
 		t.Fatalf("exit = %d, want %d; stdout %s", r.code, output.ExitOK, r.stdout)
@@ -29,7 +31,7 @@ func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 		}
 	}
 	want := []string{checkGitignore, checkLibrary, "slot-1", checkCloneSharing, checkStateVolume,
-		checkLeases}
+		checkLeases, "unity-cli", "claude-code"}
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("checks = %v, want %v", names, want)
 	}

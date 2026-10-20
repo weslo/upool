@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // The tests of `upool doctor`. The harness pool is made by hand rather than by init, so that the
@@ -26,6 +29,9 @@ import (
 type doctorPool struct {
 	*testenv.Env
 	key string
+	// tools is whether a fake unity and claude are on PATH; without them only git is, and the
+	// version checks warn.
+	tools bool
 }
 
 // slot returns the path of the harness pool's slot name.
@@ -39,9 +45,20 @@ func newDoctorPool(t *testing.T) doctorPool {
 	return doctorPoolIn(t, newInitEnv(t))
 }
 
-// doctorPoolIn makes e's repository a harness pool, as newDoctorPool does.
+// doctorPoolIn makes e's repository a harness pool, as newDoctorPool does. Only git is on its
+// PATH, so doctor runs neither this machine's unity and claude nor, at the cost of a process
+// each, the fakes; installTools puts the fakes there.
 func doctorPoolIn(t *testing.T, e *testenv.Env) doctorPool {
 	t.Helper()
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := tempDir(t)
+	if err := os.Symlink(git, filepath.Join(bin, "git")); err != nil {
+		t.Fatal(err)
+	}
+	e.Setenv("PATH", bin)
 	p := doctorPool{Env: e}
 	p.WriteFile(".gitignore", readFile(t, p.Env, ".gitignore")+worktreesLine+"\n")
 	var slots []pool.Slot
@@ -59,6 +76,48 @@ func doctorPoolIn(t *testing.T, e *testenv.Env) doctorPool {
 		pl.Repo, pl.Base, pl.Slots = p.Repo, testenv.Base, slots
 	})
 	return p
+}
+
+// doctorRuns is how many `--version` calls the fakes fakeTools installs answer: more doctor runs
+// than any one test makes.
+const doctorRuns = 8
+
+// capturedVersion is a reply with the version capture file under testdata/captures/<tool>/ and
+// the exit code its .exit file records.
+func capturedVersion(t *testing.T, tool, file string) fake.Reply {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", tool, "version.exit"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fake.Reply{Capture: file, Exit: exit}
+}
+
+// fakeTools installs a fake unity and a fake claude first on e's PATH, each answering doctorRuns
+// calls with its reply, so that doctor never runs this machine's own.
+func fakeTools(t *testing.T, e *testenv.Env, unity, claude fake.Reply) (u, c *fake.Unity) {
+	t.Helper()
+	u = fake.Install(t, slices.Repeat([]fake.Reply{unity}, doctorRuns)...)
+	c = fake.InstallClaude(t, slices.Repeat([]fake.Reply{claude}, doctorRuns)...)
+	e.Setenv("PATH", c.Dir()+string(os.PathListSeparator)+u.PATH)
+	return u, c
+}
+
+// installTools puts a fake unity and claude on the harness pool's PATH, as fakeTools does.
+func (p *doctorPool) installTools(t *testing.T, unity, claude fake.Reply) (u, c *fake.Unity) {
+	t.Helper()
+	p.tools = true
+	return fakeTools(t, p.Env, unity, claude)
+}
+
+// capturedTools are the replies that print the captured versions.
+func capturedTools(t *testing.T) (unity, claude fake.Reply) {
+	t.Helper()
+	return capturedVersion(t, "unity", "version.raw.txt"), capturedVersion(t, "claude", "version.txt")
 }
 
 // update changes the harness pool's state.json with f.
@@ -96,23 +155,28 @@ func wantChecks() []string {
 	if runtime.GOOS == "darwin" {
 		names = append(names, checkCloneSharing)
 	}
-	return append(names, checkStateVolume, checkLeases)
+	return append(names, checkStateVolume, checkLeases, "unity-cli", "claude-code")
 }
 
 // checkResults fails the test unless checks are wantChecks, in order, each passing but the one
-// named in odd, which has that result and a reason containing reason.
-func checkResults(t *testing.T, checks []doctorCheck, odd string, result checkResult,
-	reason string) {
+// named in odd, which has that result and a reason containing reason. Without p's tools on PATH
+// the version checks warn instead.
+func (p doctorPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
+	result checkResult, reason string) {
 	t.Helper()
 	var names []string
 	for _, c := range checks {
 		names = append(names, c.Name)
+		want := checkPass
+		if !p.tools && (c.Name == "unity-cli" || c.Name == "claude-code") {
+			want = checkWarn
+		}
 		switch {
 		case c.Name == odd && (c.Result != result || !strings.Contains(c.Reason, reason)):
 			t.Errorf("%s: %s, %q; want %s, with a reason containing %q", c.Name, c.Result,
 				c.Reason, result, reason)
-		case c.Name != odd && c.Result != checkPass:
-			t.Errorf("%s: %s, %q; want pass", c.Name, c.Result, c.Reason)
+		case c.Name != odd && c.Result != want:
+			t.Errorf("%s: %s, %q; want %s", c.Name, c.Result, c.Reason, want)
 		}
 	}
 	if want := wantChecks(); strings.Join(names, " ") != strings.Join(want, " ") {
@@ -120,6 +184,9 @@ func checkResults(t *testing.T, checks []doctorCheck, odd string, result checkRe
 	}
 }
 
+// A healthy pool passes every check, from wherever in it doctor runs. The fake unity and claude go
+// on PATH only for the last run, the human form, since each call of one is a run of this test
+// binary; until then the version checks warn.
 func TestDoctorPassesAHealthyPool(t *testing.T) {
 	p := newDoctorPool(t)
 	for _, dir := range []string{p.Repo, p.Path("Assets/Scripts"), p.slot("slot-2")} {
@@ -127,9 +194,11 @@ func TestDoctorPassesAHealthyPool(t *testing.T) {
 		if r.code != output.ExitOK || r.stderr != "" {
 			t.Errorf("from %s: exit = %d, stderr = %q, want 0 and empty", dir, r.code, r.stderr)
 		}
-		checkResults(t, doctorChecks(t, r), "", "", "")
+		p.checkResults(t, doctorChecks(t, r), "", "", "")
 	}
 
+	unity, claude := capturedTools(t)
+	p.installTools(t, unity, claude)
 	r := runIn(t, p.Env, p.Repo, "doctor")
 	lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
 	if lines[0] != p.Repo || len(lines) != 1+len(wantChecks()) {
@@ -191,7 +260,7 @@ func TestDoctorFailsEachBrokenPrecondition(t *testing.T) {
 				env.Errors[0].Code != string(output.CodeCommandFailed) {
 				t.Errorf("errors = %+v, want one COMMAND_FAILED, %q", env.Errors, want)
 			}
-			checkResults(t, doctorChecks(t, r), tt.check, checkFail, reason)
+			p.checkResults(t, doctorChecks(t, r), tt.check, checkFail, reason)
 
 			r = runIn(t, p.Env, p.Repo, "doctor")
 			if r.code != output.ExitFailure || r.stderr != "upool: "+want+"\n" ||
@@ -251,8 +320,8 @@ func TestDoctorWarnsAboutALeaseWithNoHolderPIDOlderThanAgentTTL(t *testing.T) {
 				odd = checkLeases
 			}
 			checks := doctorChecks(t, r)
-			checkResults(t, checks, odd, tt.result, tt.reason)
-			if c := checks[len(checks)-1]; !strings.Contains(c.Reason, tt.reason) {
+			p.checkResults(t, checks, odd, tt.result, tt.reason)
+			if c := findCheck(t, checks, checkLeases); !strings.Contains(c.Reason, tt.reason) {
 				t.Errorf("leases reason = %q, want it to contain %q", c.Reason, tt.reason)
 			}
 		})
@@ -274,7 +343,7 @@ func TestDoctorWarnsWhenStateIsInACloudSyncedFolder(t *testing.T) {
 	if r.code != output.ExitOK {
 		t.Errorf("exit = %d, want %d", r.code, output.ExitOK)
 	}
-	checkResults(t, doctorChecks(t, r), checkStateVolume, checkWarn,
+	p.checkResults(t, doctorChecks(t, r), checkStateVolume, checkWarn,
 		"~/.upool resolves to "+cloud+", inside ~/Library/CloudStorage, which a cloud service "+
 			"syncs: flock is advisory there")
 }
@@ -368,7 +437,7 @@ func TestDoctorFixDropsAMissingReadySlot(t *testing.T) {
 			if r.code != output.ExitOK {
 				t.Errorf("--fix: exit = %d, want %d", r.code, output.ExitOK)
 			}
-			checkResults(t, doctorChecks(t, r), "slot-2", checkPass,
+			p.checkResults(t, doctorChecks(t, r), "slot-2", checkPass,
 				"fixed: dropped it from the pool, since "+reason)
 			if names := p.slotNames(t); strings.Join(names, " ") != "slot-1" {
 				t.Errorf("slots after --fix = %v, want slot-1 alone", names)

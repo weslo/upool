@@ -251,3 +251,34 @@ func TestConcurrentCallsTakeEachReplyOnce(t *testing.T) {
 		t.Errorf("calls = %d, want %d", got, n)
 	}
 }
+
+// InstallClaude answers as `claude`, from testdata/captures/claude/, and Replace makes a reply a
+// copy of its capture with a value substituted, leaving the capture as it is.
+func TestClaudeRepliesWithItsCapturesAndReplaceSubstitutes(t *testing.T) {
+	c := InstallClaude(t,
+		Reply{Capture: "version.txt"},
+		Reply{Capture: "version.txt", Replace: []string{"2.1.299", "2.1.294"}, Exit: 3})
+	cwd := tempDir(t)
+	path := filepath.Join(c.Dir(), "claude")
+	run := func() (int, string, string) {
+		t.Helper()
+		return mustRun(t, &exec.Cmd{Path: path, Args: []string{"claude", "--version"},
+			Env: []string{"PATH=" + c.PATH, "HOME=" + tempDir(t)}, Dir: cwd})
+	}
+	if code, stdout, stderr := run(); code != 0 || stdout != "2.1.299 (Claude Code)\n" ||
+		stderr != "" {
+		t.Errorf("first call: exit %d, stdout %q, stderr %q; want 0 and the capture", code,
+			stdout, stderr)
+	}
+	if code, stdout, _ := run(); code != 3 || stdout != "2.1.294 (Claude Code)\n" {
+		t.Errorf("second call: exit %d, stdout %q; want 3 and the substituted copy", code, stdout)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "..", "testdata", "captures", "claude",
+		"version.txt"))
+	if err != nil || string(raw) != "2.1.299 (Claude Code)\n" {
+		t.Errorf("the capture = %q, %v; want it unchanged", raw, err)
+	}
+	if calls := c.Calls(); len(calls) != 2 || !slices.Equal(calls[0].Args, []string{"--version"}) {
+		t.Errorf("calls = %+v, want two of --version", calls)
+	}
+}
