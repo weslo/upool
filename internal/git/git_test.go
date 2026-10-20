@@ -56,8 +56,8 @@ func replying(stdout string) (Client, *fakeRunner) {
 	return Client{Runner: r, Env: []string{"HOME=/home"}}, r
 }
 
-// Each read sends exactly one git call, in the directory and environment it was given.
-func TestReadsSendOneCallWithTheirArguments(t *testing.T) {
+// Each read and write sends exactly one git call, in the directory and environment it was given.
+func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 	tests := []struct {
 		name string
 		read func(Client) error
@@ -95,6 +95,27 @@ func TestReadsSendOneCallWithTheirArguments(t *testing.T) {
 			_, _, err := c.SymbolicRef(context.Background(), "/work/slot", "HEAD")
 			return err
 		}, []string{"symbolic-ref", "-q", "--short", "HEAD"}},
+		{"Commit", func(c Client) error {
+			_, err := c.Commit(context.Background(), "/work/slot", "main")
+			return err
+		}, []string{"rev-parse", "--verify", "main^{commit}"}},
+		{"WorktreeAdd", func(c Client) error {
+			return c.WorktreeAdd(context.Background(), "/work/slot",
+				"/work/repo/.claude/worktrees/slot-1", "0123abcd")
+		}, []string{"worktree", "add", "--no-checkout", "--detach",
+			"/work/repo/.claude/worktrees/slot-1", "0123abcd"}},
+		{"Reset", func(c Client) error {
+			return c.Reset(context.Background(), "/work/slot")
+		}, []string{"reset", "-q"}},
+		{"CheckoutFiles", func(c Client) error {
+			return c.CheckoutFiles(context.Background(), "/work/slot")
+		}, []string{"checkout", "--", "."}},
+		{"Clean", func(c Client) error {
+			return c.Clean(context.Background(), "/work/slot")
+		}, []string{"clean", "-fd"}},
+		{"CheckoutDetach", func(c Client) error {
+			return c.CheckoutDetach(context.Background(), "/work/slot", "main")
+		}, []string{"checkout", "-q", "--detach", "main"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -287,7 +308,7 @@ func TestExitOneIsAnAnswerNotAnError(t *testing.T) {
 }
 
 // A git call that exits non-zero is an error naming the call and carrying git's stderr, from every
-// read.
+// read and write.
 func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 	stderr := "fatal: not a git repository (or any of the parent directories): .git\n"
 	reads := map[string]func(Client) error{
@@ -322,6 +343,25 @@ func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 		"SymbolicRef": func(c Client) error {
 			_, _, err := c.SymbolicRef(context.Background(), "/work/none", "HEAD")
 			return err
+		},
+		"Commit": func(c Client) error {
+			_, err := c.Commit(context.Background(), "/work/none", "main")
+			return err
+		},
+		"WorktreeAdd": func(c Client) error {
+			return c.WorktreeAdd(context.Background(), "/work/none", "/work/slot", "0123abcd")
+		},
+		"Reset": func(c Client) error {
+			return c.Reset(context.Background(), "/work/none")
+		},
+		"CheckoutFiles": func(c Client) error {
+			return c.CheckoutFiles(context.Background(), "/work/none")
+		},
+		"Clean": func(c Client) error {
+			return c.Clean(context.Background(), "/work/none")
+		},
+		"CheckoutDetach": func(c Client) error {
+			return c.CheckoutDetach(context.Background(), "/work/none", "main")
 		},
 	}
 	for name, read := range reads {
