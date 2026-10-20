@@ -40,6 +40,9 @@ type invocation struct {
 	home string
 	// now is the clock, so that tests of timeouts and ages need no sleeps.
 	now func() time.Time
+	// pid is upool's own process ID, which a clone records as its slot's owner_pid
+	// (docs/contracts.md (e) State schemas; A4).
+	pid int
 }
 
 // handler runs a command and returns its data, its warnings and its error, which output.Render
@@ -80,6 +83,7 @@ type dispatcher struct {
 	environ  func() []string
 	getwd    func() (string, error)
 	now      func() time.Time
+	pid      int
 }
 
 // run dispatches args, the command line after the program name, and returns the exit code.
@@ -169,6 +173,7 @@ func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 		getwd:   d.getwd,
 		home:    d.getenv("HOME"),
 		now:     d.now,
+		pid:     d.pid,
 	}
 }
 

@@ -3,11 +3,16 @@
 // base (docs/design.md, "Repository, CI and Homebrew distribution", the internal/clone row of the
 // layout).
 //
-// So far it holds step 1's staleness check without the cache key, which #63 adds. A clone
-// inherits whatever its seed's Library holds, so a seed whose Library is behind its scripts hands
-// every clone a recompile: the spike's first three clones each reimported 10 assets instead of 1
-// for that reason (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD,
-// refresh on handout, reset without `-x`"; spike §1).
+// It holds steps 1 to 8: Recipe.Clone, which copies the whole checkout rather than checking out
+// and cloning only the Library, so a slot costs about no disk and carries the gitignored agent
+// files (docs/design.md, "Why clone the whole checkout rather than check out and clone the
+// Library"), and step 1's staleness check. Still to come are choosing a seed other than init's
+// main checkout (step 0, A19), refreshing a stale seed (M4) and comparing the cache key (#63).
+//
+// A clone inherits whatever its seed's Library holds, so a seed whose Library is behind its
+// scripts hands every clone a recompile: the spike's first three clones each reimported 10 assets
+// instead of 1 for that reason (docs/design.md, "Slot lifecycle: seed only from a Library current
+// at HEAD, refresh on handout, reset without `-x`"; spike §1).
 package clone
 
 import (

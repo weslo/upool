@@ -81,7 +81,7 @@ func (Exec) Run(ctx context.Context, dir string, env []string, args ...string) (
 	return res, nil
 }
 
-// Client runs upool's git reads through Runner, each with Env as git's whole environment.
+// Client runs upool's git calls through Runner, each with Env as git's whole environment.
 type Client struct {
 	Runner Runner
 	Env    []string
@@ -332,6 +332,60 @@ func (c Client) SymbolicRef(ctx context.Context, dir, name string) (string, bool
 		return "", false, err
 	}
 	return strings.TrimSuffix(string(res.Stdout), "\n"), true, nil
+}
+
+// Commit returns the commit that rev names in the repository holding dir, from
+// `git rev-parse --verify <rev>^{commit}`, so that a branch, a tag and a SHA compare alike. The
+// clone recipe checks a slot's HEAD against base's commit (docs/contracts.md (g) Clone recipe,
+// steps 7 and 8). A rev that names no commit is an error carrying git's message.
+func (c Client) Commit(ctx context.Context, dir, rev string) (string, error) {
+	out, err := c.run(ctx, dir, "rev-parse", "--verify", rev+"^{commit}")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(out), "\n"), nil
+}
+
+// The calls below change a worktree. Each is one step of docs/contracts.md (g) Clone recipe, as
+// the spike ran it (S§2 TA; S§9 E.1), and the resets after a lease reuse them.
+
+// WorktreeAdd registers a worktree at path, an absolute path, detached at commit and with nothing
+// checked out: `git worktree add --no-checkout --detach <path> <commit>`, run in repo, any
+// worktree of the repository ((g) step 3). The copy of the seed fills it in ((g) step 4).
+func (c Client) WorktreeAdd(ctx context.Context, repo, path, commit string) error {
+	_, err := c.run(ctx, repo, "worktree", "add", "--no-checkout", "--detach", path, commit)
+	return err
+}
+
+// Reset rebuilds the index of the worktree at dir from HEAD and leaves its files alone:
+// `git reset -q` ((g) step 6). After WorktreeAdd's --no-checkout the index is empty, so this is
+// what makes the copied files tracked again; it took 7.3 to 7.7 s in the spike.
+func (c Client) Reset(ctx context.Context, dir string) error {
+	_, err := c.run(ctx, dir, "reset", "-q")
+	return err
+}
+
+// CheckoutFiles reverts every tracked file in the worktree at dir to the index:
+// `git checkout -- .` ((g) step 7, for a seed that was dirty).
+func (c Client) CheckoutFiles(ctx context.Context, dir string) error {
+	_, err := c.run(ctx, dir, "checkout", "--", ".")
+	return err
+}
+
+// Clean removes the untracked files and directories in the worktree at dir, and keeps the ignored
+// ones: `git clean -fd`, without -x, so a gitignored Library survives ((g) step 7; docs/design.md,
+// "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without
+// `-x`").
+func (c Client) Clean(ctx context.Context, dir string) error {
+	_, err := c.run(ctx, dir, "clean", "-fd")
+	return err
+}
+
+// CheckoutDetach checks out rev in the worktree at dir with HEAD detached:
+// `git checkout -q --detach <rev>` ((g) step 7: a slot is detached at base).
+func (c Client) CheckoutDetach(ctx context.Context, dir, rev string) error {
+	_, err := c.run(ctx, dir, "checkout", "-q", "--detach", rev)
+	return err
 }
 
 // runStatus runs a call that answers with its exit status, 0 for yes and 1 for no, as
