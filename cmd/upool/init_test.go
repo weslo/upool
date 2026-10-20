@@ -257,3 +257,40 @@ func TestInitJSONReportsARefusalAsAFailureEnvelope(t *testing.T) {
 		t.Errorf("envelope = %+v, want one COMMAND_FAILED error saying the Editor is open", env)
 	}
 }
+
+// --slots outside 1 to max_slots is refused before init writes anything (A21).
+func TestInitSlotsOutsideOneToMaxSlotsFails(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		maxSlots string
+		slots    string
+		want     string
+	}{
+		{"zero", "", "0", "--slots 0 is not from 1 to max_slots, 3"},
+		{"above the default max_slots", "", "4", "--slots 4 is not from 1 to max_slots, 3"},
+		{"above a configured max_slots", "1", "2", "--slots 2 is not from 1 to max_slots, 1"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInitEnv(t)
+			if tt.maxSlots != "" {
+				e.Setenv(config.EnvName("max_slots"), tt.maxSlots)
+			}
+			r := runIn(t, e, e.Repo, "init", "--slots", tt.slots)
+			checkRefused(t, e, r, readFile(t, e, ".gitignore"), tt.want)
+		})
+	}
+}
+
+// init --help says what --slots does, and that slots beyond ready become prune candidates after
+// shrink_after idle (A21).
+func TestInitSlotsHelpSaysWhatBecomesOfThem(t *testing.T) {
+	e := newInitEnv(t)
+	r := runIn(t, e, e.Repo, "init", "--help")
+	if r.code != output.ExitOK || !strings.HasPrefix(r.stdout, "usage: upool init [--slots N] "+
+		"[--json]\n") || !strings.Contains(r.stdout, "-slots int") ||
+		!strings.Contains(r.stdout, "slots beyond ready") || !strings.Contains(r.stdout,
+		"become prune candidates once idle for shrink_after") || r.stderr != "" {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and the help naming slots beyond ready",
+			r.code, r.stdout, r.stderr)
+	}
+}

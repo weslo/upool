@@ -413,12 +413,13 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 		"gitignore_updated":  true,
 		"repo_file_written":  true,
 		"claude_md_block":    "inserted",
-		"slot": map[string]any{
+		"slots": []any{map[string]any{
 			"name":       "slot-1",
 			"path":       slotPath(e),
+			"seed":       e.Repo,
 			"seed_head":  e.Head,
 			"seed_dirty": true,
-		},
+		}},
 	}
 	if string(mustJSON(t, got)) != string(mustJSON(t, want)) {
 		t.Errorf("data = %s, want %s", mustJSON(t, got), mustJSON(t, want))
@@ -462,5 +463,53 @@ func TestInitKeepsTheStateOfAPoolWhoseRegistryWasLost(t *testing.T) {
 	}
 	if _, err := os.Stat(e.Path(".claude/worktrees/slot-2")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("slot-2: stat error = %v, want it not to exist", err)
+	}
+}
+
+// init --slots 2 clones slot-1 from the main checkout and slot-2 seeded from slot-1, both ready
+// and owned by nothing, and writes nothing about it to .upool.toml (A21).
+func TestInitSlotsClonesTwoReadySlots(t *testing.T) {
+	e := newInitEnv(t)
+	r := mustInit(t, e, "--slots", "2", "--json")
+	env := decode(t, r.stdout)
+	data, _ := json.Marshal(env.Data) // it was decoded from JSON, so it encodes
+	var got initReport
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	slot2 := e.Path(".claude/worktrees/slot-2")
+	if len(got.Slots) != 2 || got.Slots[0].Seed != e.Repo || got.Slots[1].Path != slot2 ||
+		got.Slots[1].Seed != slotPath(e) {
+		t.Errorf("slots = %+v, want slot-1 from the main checkout and slot-2 from slot-1",
+			got.Slots)
+	}
+	p, err := pool.Load(e.Home, repoKey(t, e))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Slots) != 2 {
+		t.Fatalf("state.json slots = %+v, want two", p.Slots)
+	}
+	for _, s := range p.Slots {
+		if s.State != pool.StateReady || s.OwnerPID != nil || s.Lease != nil {
+			t.Errorf("%s = %s, owner %v, lease %+v; want ready, unowned, unleased", s.Name,
+				s.State, s.OwnerPID, s.Lease)
+		}
+		if status := gitIn(t, e, s.Path, "status", "--porcelain"); status != "" {
+			t.Errorf("%s status = %q, want clean", s.Name, status)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(slot2, "Library", "ScriptAssemblies")); err != nil {
+		t.Errorf("slot-2 has no warm Library: %v", err)
+	}
+	if got := readFile(t, e, ".upool.toml"); !strings.Contains(got, "ready = 1\n") {
+		t.Errorf(".upool.toml = %q, want ready left at 1", got)
+	}
+
+	q := newInitEnv(t)
+	r = mustInit(t, q, "--slots", "2")
+	if want := "cloned slot-2 into " + q.Path(".claude/worktrees/slot-2") +
+		", seeded from slot-1\n"; !strings.Contains(r.stdout, want) {
+		t.Errorf("stdout = %q, want the line %q", r.stdout, want)
 	}
 }
