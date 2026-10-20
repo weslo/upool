@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 )
@@ -209,4 +210,87 @@ func recordAgentWorktree(ctx context.Context, env Env, req Request, path string)
 			CreatedAt: env.Now().UTC()})
 		return nil
 	})
+}
+
+// WorktreeRemove handles a WorktreeRemove request, which the desktop app sends about a second after
+// a session is archived, and returns the removed worktree's path. For a pool's slot it judges the
+// slot clean or dirty with git reads alone, which worked from the app's restricted helper, and
+// marks a clean slot needs-reset and a dirty one parked, its status lines on stderr, clearing the
+// lease (docs/contracts.md (f) transitions 8 and 9). The slot stays on disk and its git worktree
+// lock stays until the deferred reset: the app accepts exit 0 with the directory still present, and
+// hands the path out again (docs/contracts.md (a), WorktreeRemove rules). A path that is no slot is
+// left alone (#74). The hook exits 0 whatever this returns, its error on stderr ((d)).
+func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
+	if req.HookEventName != EventWorktreeRemove {
+		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
+			EventWorktreeRemove)
+	}
+	if !filepath.IsAbs(req.WorktreePath) {
+		return "", fmt.Errorf("the request's worktree_path %q is not an absolute path",
+			req.WorktreePath)
+	}
+	key, s, ok, err := findSlot(env.Home, req.WorktreePath)
+	if err != nil || !ok {
+		return req.WorktreePath, err
+	}
+	if s.Lease == nil {
+		return "", fmt.Errorf("%s is %s, with no lease to end", s.Name, s.State)
+	}
+	dirty, err := pool.DirtyBesideNoise(ctx, env.Git, s.Path)
+	if err != nil {
+		return "", fmt.Errorf("checking whether %s is clean: %w", s.Name, err)
+	}
+	err = pool.Update(ctx, env.Home, key, func(p *pool.Pool) error {
+		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
+		if i < 0 {
+			return fmt.Errorf("%s left state.json meanwhile", s.Name)
+		}
+		cur := &p.Slots[i]
+		if cur.Lease == nil || cur.Lease.LeaseID != s.Lease.LeaseID {
+			return fmt.Errorf("%s's lease changed in state.json meanwhile", s.Name)
+		}
+		next, err := pool.Next(*cur, pool.Remove{Clean: len(dirty) == 0})
+		if err != nil {
+			return err
+		}
+		cur.State, cur.Lease, cur.LastUsed = next, nil, env.Now().UTC()
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, d := range dirty {
+		// stderr is for warnings only; the app reads nothing from a remove hook's stdout.
+		_, _ = fmt.Fprintf(env.Stderr, "upool: parked %s, which is dirty: %s\n", s.Name, d)
+	}
+	return s.Path, nil
+}
+
+// findSlot returns the slot of a registered pool whose path is path, by canonical key, since the
+// desktop app may hand the path back lowercased, and the key of the pool it is in.
+func findSlot(home, path string) (string, pool.Slot, bool, error) {
+	want, err := paths.Key(path)
+	if err != nil {
+		return "", pool.Slot{}, false, err
+	}
+	repos, err := registry.List(home)
+	if err != nil {
+		return "", pool.Slot{}, false, err
+	}
+	for _, repo := range repos {
+		p, err := pool.Load(home, repo.Key)
+		if err != nil {
+			return "", pool.Slot{}, false, err
+		}
+		for _, s := range p.Slots {
+			k, err := paths.Key(s.Path)
+			if err != nil {
+				return "", pool.Slot{}, false, err
+			}
+			if k == want {
+				return repo.Key, s, true, nil
+			}
+		}
+	}
+	return "", pool.Slot{}, false, nil
 }

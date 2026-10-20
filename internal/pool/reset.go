@@ -42,6 +42,28 @@ func Dirty(ctx context.Context, g git.Client, dir string) ([]string, error) {
 	return nil, nil
 }
 
+// DirtyBesideNoise is Dirty with define-order noise counted as clean but left in place, for the
+// WorktreeRemove hook: it runs in the desktop app's restricted helper, where git reads worked but
+// git writes were never tried, so the revert waits for the deferred reset with the rest of it
+// (docs/design.md, "What remains unverified"; docs/contracts.md (a), WorktreeRemove rules).
+func DirtyBesideNoise(ctx context.Context, g git.Client, dir string) ([]string, error) {
+	noise, err := Noise(ctx, g, dir)
+	if err != nil {
+		return nil, err
+	}
+	if !noise {
+		return Dirty(ctx, g, dir)
+	}
+	reachable, err := g.HeadReachable(ctx, dir)
+	if err != nil {
+		return nil, err
+	}
+	if !reachable {
+		return []string{"HEAD is on no branch"}, nil
+	}
+	return nil, nil
+}
+
 // ResetToBase resets the clean slot at dir to base: `git checkout --detach <base>`, then
 // `git clean -fd`, never -x, so the ignored Library stays warm. The branch the slot was on keeps
 // its commits (A18).

@@ -71,6 +71,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   named `<name>`, as Claude Code would have made it, and the hook prints its path; it opens no
   file in the repository, since the desktop app's hook helper could run only git and stat paths
   under `~/Documents`. A session in a pool is refused until the pooled branch arrives (#78).
+- `upool hook worktree-remove` ends a slot's lease when the desktop app archives its session: it
+  finds the slot by its canonical path, which the app may hand back lowercased, judges it with git
+  reads alone (`git status --porcelain`, and `git for-each-ref --contains HEAD`, so a commit on no
+  branch is dirty), and marks a clean slot `needs-reset` and a dirty one `parked`, each status line
+  on stderr, clearing the lease and setting `last_used`. Define-order noise counts as clean but is
+  left for the deferred reset, as is the slot's worktree lock: git writes from the app's hook
+  helper are untested. A path that is no slot is left alone (#74), and the hook exits 0 whatever
+  happens, its errors on stderr. `pool.DirtyBesideNoise` is the clean test without the revert.
 
 ## [0.1.0] - 2026-10-20
 
