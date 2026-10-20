@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
@@ -100,6 +102,7 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	want := "added .claude/worktrees/ to .gitignore\n" +
 		"base is main, the current branch: origin has no default branch\n" +
 		"wrote .upool.toml: ready = 1, max_slots = 3, base = \"main\"\n" +
+		"added upool's block to CLAUDE.md\n" +
 		"cloned slot-1 into " + slotPath(e) + "\n" +
 		"registered " + e.Repo + " as pool " + key + "\n"
 	if r.stdout != want {
@@ -146,6 +149,63 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	}
 }
 
+// init upserts upool's block into the repository's CLAUDE.md, leaving the text around it as it
+// was, and the first slot carries the file, which the environment's .gitignore ignores.
+func TestInitWritesBlock(t *testing.T) {
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	current := string(b.Render())
+	stale := block.Begin(b.Version) + "\nA text upool no longer writes.\n" +
+		block.End(b.Version) + "\n"
+	newer := string(block.Block{Version: b.Version + 1, Body: "A newer text.\n"}.Render())
+	const before, after = "# Fake project\n\n", "\n## Testing\n\nRun the tests.\n"
+	// write returns a setup that writes doc as CLAUDE.md.
+	write := func(doc string) func(*testing.T, *testenv.Env) {
+		return func(_ *testing.T, e *testenv.Env) { e.WriteFile("CLAUDE.md", doc) }
+	}
+	tests := []struct {
+		name  string
+		setup func(*testing.T, *testenv.Env)
+		want  func(original string) string // CLAUDE.md after init, given it before
+		line  string
+	}{
+		{"after the file's text", func(*testing.T, *testenv.Env) {},
+			func(o string) string { return o + "\n" + current },
+			"added upool's block to CLAUDE.md"},
+		{"a missing file", func(t *testing.T, e *testenv.Env) {
+			if err := os.Remove(e.Path("CLAUDE.md")); err != nil {
+				t.Fatal(err)
+			}
+		}, func(string) string { return current }, "created CLAUDE.md with upool's block"},
+		{"a stale copy, in place", write(before + stale + after),
+			func(string) string { return before + current + after },
+			"updated upool's block in CLAUDE.md to v1"},
+		{"the current copy, kept", write(before + current + after),
+			func(o string) string { return o }, "CLAUDE.md already has upool's block"},
+		{"a newer copy, kept", write(before + newer + after),
+			func(o string) string { return o },
+			"kept the newer upool block in CLAUDE.md: this upool writes v1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInitEnv(t)
+			tt.setup(t, e)
+			want := tt.want(readFile(t, e, "CLAUDE.md"))
+			r := mustInit(t, e)
+			if !strings.Contains(r.stdout, "\n"+tt.line+"\n") {
+				t.Errorf("stdout = %q, want the line %q", r.stdout, tt.line)
+			}
+			if got := readFile(t, e, "CLAUDE.md"); got != want {
+				t.Errorf("CLAUDE.md =\n%s\nwant\n%s", got, want)
+			}
+			slotFile, err := os.ReadFile(filepath.Join(slotPath(e), "CLAUDE.md"))
+			if err != nil || string(slotFile) != want {
+				t.Errorf("slot-1/CLAUDE.md = %q, %v, want the main checkout's: %q", slotFile, err,
+					want)
+			}
+		})
+	}
+}
+
 func TestInitFromASubdirectoryRegistersTheRoot(t *testing.T) {
 	e := newInitEnv(t)
 	r := runIn(t, e, e.Path("Assets/Scripts"), "init")
@@ -162,6 +222,7 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	e := newInitEnv(t)
 	mustInit(t, e)
 	gitignore, repoFile := readFile(t, e, ".gitignore"), readFile(t, e, ".upool.toml")
+	claude := readFile(t, e, "CLAUDE.md")
 	r := mustInit(t, e)
 	if want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n"; r.stdout != want {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
@@ -171,6 +232,9 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	}
 	if got := readFile(t, e, ".upool.toml"); got != repoFile {
 		t.Errorf(".upool.toml = %q, want it unchanged: %q", got, repoFile)
+	}
+	if got := readFile(t, e, "CLAUDE.md"); got != claude {
+		t.Errorf("CLAUDE.md = %q, want it unchanged: %q", got, claude)
 	}
 }
 
@@ -348,6 +412,7 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 		"base_source":        "current_branch",
 		"gitignore_updated":  true,
 		"repo_file_written":  true,
+		"claude_md_block":    "inserted",
 		"slot": map[string]any{
 			"name":       "slot-1",
 			"path":       slotPath(e),

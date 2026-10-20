@@ -156,3 +156,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `null`; one pool and `--all` have the same shape. Outside every registered pool, status without
   `--all` exits 1 with `COMMAND_FAILED`. Like `which`, it compares canonical paths, writes nothing
   and never creates `~/.upool`. Usage now lists it.
+- `upool init` adds upool's instruction block to the repository's `CLAUDE.md`, creating the file
+  if there is none: take a slot with upool, never `git worktree add`; `upool which` finds your
+  slot; `UNITY_PROJECT_PATH` is exported and passed positionally to `unity test`, `run`, `build`,
+  `close` and `cache key`; `unity command save_all` before `unity close`. The block sits between
+  `<!-- upool:begin v1 -->` and `<!-- upool:end v1 -->` lines and is appended after a blank line.
+  A later init replaces a copy of the same or an older version in place, keeps one of a newer
+  version, and leaves every byte outside the markers as it was; a symlinked `CLAUDE.md` stays a
+  link. A `CLAUDE.md` whose markers do not pair into one block is refused, naming the lines,
+  before init writes anything. `--json` reports `claude_md_block`: `created`, `inserted`,
+  `replaced`, `unchanged` or `kept_newer`. A tracked `CLAUDE.md` that init changes is reverted in
+  the first slot with init's other uncommitted edits until the block is committed. The block's
+  text is `assets/claude-md-block.md`, embedded by the new `assets` package, and the upsert is
+  `internal/block`.

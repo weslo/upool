@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/testenv"
@@ -64,7 +65,7 @@ func readFile(t *testing.T, e *testenv.Env, name string) string {
 }
 
 // checkRefused fails the test unless r is a refusal whose message contains each of want, and init
-// wrote nothing: no ~/.upool, no .upool.toml, and .gitignore as it was.
+// wrote nothing: no ~/.upool, no .upool.toml, .gitignore as it was, and no block in CLAUDE.md.
 func checkRefused(t *testing.T, e *testenv.Env, r result, gitignore string, want ...string) {
 	t.Helper()
 	if r.code != output.ExitFailure {
@@ -86,6 +87,9 @@ func checkRefused(t *testing.T, e *testenv.Env, r result, gitignore string, want
 	}
 	if got := readFile(t, e, ".gitignore"); got != gitignore {
 		t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
+	}
+	if got := readFile(t, e, "CLAUDE.md"); strings.Contains(got, "<!-- upool:") {
+		t.Errorf("CLAUDE.md = %q, want no upool block", got)
 	}
 }
 
@@ -165,6 +169,36 @@ func TestInitRefusesABaseThatNamesNoCommit(t *testing.T) {
 	checkRefused(t, e, r, readFile(t, e, ".gitignore"),
 		"base is release, from UPOOL_BASE, which names no commit in "+e.Repo,
 		"create the branch, or set base to one that exists")
+}
+
+// A CLAUDE.md whose upool markers do not pair is refused before init writes anything, rather than
+// guessed at (internal/block).
+func TestInitRefusesACLAUDEMDWhoseMarkersDoNotPair(t *testing.T) {
+	e := newInitEnv(t)
+	doc := "# Fake project\n\n" + block.Begin(1) + "\nA block with no end.\n"
+	e.WriteFile("CLAUDE.md", doc)
+	gitignore := readFile(t, e, ".gitignore")
+	r := runIn(t, e, e.Repo, "init")
+	if r.code != output.ExitFailure {
+		t.Errorf("exit = %d, want %d", r.code, output.ExitFailure)
+	}
+	want := "upserting upool's block into " + e.Path("CLAUDE.md") + ": line 3 begins a upool " +
+		"block that no line after it ends"
+	if !strings.Contains(r.stderr, want) {
+		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
+	}
+	if got := readFile(t, e, "CLAUDE.md"); got != doc {
+		t.Errorf("CLAUDE.md = %q, want it unchanged: %q", got, doc)
+	}
+	if _, err := os.Stat(filepath.Join(e.Home, ".upool")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("~/.upool: stat error = %v, want it not to exist", err)
+	}
+	if got := readFile(t, e, ".upool.toml"); got != "" {
+		t.Errorf(".upool.toml = %q, want none", got)
+	}
+	if got := readFile(t, e, ".gitignore"); got != gitignore {
+		t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
+	}
 }
 
 func TestInitRefusesAProjectBelowTheRoot(t *testing.T) {
