@@ -1,0 +1,18 @@
+# create.sh: when it started, and when it printed the path after sleeping 30 s
+start 2026-10-20 16:12:34
+printed 2026-10-20 16:13:04
+# ~/Library/Logs/Claude/main.log, worktree and hook lines from the session's start
+2026-10-20 16:10:48 [info] [Stop hook] Query completed for session local_4330a9df-fc64-498a-a236-3133f3d3d5fa
+2026-10-20 16:12:34 [info] Creating worktree for session local_81b82a9e-0b18-496e-b3e9-750500d7875d from ${repo}
+2026-10-20 16:13:04 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/pwd-c37a8b
+2026-10-20 16:13:04 [info] Created hook-based worktree "pwd-c37a8b" at ${repo}/.claude/worktrees/pwd-c37a8b
+2026-10-20 16:13:04 [info] Using worktree "pwd-c37a8b" at ${repo}/.claude/worktrees/pwd-c37a8b for session local_81b82a9e-0b18-496e-b3e9-750500d7875d
+2026-10-20 16:13:04 [info] [GitWorktreeManager] recorded origin's URL for this repository: https://github.com/weslo/upool.git { baseRepo: '${repo}/.claude/worktrees/pwd-c37a8b' }
+2026-10-20 16:13:04 [info] Saved workspace trust for ${repo}/.claude/worktrees/pwd-c37a8b
+2026-10-20 16:13:04 [info] Auto-trusted worktree with key "${repo}/.claude/worktrees/pwd-c37a8b" (inherited from ${repo})
+2026-10-20 16:13:04 [info] Starting local session local_81b82a9e-0b18-496e-b3e9-750500d7875d in ${repo}/.claude/worktrees/pwd-c37a8b
+2026-10-20 16:13:07 [info] [CCD start-timing] local_81b82a9e-0b18-496e-b3e9-750500d7875d preflight=14ms worktree=30210ms mcp=34ms query=9ms enqueue=11ms init=688ms first_assistant=2093ms | ccd_overhead=30267ms total_to_init=30966ms total_to_assistant=33059ms cache_hit=false worktree=true mcp_count=26 online=true rpm_enabled_state=empty-manifest/14ms overlay_wait=0ms include_overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:26/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:26/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=3 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms | overlay: settled=15ms include=1ms/no_include_file/fast/0 unsearched=undefined dropped=undefined config=19ms/ok/2+0
+2026-10-20 16:13:11 [info] [Stop hook] Query completed for session local_81b82a9e-0b18-496e-b3e9-750500d7875d
+2026-10-20 16:16:01 [info] Cleaning up worktree pwd-c37a8b for session local_81b82a9e-0b18-496e-b3e9-750500d7875d
+2026-10-20 16:16:01 [info] Removing worktree "pwd-c37a8b" (leased by local_81b82a9e-0b18-496e-b3e9-750500d7875d): ${repo}/.claude/worktrees/pwd-c37a8b
+2026-10-20 16:16:01 [info] Removed hook-based worktree "pwd-c37a8b"

@@ -25,9 +25,18 @@ var clock = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 // parentPID is the parent the tests' hooks report.
 const parentPID = 4242
 
-// Every capture's name says what it is, and decoding it says the same: its event, and for a
-// WorktreeCreate or WorktreeRemove who sent it (docs/contracts.md (a), "Telling the kinds apart";
-// testdata/README.md: this test runs over every file).
+// eventSessionEnd is SessionEnd's hook_event_name, whose captures #148 adds and whose hook #80
+// builds.
+const eventSessionEnd = "SessionEnd"
+
+// logCaptures are the files in capturesDir that are not hook stdin, by name: a hook's own log,
+// which the classification passes over (testdata/README.md, captures/hooks/).
+var logCaptures = map[string]bool{"desktop-create-timeout.txt": true}
+
+// Every capture's name says what it is, and decoding it says the same: its event; for a
+// WorktreeCreate, who sent it (docs/contracts.md (a), "Telling the kinds apart"); and for a
+// WorktreeRemove, desktop or CLI by its transcript_path. testdata/README.md: this test runs over
+// every file but the logs.
 func TestClassifyEveryCapture(t *testing.T) {
 	entries, err := os.ReadDir(capturesDir)
 	if err != nil {
@@ -37,6 +46,9 @@ func TestClassifyEveryCapture(t *testing.T) {
 		t.Fatalf("%s holds no captures", capturesDir)
 	}
 	for _, entry := range entries {
+		if logCaptures[entry.Name()] {
+			continue
+		}
 		name := strings.TrimSuffix(entry.Name(), ".json")
 		if name == entry.Name() {
 			t.Errorf("%s is not a .json capture", entry.Name())
@@ -61,6 +73,8 @@ func TestClassifyEveryCapture(t *testing.T) {
 			event = EventWorktreeRemove
 		case strings.HasSuffix(name, "-start") || strings.HasPrefix(name, "session-start"):
 			event = EventSessionStart
+		case strings.HasSuffix(name, "-end"):
+			event = eventSessionEnd
 		default:
 			t.Errorf("%s: its name says no event", entry.Name())
 			continue
@@ -82,17 +96,25 @@ func TestClassifyEveryCapture(t *testing.T) {
 		if req.HookEventName != event {
 			t.Errorf("%s: hook_event_name = %q, want %q", entry.Name(), req.HookEventName, event)
 		}
-		got := req.Kind()
-		switch {
-		case event == EventSessionStart && (got == Subagent) != (kind == Subagent):
-			// SessionStart carries no desktop-or-CLI distinction ((b)), only subagent or not.
-			t.Errorf("%s: kind = %s, want a %s", entry.Name(), got, kind)
-		case event != EventSessionStart && got != kind:
-			t.Errorf("%s: kind = %s, want %s", entry.Name(), got, kind)
-		case kind == Subagent && !req.Corroborated():
-			t.Errorf("%s: a subagent's request without scratchpad_dir or an agent-<17 hex> "+
-				"name: %+v", entry.Name(), req)
+		switch event {
+		case EventWorktreeCreate:
+			if got := req.Kind(); got != kind {
+				t.Errorf("%s: kind = %s, want %s", entry.Name(), got, kind)
+			} else if kind == Subagent && !req.Corroborated() {
+				t.Errorf("%s: a subagent's request without scratchpad_dir or an agent-<17 hex> "+
+					"name: %+v", entry.Name(), req)
+			}
+		case EventWorktreeRemove:
+			// A remove comes from a session, never a subagent (spike §9 F.3), and the CLI's
+			// carries a prompt_id, so only transcript_path tells desktop from CLI.
+			if desktop := req.TranscriptPath == ""; desktop != (kind == DesktopSession) {
+				t.Errorf("%s: transcript_path %q, want a %s's", entry.Name(),
+					req.TranscriptPath, kind)
+			}
 		}
+		// SessionStart and SessionEnd run in the CLI process, so transcript_path is set whoever
+		// the session is ((b)), and they carry a prompt_id after a prompt: their names say only
+		// the event.
 	}
 }
 

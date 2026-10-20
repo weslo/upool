@@ -54,6 +54,11 @@ Citation keys:
 | Desktop session | `transcript_path` | `""` and no `prompt_id` | S§9 "How to tell the requests apart" |
 | CLI `--worktree` session | `transcript_path` | non-empty and no `prompt_id` | S§9 "How to tell the requests apart" |
 
+These tests are for `WorktreeCreate`. A session's other requests can carry a `prompt_id` too: the
+CLI's `WorktreeRemove` and `SessionEnd`, and `SessionStart` after `/compact`
+(`hooks/cli-session-remove.json`, `hooks/cli-session-end.json`, `hooks/session-start-compact.json`;
+#148), so a `prompt_id` marks a subagent on a create only.
+
 The hook's three branches (D-route) key on subagent versus not, then on whether `cwd` is inside a
 repository in `~/.upool/registry.json` (A13): subagent → `git worktree add --detach
 <repo>/.claude/worktrees/<name>`; pooled session → `upool take --no-create --holder <session_id>
@@ -75,18 +80,20 @@ by `session_id` (S§7 item 3; D-route).
 | The hook script must live outside `~/Documents`: under it, `getcwd` and `bash` failed with `Operation not permitted` | S§2 T7.6; S§7 |
 | Handing out a pre-made slot took `worktree=36ms` to `112ms`, against `4634ms` for a `git worktree add` inside the hook | S§8 A.5; S§9 E.5; `evidence/logs/sibling-slot-main.log`; `evidence/logs/desktop-probe-main.log` |
 | A user-scope create hook runs for every repository and every subagent; there is no matcher | S§9 "What this changes (updated)", blast radius row; D-route |
+| The desktop app waited the whole 30 s for a create hook that slept that long, and used the path it printed (`worktree=30210ms`): its limit is above 30 s, so the pooled branch's wait, the smaller of 20 s and that limit less 5 s, is 20 s | A11; `hooks/desktop-create-timeout.txt` (desktop app 3.1623.0; #148) |
 
 ### WorktreeRemove fields
 
 | Field | Desktop session | CLI `--worktree` session | Subagent | Source |
 |---|---|---|---|---|
-| `session_id` | same value as the matching create | not captured | never fires | S§8 A; S§9 E.6 |
-| `transcript_path` | `""` | not captured | never fires | S§8 A |
-| `cwd` | main checkout | not captured | never fires | S§8 A |
-| `hook_event_name` | `"WorktreeRemove"` | not captured | never fires | S§2 TB |
-| `worktree_path` | the path the create hook printed | not captured | never fires | S§2 TB; S§9 E.6 |
-| When it fires | about 1 s after the session is archived | never for `claude -p --worktree`; interactive `claude --worktree` untested | never: not when the subagent finishes, not when the parent session is archived | S§2 T7.5; S§8 A.6; S§9 F.3; D-unverified |
-| Fixtures | `hooks/desktop-session-remove.json`, `-reuse`; `hooks/sibling-*-remove*.json`; `hooks/desktop-probe-remove.json` | none | none | testdata/README.md |
+| `session_id` | same value as the matching create | the CLI session's UUID | never fires | S§8 A; S§9 E.6; `hooks/cli-session-remove.json` |
+| `transcript_path` | `""` | set, keyed by the worktree path | never fires | S§8 A; `hooks/cli-session-remove.json` |
+| `cwd` | main checkout | the **worktree**, not the main checkout | never fires | S§8 A; `hooks/cli-session-remove.json` |
+| `scratchpad_dir`, `prompt_id` | absent | present | never fires | `hooks/desktop-session-remove.json`; `hooks/cli-session-remove.json` |
+| `hook_event_name` | `"WorktreeRemove"` | `"WorktreeRemove"` | never fires | S§2 TB; `hooks/cli-session-remove.json` |
+| `worktree_path` | the path the create hook printed | the worktree's path | never fires | S§2 TB; S§9 E.6; `hooks/cli-session-remove.json` |
+| When it fires | about 1 s after the session is archived | at `/exit` of an interactive `claude --worktree` session, the worktree removed (Claude Code 2.1.304); never for `claude -p --worktree` | never: not when the subagent finishes, not when the parent session is archived | S§2 T7.5; S§8 A.6; S§9 F.3; #148 |
+| Fixtures | `hooks/desktop-session-remove.json`, `-reuse`; `hooks/sibling-*-remove*.json`; `hooks/desktop-probe-remove.json` | `hooks/cli-session-remove.json` | none | testdata/README.md |
 
 | Rule | Source |
 |---|---|
@@ -106,10 +113,26 @@ by `session_id` (S§7 item 3; D-route).
 | `cwd` | the slot | main checkout | the worktree | S§2 TB; S§5 |
 | `scratchpad_dir` | present | present | absent | S§5 (both captures) |
 | `hook_event_name` | `"SessionStart"` | `"SessionStart"` | `"SessionStart"` | S§5 |
-| `source` | `"startup"` | `"startup"` | `"startup"` | S§5; the only value captured; A14 for the others |
+| `source` | `"startup"`; also `"resume"` and `"compact"`, below | `"startup"` | `"startup"`; interactively, also `"clear"`, below | S§5; [SessionStart sources](#sessionstart-sources) |
 | Process | the CLI process; `getcwd` works under `~/Documents` | same | same | S§2 TB |
 | Process cwd | the **main checkout**, even when stdin `cwd` is the slot: read stdin `cwd`, never `$PWD` | main checkout | not recorded | S§2 TB; S§7 item 6 |
 | Fixtures | `hooks/session-start.json`, `hooks/session-start-reuse.json`, `hooks/sibling-*-start.json`, `hooks/desktop-probe-session-start.json` | `hooks/desktop-no-worktree-session-start.json` | `hooks/cli-session-start.json` | testdata/README.md |
+
+### SessionStart sources
+
+Captured for A14 (#148; desktop app 3.1623.0, Claude Code 2.1.304). The CLI process is told by the
+hook's parent PID.
+
+| `source` | When | CLI process | Fixture |
+|---|---|---|---|
+| `"startup"` | a session starts | a new one | `hooks/session-start.json` and the others above |
+| `"resume"` | a desktop worktree session opened again after the app was quit | a **new** one: the parent PID differs from `startup`'s, so the lease needs its holder PID again (A14) | `hooks/session-start-resume.json` |
+| `"compact"` | `/compact` in a desktop worktree session | the same one; the stdin also carries `prompt_id`, `model` and `session_title` | `hooks/session-start-compact.json` |
+| `"clear"` | `/clear` in an interactive `claude --worktree` session | the same one, with a new `session_id`; the old session's `SessionEnd` says `reason: "clear"` | `hooks/session-start-clear.json` |
+
+In a desktop session without a worktree, `/clear` sent no `"clear"`: it started a new CLI session
+whose `SessionStart` said `"startup"` (testdata/README.md, `session-start-clear.json`). Whether a
+desktop worktree session's `/clear` does the same was not tried.
 
 ### `CLAUDE_ENV_FILE`
 
@@ -120,7 +143,7 @@ by `session_id` (S§7 item 3; D-route).
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
 | upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
-| `SessionEnd` (best effort, 1.5 s budget) and `CwdChanged` were not exercised; `SessionEnd` is built against a capture (A15) | D-env; D-unverified; A15 |
+| `SessionEnd` (best effort, 1.5 s budget) is built against `hooks/cli-session-end.json` (A15). At `/exit` of an interactive `claude --worktree` session it says `reason: "prompt_input_exit"`, with `cwd` the **main checkout** though the session ran in the worktree, and carries `prompt_id` and `scratchpad_dir`; `/clear` ends a session with `reason: "clear"`, and quitting the desktop app ended each of its sessions with `reason: "other"`. `CwdChanged` was not exercised | D-env; D-unverified; A15; `hooks/cli-session-end.json`; testdata/README.md (#148) |
 
 ## (c) Unity CLI targeting (CLI 1.0.0-beta.13)
 

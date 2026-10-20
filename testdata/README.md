@@ -103,8 +103,24 @@ Hook stdin as Claude Code delivered it, with paths as variables. Session ids are
 | `sibling-b4-start.json` | `test-a/session-1791844966.json` | §8 B.4 | its `SessionStart` |
 | `sibling-b4-remove.json` | `test-a/remove-1791844977.json` | §8 B.4 | its remove on archive |
 
+Captures added after the spike come from `scripts/capture-hook.sh`, run during the manual-gate
+check that the "Source" column names, with the desktop app's and Claude Code's versions. A row
+marked **pending** is a capture that check has not added yet: whoever runs it names the file it
+wrote, replaces **pending** with the versions and the date, and says what the capture showed; a
+hook that never fired gets no file, and its row says so.
+
+| Capture | Source | Versions | What it is |
+|---|---|---|---|
+| `desktop-create-timeout.txt` | [M2 gate](../docs/manual-gates/M2.md), "Capture the M2 hook inputs", step 3 | desktop app 3.1623.0, Claude Code 2.1.304, 2026-10-20 | not hook stdin: a create hook's log and the desktop app's `main.log` for a worktree session in the upool checkout whose create hook slept 30 s before printing its path. The app waited the whole 30 s and used the path (`Created hook-based worktree` at the `printed` time, `worktree=30210ms`), so its limit is above 30 s and A11's wait stays 20 s (A11) |
+| `session-start-resume.json` | same, step 4 | desktop app 3.1623.0, Claude Code 2.1.304, 2026-10-20 | `SessionStart` of a desktop worktree session resumed after the app was quit and opened again, `source: "resume"`, `cwd` the worktree. Its parent PID was not the one `startup` and `compact` logged: a resumed session runs in a new CLI process (A14) |
+| `session-start-clear.json` | same, step 5 | Claude Code 2.1.304, 2026-10-20 | `SessionStart` after `/clear` in an interactive `claude --worktree` session, `source: "clear"`: the same parent PID as its `startup`, a new `session_id`, and a `SessionEnd` with `reason: "clear"` for the old one; in a desktop session without a worktree, `/clear` sent none, starting a new CLI session whose `SessionStart` said `startup` (desktop app 3.1623.0, 2026-10-20) (A14) |
+| `session-start-compact.json` | same, step 4 | desktop app 3.1623.0, Claude Code 2.1.304, 2026-10-20 | `SessionStart` after `/compact` in that desktop worktree session, `source: "compact"`: the same parent PID as its `startup`, and it carries `prompt_id`, `model` and `session_title` (A14) |
+| `cli-session-remove.json` | same, step 5 | Claude Code 2.1.304 (the desktop app's bundled CLI), 2026-10-20 | `WorktreeRemove` when a logged-in interactive `claude --worktree a15-probe` session in a scratch repository ended with `/exit` and the worktree removed: unlike the desktop app's, its `cwd` is the worktree, not the main checkout, and it carries `prompt_id` and `scratchpad_dir`, so a `prompt_id` marks a subagent only on `WorktreeCreate` (A15) |
+| `cli-session-end.json` | same, step 5 | Claude Code 2.1.304, 2026-10-20 | `SessionEnd` of that session: `reason: "prompt_input_exit"`, `cwd` the main checkout though the session ran in the worktree, with `prompt_id` and `scratchpad_dir`. Quitting the desktop app ended each of its sessions with `reason: "other"` (A15) |
+
 The file names say what kind of request each one is. The test for hook classification
-(docs/contracts.md (a)) runs over every file here and checks each one against its name.
+(docs/contracts.md (a)) runs over every `.json` file here and checks each one against its name;
+`desktop-create-timeout.txt`, a log rather than stdin, is the one file it passes over.
 
 ### captures/unity/
 
