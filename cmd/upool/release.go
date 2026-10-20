@@ -85,20 +85,17 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	if _, err := pool.RevertNoise(ctx, g, s.Path); err != nil {
 		return nil, nil, err
 	}
-	dirty, err := dirtyReasons(ctx, g, s.Path)
+	dirty, err := pool.Dirty(ctx, g, s.Path)
 	if err != nil {
 		return nil, nil, err
 	}
 	clean := len(dirty) == 0
 	if clean {
-		if err := g.CheckoutDetach(ctx, s.Path, rp.pool.Base); err != nil {
-			return nil, nil, err
-		}
-		if err := g.Clean(ctx, s.Path); err != nil {
+		if err := pool.ResetToBase(ctx, g, s.Path, rp.pool.Base); err != nil {
 			return nil, nil, err
 		}
 	}
-	if err := unlockSlot(ctx, g, repo, s.Path); err != nil {
+	if err := pool.Unlock(ctx, g, repo, s.Path); err != nil {
 		return nil, nil, err
 	}
 	state, err := clearLease(ctx, inv, rp.repo.Key, s, clean)
@@ -200,58 +197,6 @@ func checkReleasable(s pool.Slot, ifLeaseID string, force bool, c proc.Checker) 
 		return output.Fail(output.CodeCommandFailed, "%s is held by process %d, which is alive; "+
 			"pass --if-lease-id %s or --force to release it anyway", s.Name, *l.HolderPID,
 			l.LeaseID)
-	}
-	return nil
-}
-
-// dirtyReasons returns why the slot at dir is dirty as docs/contracts.md (f) defines it, or none
-// when it is clean: its `git status --porcelain` lines, or, when those are empty, that its HEAD is
-// on no branch, since no ref contains it and a reset to base would orphan it (A5).
-func dirtyReasons(ctx context.Context, g git.Client, dir string) ([]string, error) {
-	status, err := g.Status(ctx, dir)
-	if err != nil {
-		return nil, err
-	}
-	var reasons []string
-	for _, e := range status {
-		if e.OrigPath != "" {
-			reasons = append(reasons, fmt.Sprintf("%s %s -> %s", e.XY, e.OrigPath, e.Path))
-		} else {
-			reasons = append(reasons, e.XY+" "+e.Path)
-		}
-	}
-	if len(reasons) > 0 {
-		return reasons, nil
-	}
-	reachable, err := g.HeadReachable(ctx, dir)
-	if err != nil {
-		return nil, err
-	}
-	if !reachable {
-		return []string{"HEAD is on no branch"}, nil
-	}
-	return nil, nil
-}
-
-// unlockSlot unlocks the worktree at path if git has it locked: the lock take held for the lease's
-// lifetime.
-func unlockSlot(ctx context.Context, g git.Client, repo, path string) error {
-	key, err := paths.Key(path)
-	if err != nil {
-		return err
-	}
-	wts, err := g.WorktreeList(ctx, repo)
-	if err != nil {
-		return err
-	}
-	for _, wt := range wts {
-		wk, err := paths.Key(wt.Path)
-		if err != nil {
-			return err
-		}
-		if wk == key && wt.Locked {
-			return g.WorktreeUnlock(ctx, repo, path)
-		}
 	}
 	return nil
 }

@@ -260,3 +260,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   `--json` gives `slot`, `path`, `state`, `repo` and, for a parked slot, `dirty`. Usage now
   lists it.
+- A lease whose holder process died is reclaimed. A clean slot gets the release reset and is
+  marked `ready`; a dirty one is `parked` and unlocked, with nothing in it changed.
+  - **When:** `upool take` reclaims before each try at choosing a slot, and says on stderr what
+    it reclaimed or parked. `upool doctor --fix` reclaims too, and reports `fixed:` on the
+    slot's line.
+  - **Reporting only:** without `--fix`, doctor warns on the slot's line that the next take or
+    `--fix` reclaims it. `status` reclaims nothing.
+  - **What counts as dead:** a holder is dead when `internal/proc` finds no process with its PID
+    at its recorded start time, so a reused PID counts as dead.
+  - **What is never reclaimed:** a lease with no holder PID (a bare `take`), a lease with no
+    recorded start time, and a slot that `~/.upool/editors.json` shows a live Editor in.
+
+  `internal/pool` gains `Reclaimer`, and `Dirty`, `ResetToBase` and `Unlock`, the reset that
+  release and the reclaim now share.
