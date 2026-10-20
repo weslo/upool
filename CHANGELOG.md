@@ -28,8 +28,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   first change to an existing file, setup keeps a copy, `settings.json.upool-backup`, which no
   later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object of
   arrays, is refused before setup writes anything. Project settings are never written. Until the
-  hook handlers land, the registered create hook exits 1, which fails every Claude Code worktree
-  session in every repository.
+  create hook's pooled branch lands, the registered hook fails every Claude Code worktree session
+  in a pooled repository.
 - `upool setup` installs the upool skill, `assets/skill/upool/SKILL.md`, at
   `~/.claude/skills/upool/SKILL.md` and `~/.agents/skills/upool/SKILL.md`, and upserts upool's
   marked block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, creating each file and its
@@ -62,10 +62,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `<cwd>/.claude/worktrees/<name>`, as Claude Code would have made it; if `cwd` is in a
   registered pool, matched as A13 says, the pool's `state.json` records it under
   `agent_worktrees` with its parent session and the hook's parent PID, and a worktree that cannot
-  be recorded is removed again. The hook prints only the path. A session's request is refused,
-  "not routed yet", until the session branches arrive, so the registered create hook still fails
-  every worktree session. `registry.Containing` is the A13 match: a registered main checkout or
-  any directory in it but its `.claude/worktrees`, the innermost of nested ones.
+  be recorded is removed again. The hook prints only the path. `registry.Containing` is the A13
+  match: a registered main checkout or any directory in it but its `.claude/worktrees`, the
+  innermost of nested ones.
+- `upool hook worktree-create` routes a session's request by its `cwd`, matched as A13 says. A
+  session in a repository upool does not manage, or in one of a pool's slots, gets the
+  pass-through worktree, `git -C <cwd> worktree add <cwd>/.claude/worktrees/<name>` on a branch
+  named `<name>`, as Claude Code would have made it, and the hook prints its path; it opens no
+  file in the repository, since the desktop app's hook helper could run only git and stat paths
+  under `~/Documents`. A session in a pool is refused until the pooled branch arrives (#78).
 
 ## [0.1.0] - 2026-10-20
 

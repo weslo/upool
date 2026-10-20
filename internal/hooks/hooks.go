@@ -111,18 +111,57 @@ const worktreesDir = ".claude/worktrees"
 // WorktreeCreate handles a WorktreeCreate request and returns the path of the worktree the
 // session or subagent is to work in; an error aborts the creation, and with it the session or
 // subagent (docs/contracts.md (a)). A user-scope hook has no matcher, so it runs for every
-// repository and every kind of request (docs/design.md, "Route Claude Code's worktrees through the
-// pool: three branches in one hook"). Only the subagent branch is built; a session's request is
-// refused until the session branches are (#72).
+// repository and every kind of request, and branches three ways on stdin alone: a subagent gets an
+// ordinary worktree, a session in a pool one of its slots, and any other session the pass-through
+// worktree (docs/design.md, "Route Claude Code's worktrees through the pool: three branches in
+// one hook"). The pooled branch is refused until it is built (#78).
 func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventWorktreeCreate {
 		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
 			EventWorktreeCreate)
 	}
-	if kind := req.Kind(); kind != Subagent {
-		return "", fmt.Errorf("worktree requests from a %s are not routed yet", kind)
+	if !filepath.IsAbs(req.Cwd) {
+		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
 	}
-	return subagentWorktree(ctx, env, req)
+	if req.Kind() == Subagent {
+		return subagentWorktree(ctx, env, req)
+	}
+	repo, pooled, err := registry.Containing(env.Home, req.Cwd)
+	if err != nil {
+		return "", err
+	}
+	if pooled {
+		return "", fmt.Errorf("%s is in pool %s, and handing a session one of its slots is not "+
+			"built yet", req.Cwd, repo.Key)
+	}
+	return passThroughWorktree(ctx, env, req)
+}
+
+// checkName refuses a worktree name that is not one path element, before it becomes part of a
+// path under .claude/worktrees.
+func checkName(name string) error {
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("the worktree name %q is not a single path element", name)
+	}
+	return nil
+}
+
+// passThroughWorktree is the pass-through branch, for a session in a repository upool does not
+// manage, or in one of a pool's slots (A13): the worktree Claude Code would have made itself, at
+// <cwd>/.claude/worktrees/<name> on a branch named <name>, so that the user's other projects keep
+// working under a hook they cannot opt out of (docs/design.md, "Route Claude Code's worktrees
+// through the pool: three branches in one hook"). The desktop app runs a session's hook in a helper
+// that, under ~/Documents, could run only git and stat paths (docs/contracts.md (a)), so the
+// branch opens no file in the repository: git does all of it.
+func passThroughWorktree(ctx context.Context, env Env, req Request) (string, error) {
+	if err := checkName(req.Name); err != nil {
+		return "", err
+	}
+	path := filepath.Join(req.Cwd, filepath.FromSlash(worktreesDir), req.Name)
+	if err := env.Git.WorktreeAddBranch(ctx, req.Cwd, path); err != nil {
+		return "", fmt.Errorf("making the worktree %s: %w", path, err)
+	}
+	return path, nil
 }
 
 // subagentWorktree is the subagent branch: an ordinary worktree, detached at the repository's
@@ -130,13 +169,8 @@ func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
 // subagent never gets a pool slot, since no WorktreeRemove ever comes for it (spike §9 F.3). If cwd
 // is in a registered pool, the worktree is recorded in its state.json for `prune` to collect.
 func subagentWorktree(ctx context.Context, env Env, req Request) (string, error) {
-	if !filepath.IsAbs(req.Cwd) {
-		return "", fmt.Errorf("the subagent's cwd %q is not an absolute path", req.Cwd)
-	}
-	if req.Name == "" || req.Name == "." || req.Name == ".." ||
-		strings.ContainsAny(req.Name, `/\`) {
-		return "", fmt.Errorf("the subagent's worktree name %q is not a single path element",
-			req.Name)
+	if err := checkName(req.Name); err != nil {
+		return "", err
 	}
 	if !req.Corroborated() {
 		_, _ = fmt.Fprintf(env.Stderr, "upool: warning: a request with a prompt_id, so from a "+

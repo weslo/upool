@@ -447,6 +447,15 @@ func (c Client) WorktreeAddDetached(ctx context.Context, repo, path string) erro
 	return err
 }
 
+// WorktreeAddBranch adds a worktree at path, an absolute path, on the branch named after path's
+// last element, created from repo's HEAD if it does not exist: `git -C <repo> worktree add
+// <path>`, git's default, which the create hook's pass-through branch makes for a repository upool
+// does not manage (docs/contracts.md (a), "Telling the kinds apart").
+func (c Client) WorktreeAddBranch(ctx context.Context, repo, path string) error {
+	_, err := c.run(ctx, repo, "worktree", "add", path)
+	return err
+}
+
 // WorktreeRemove removes the worktree at path, its registration and its directory, run in repo:
 // `git worktree remove --force <path>`, which removes it even with changes or untracked files.
 // `doctor --fix` removes an interrupted clone with it (docs/contracts.md (f) transition 21).
