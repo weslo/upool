@@ -54,10 +54,11 @@ Citation keys:
 | Desktop session | `transcript_path` | `""` and no `prompt_id` | S§9 "How to tell the requests apart" |
 | CLI `--worktree` session | `transcript_path` | non-empty and no `prompt_id` | S§9 "How to tell the requests apart" |
 
-The hook's three branches (D-route) key on subagent versus not, then on whether `cwd` matches a
-repository in `~/.upool/registry.json`: subagent → `git worktree add --detach
+The hook's three branches (D-route) key on subagent versus not, then on whether `cwd` is inside a
+repository in `~/.upool/registry.json` (A13): subagent → `git worktree add --detach
 <repo>/.claude/worktrees/<name>`; pooled session → `upool take --no-create --holder <session_id>
---timeout 20`; anything else → pass-through `git -C <cwd> worktree add <cwd>/.claude/worktrees/<name>`.
+--timeout 20`, with the wait A11 sets; anything else → pass-through
+`git -C <cwd> worktree add <cwd>/.claude/worktrees/<name>`.
 Desktop versus CLI does not change the branch; it is why leases correlate by worktree path, never
 by `session_id` (S§7 item 3; D-route).
 
@@ -92,6 +93,7 @@ by `session_id` (S§7 item 3; D-route).
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
+| A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
 ## (b) SessionStart and `CLAUDE_ENV_FILE`
 
@@ -104,7 +106,7 @@ by `session_id` (S§7 item 3; D-route).
 | `cwd` | the slot | main checkout | the worktree | S§2 TB; S§5 |
 | `scratchpad_dir` | present | present | absent | S§5 (both captures) |
 | `hook_event_name` | `"SessionStart"` | `"SessionStart"` | `"SessionStart"` | S§5 |
-| `source` | `"startup"` | `"startup"` | `"startup"` | S§5; the only value captured |
+| `source` | `"startup"` | `"startup"` | `"startup"` | S§5; the only value captured; A14 for the others |
 | Process | the CLI process; `getcwd` works under `~/Documents` | same | same | S§2 TB |
 | Process cwd | the **main checkout**, even when stdin `cwd` is the slot: read stdin `cwd`, never `$PWD` | main checkout | not recorded | S§2 TB; S§7 item 6 |
 | Fixtures | `hooks/session-start.json`, `hooks/session-start-reuse.json`, `hooks/sibling-*-start.json`, `hooks/desktop-probe-session-start.json` | `hooks/desktop-no-worktree-session-start.json` | `hooks/cli-session-start.json` | testdata/README.md |
@@ -116,9 +118,9 @@ by `session_id` (S§7 item 3; D-route).
 | Set for `SessionStart` hooks to `~/.claude/session-env/<SessionStart session_id>/sessionstart-hook-0.sh` | S§2 T7.5 |
 | The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree[^2] | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply) |
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
-| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh` | D-env; D-lifecycle; A6 |
+| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
-| `SessionEnd` (best effort, 1.5 s budget) and `CwdChanged` were not exercised | D-env; D-unverified |
+| `SessionEnd` (best effort, 1.5 s budget) and `CwdChanged` were not exercised; `SessionEnd` is built against a capture (A15) | D-env; D-unverified; A15 |
 
 ## (c) Unity CLI targeting (CLI 1.0.0-beta.13)
 
@@ -548,6 +550,64 @@ answered (maintainer decision, 2026-10-18), and (e), (f) and (g) follow the answ
   `.upool.toml`. Slots beyond `ready` become `prune` candidates after `shrink_after` idle, and
   `init`'s help says so (D-commands).
 
+### Decided for M2
+
+Stage 2 filed these as `decision-needed` issues because each blocks part of the M2 chain. All five
+are answered (maintainer decision, 2026-10-20), and (a) and (b) follow the answers. Three of them
+need captures first, which [#148](https://github.com/weslo/upool/issues/148) records.
+
+- **11. WorktreeCreate wait** ([#16](https://github.com/weslo/upool/issues/16)). The pooled branch
+  may wait up to 20 s for a slot. How long the desktop app waits for a create hook before failing
+  was never measured.
+
+  **A11.** Measure it before the pooled branch is built. A create hook that logs its start, sleeps
+  30 s and then prints a path shows whether the app waits that long and, if not, when it gives up;
+  the result is a capture ([#148](https://github.com/weslo/upool/issues/148)). The pooled branch's
+  wait is then the smaller of 20 s and the measured limit less 5 s, so that the hook fails with
+  upool's own message before the app gives up ((a);
+  [#78](https://github.com/weslo/upool/issues/78)).
+- **13. Pooled-repo match** ([#18](https://github.com/weslo/upool/issues/18)). Every capture had
+  stdin `cwd` at the repository root. Must a pooled request's `cwd` equal the registered main
+  checkout, or may it be a subdirectory?
+
+  **A13.** A prefix. A request whose canonical `cwd` is a registered main checkout, or inside one,
+  routes to that pool; where registered repositories nest, the innermost wins. A `cwd` inside
+  `<repo>/.claude/worktrees/` is a slot or an agent worktree, not the main checkout, so it takes the
+  pass-through branch. The match compares `internal/paths` keys with `paths.Within`, so it needs no
+  git call from the disclaimed helper ((a); [#72](https://github.com/weslo/upool/issues/72)).
+- **14. Other `SessionStart` sources** ([#19](https://github.com/weslo/upool/issues/19)). Only
+  `source: "startup"` was captured. Should `take --confirm` behave differently on `resume`, `clear`
+  or `compact`?
+
+  **A14.** Yes. On `startup` it does everything (b) lists. On `resume`, `clear` and `compact` it
+  appends `export UNITY_PROJECT_PATH=<slot>` to `CLAUDE_ENV_FILE` and, while the slot's lease is
+  held, records its parent as the lease's holder PID, since a resumed session may run in a new CLI
+  process. It does not re-copy the agent files, which would overwrite edits the session made to
+  them, and does not reset or start `refresh`. Each source is captured first, with the hook's parent
+  PID ([#148](https://github.com/weslo/upool/issues/148)), and the session-start hook is built
+  against those captures ((b); [#77](https://github.com/weslo/upool/issues/77)).
+- **15. CLI remove and `SessionEnd`** ([#20](https://github.com/weslo/upool/issues/20)). No
+  `WorktreeRemove` or `SessionEnd` stdin exists for a logged-in CLI session, so those code paths
+  have no fixture (D-unverified; S§8 A.9).
+
+  **A15.** Capture, then build. Both are captured from a logged-in interactive `claude --worktree`
+  session with `scripts/capture-hook.sh` ([#148](https://github.com/weslo/upool/issues/148)), and
+  `SessionEnd`'s best-effort release is built and tested against that capture, as rule 1 requires
+  ([#80](https://github.com/weslo/upool/issues/80)). If `SessionEnd` never fires there, #80 closes
+  without code, and `WorktreeRemove` and `upool run` remain the releases. The `WorktreeRemove`
+  capture fills (a)'s CLI column.
+- **22. Removing a pass-through worktree** ([#27](https://github.com/weslo/upool/issues/27)). The
+  user-scope `WorktreeRemove` hook runs for every repository, and the app accepts exit 0 with the
+  directory still present ((a)). What does it do with a worktree in a repository upool does not
+  manage?
+
+  **A22.** Remove it when clean: `git -C <cwd> worktree remove <worktree_path>` when the worktree is
+  clean as (f) defines it; when dirty, keep it and say so on stderr; exit 0 either way. Leaving it
+  for `prune` would need new state, since nothing records pass-through worktrees. The pass-through
+  create branch already runs `git worktree add` from the same disclaimed helper, which the spike
+  measured working (4634 ms), so the remove is the same kind of git write, and M2's gate checks it
+  ((a); (f); [#74](https://github.com/weslo/upool/issues/74)).
+
 ### Other open questions
 
 - **1. Unity CLI exit 7.** No capture shows it. What produces it, and what should upool do with it?
@@ -563,17 +623,9 @@ answered (maintainer decision, 2026-10-18), and (e), (f) and (g) follow the answ
   a headless open and its close?
 - **9. Cold-import charge.** Is a cold-importing Editor charged 4.5 GB instead of its 2.5 GB or on
   top of it, is 4.5 GB a setting, and is the `max_editors` formula in (h) the intended one?
-- **11. WorktreeCreate wait.** The pooled branch may wait up to 20 s for a slot. How long the desktop
-  app waits for a create hook before failing was never measured.
 - **12. `unity open` warning line.** Was the `Warning: …` line before the JSON on stdout or stderr? A
   parser that expects bare JSON on stdout breaks if it was stdout. `scripts/capture-unity.sh` keeps
   stdout and stderr apart, so a new capture answers this.
-- **13. Pooled-repo match.** Does a pooled request require stdin `cwd` to equal the registered main
-  checkout, or may it be a subdirectory? Every capture had `cwd` at the repository root.
-- **14. Other `SessionStart` sources.** Only `source: "startup"` was captured. Should
-  `take --confirm` behave differently on `resume`, `clear` or `compact`?
-- **15. CLI remove and `SessionEnd`.** No `WorktreeRemove` or `SessionEnd` stdin exists for a
-  logged-in CLI session, so those code paths have no fixture (D-unverified; S§8 A.9).
 - **16. GoReleaser `brews`.** The design and the bootstrap ask for a `brews` section that writes
   `Formula/upool.rb`; GoReleaser 2.10 and later deprecate `brews` in favour of `homebrew_casks`.
   Keep the formula or move to a cask before the first release in M4? A cask is quarantined by
