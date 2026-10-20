@@ -86,7 +86,8 @@ func wantChecks() []string {
 	if runtime.GOOS == "darwin" {
 		names = append(names, checkCloneSharing)
 	}
-	return append(names, checkStateVolume, checkLeases, "unity-cli", "claude-code")
+	return append(names, checkStateVolume, checkLeases, checkHookScripts, checkHookSettings,
+		checkHookProvenance, "unity-cli", "claude-code")
 }
 
 // checkResults fails the test unless checks are wantChecks, in order, each passing but the one

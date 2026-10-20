@@ -29,8 +29,9 @@ const doctorUsage = "doctor [--fix] [--json]"
 // directory, as status finds it, and reports each check (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `doctor` row). Without --fix it changes nothing, beyond
 // the scratch files the clone-sharing check writes and removes; with --fix it also repairs what is
-// safe to repair, interrupted clones and slots whose directory is gone (#56). It exits 1 if any
-// check fails. The hook and Editor checks arrive in M2 and M3.
+// safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks the
+// hook installation `upool setup` makes, which is the machine's rather than the pool's (#69). It
+// exits 1 if any check fails. The Editor checks arrive in M3.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -141,6 +142,7 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	}
 	r.Checks = append(r.Checks, stateVolumeCheck(inv.home),
 		leaseCheck(rp.pool.Slots, inv.now(), cfg.AgentTTL.Value))
+	r.Checks = append(r.Checks, hookChecks(inv.home)...)
 	r.Checks = append(r.Checks, versionChecks(ctx, inv)...)
 
 	var failed []string

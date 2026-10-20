@@ -40,6 +40,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   takes its own slot with `upool take` and releases it. A copy of the skill that differs is
   rewritten. The block is upserted as `init` does it, every byte outside its markers kept, and an
   instruction file whose markers do not pair is refused before setup writes anything.
+- `upool doctor` checks the hook installation, which belongs to the machine rather than the pool:
+  `hook-scripts` fails unless each of the three scripts is in `~/.upool/hooks`, executable, outside
+  `Documents`, `Desktop` and `Downloads` (symlinks resolved), still the script setup writes, and
+  running an upool that exists; `hook-settings` fails unless `~/.claude/settings.json` registers
+  each script for its event; and `hook-provenance` warns about each registered repository whose
+  own `.claude/settings*.json` also registers upool's hooks, which the desktop app does not vouch
+  for there.
 
 ## [0.1.0] - 2026-10-20
 
