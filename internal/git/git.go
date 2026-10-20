@@ -334,6 +334,87 @@ func (c Client) SymbolicRef(ctx context.Context, dir, name string) (string, bool
 	return strings.TrimSuffix(string(res.Stdout), "\n"), true, nil
 }
 
+// diffSidesArgs is the call DiffSides makes, before its path: a patch of the worktree against the
+// index whose context is the whole file (math.MaxInt32 lines, so one hunk), unaffected by a user's
+// external diff, colours or textconv drivers.
+var diffSidesArgs = []string{"diff", "--no-ext-diff", "--no-color", "--no-textconv",
+	"--unified=2147483647", "--"}
+
+// DiffSides returns the two versions of path, a tracked file relative to the worktree at dir, that
+// `git diff` compares: the index's and the worktree's, rebuilt from a patch whose context is the
+// whole file. It reports false when git prints no patch of lines for path: the versions are the
+// same, or git counts the file binary. The define-order noise rule compares the two
+// (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
+// reset without `-x`"). It reads the worktree's file through git rather than directly because the
+// remove hook applies that rule from the desktop app's disclaimed helper, where git was the only
+// tool tested that could read a repository under ~/Documents (docs/design.md, "One binary, a dozen
+// commands, one JSON file per pool", state placement; spike §2 TB).
+func (c Client) DiffSides(ctx context.Context, dir, path string) (index, worktree []byte, ok bool,
+	err error) {
+	args := append(slices.Clone(diffSidesArgs), path)
+	out, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	index, worktree, ok, err = parseSides(out)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("parsing %s: %w", command(dir, args), err)
+	}
+	return index, worktree, ok, nil
+}
+
+// parseSides rebuilds the two sides of a one-file patch. The lines before the first hunk header
+// are the patch's own headers; no hunk means no patch of lines. In the hunk a line starting with a
+// space is on both sides, "-" on the old side only and "+" on the new side only; an empty line is
+// an empty context line, as diff.suppressBlankEmpty writes it; and "\ No newline at end of file"
+// takes the newline off the line before it. A second hunk is an error: the context is the whole
+// file.
+func parseSides(out []byte) (before, after []byte, ok bool, err error) {
+	if len(out) == 0 {
+		return nil, nil, false, nil
+	}
+	if out[len(out)-1] != '\n' {
+		return nil, nil, false, errors.New("output does not end in a newline")
+	}
+	lines := strings.Split(string(out[:len(out)-1]), "\n")
+	hunk := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, "@@ ") })
+	if hunk < 0 {
+		return nil, nil, false, nil
+	}
+	var a, b bytes.Buffer
+	var last byte
+	for _, l := range lines[hunk+1:] {
+		if l == "" {
+			l = " "
+		}
+		switch l[0] {
+		case ' ':
+			a.WriteString(l[1:] + "\n")
+			b.WriteString(l[1:] + "\n")
+		case '-':
+			a.WriteString(l[1:] + "\n")
+		case '+':
+			b.WriteString(l[1:] + "\n")
+		case '\\':
+			if last == 0 || last == '\\' {
+				return nil, nil, false, fmt.Errorf("%q follows no line", l)
+			}
+			if last != '+' {
+				a.Truncate(a.Len() - 1)
+			}
+			if last != '-' {
+				b.Truncate(b.Len() - 1)
+			}
+		case '@':
+			return nil, nil, false, fmt.Errorf("a second hunk, %q", l)
+		default:
+			return nil, nil, false, fmt.Errorf("malformed line %q", l)
+		}
+		last = l[0]
+	}
+	return a.Bytes(), b.Bytes(), true, nil
+}
+
 // Commit returns the commit that rev names in the repository holding dir, from
 // `git rev-parse --verify <rev>^{commit}`, so that a branch, a tag and a SHA compare alike. The
 // clone recipe checks a slot's HEAD against base's commit (docs/contracts.md (g) Clone recipe,
@@ -369,6 +450,14 @@ func (c Client) Reset(ctx context.Context, dir string) error {
 // `git checkout -- .` ((g) step 7, for a seed that was dirty).
 func (c Client) CheckoutFiles(ctx context.Context, dir string) error {
 	_, err := c.run(ctx, dir, "checkout", "--", ".")
+	return err
+}
+
+// CheckoutPath reverts one tracked file in the worktree at dir to the index:
+// `git checkout -- <path>`, which is how define-order noise is reverted (docs/design.md, "Slot
+// lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`").
+func (c Client) CheckoutPath(ctx context.Context, dir, path string) error {
+	_, err := c.run(ctx, dir, "checkout", "--", path)
 	return err
 }
 
