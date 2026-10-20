@@ -22,7 +22,18 @@ func check(t *testing.T, e *testenv.Env) Staleness {
 	return s
 }
 
-// The three cases of the issue's acceptance test, and the edits that must or must not count.
+// editorDAGDir is the Editor's DAG in the build cache, named as the M1 gate's project has it
+// (#144).
+const editorDAGDir = "Library/Bee/artifacts/200b0aEDbg.dag"
+
+// compiled gives the build cache under e's Library an assembly at mtime in the DAG directory dag.
+func compiled(e *testenv.Env, dag string, mtime time.Time) {
+	name := dag + "/Assembly-CSharp.dll"
+	e.WriteFile(name, "assembly\n")
+	e.SetMtime(name, mtime)
+}
+
+// The cases of the acceptance tests of #49 and #144, and the edits that must or must not count.
 func TestStaleness(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -93,6 +104,64 @@ func TestStaleness(t *testing.T) {
 			},
 			script: testenv.PlayerScript,
 		},
+		{
+			// The Editor compiled the newer script, and the build cache's assembly came out as
+			// ScriptAssemblies already had it, so the Editor left ScriptAssemblies alone (#144).
+			name: "a build-cache assembly compiled after the script",
+			opts: []testenv.Option{testenv.StaleLibrary()},
+			change: func(_ *testing.T, e *testenv.Env) {
+				compiled(e, editorDAGDir, testenv.StaleTime.Add(time.Minute))
+			},
+			script: testenv.PlayerScript,
+		},
+		{
+			name: "a script newer than ScriptAssemblies and the build cache",
+			opts: []testenv.Option{testenv.StaleLibrary()},
+			change: func(_ *testing.T, e *testenv.Env) {
+				compiled(e, editorDAGDir, testenv.StaleTime.Add(-time.Minute))
+			},
+			stale:  true,
+			script: testenv.PlayerScript,
+			reason: testenv.PlayerScript + " (modified 2026-10-12T23:00:00Z) is newer than " +
+				editorDAGDir + " (modified 2026-10-12T22:59:00Z)",
+		},
+		{
+			name: "ScriptAssemblies missing, with a newer build cache",
+			change: func(t *testing.T, e *testenv.Env) {
+				if err := os.RemoveAll(e.Path("Library/ScriptAssemblies")); err != nil {
+					t.Fatal(err)
+				}
+				compiled(e, editorDAGDir, testenv.StaleTime)
+			},
+			stale:  true,
+			script: testenv.GameScript,
+			reason: "it has no Library/ScriptAssemblies",
+		},
+		{
+			// A player build compiles the same scripts, into assemblies the Editor does not load.
+			name: "a player build's assemblies compiled after the script",
+			opts: []testenv.Option{testenv.StaleLibrary()},
+			change: func(_ *testing.T, e *testenv.Env) {
+				for _, dag := range []string{"200b0aP.dag", "200b0aPDevDbg.dag"} {
+					compiled(e, "Library/Bee/artifacts/"+dag, testenv.StaleTime.Add(time.Minute))
+				}
+			},
+			stale:  true,
+			script: testenv.PlayerScript,
+			reason: "is newer than Library/ScriptAssemblies (modified 2026-10-12T22:00:00Z)",
+		},
+		{
+			// Only an assembly counts: the build writes other files to the DAG directory too.
+			name: "a newer file in the build cache that is not an assembly",
+			opts: []testenv.Option{testenv.StaleLibrary()},
+			change: func(_ *testing.T, e *testenv.Env) {
+				e.WriteFile(editorDAGDir+"/Assembly-CSharp.rsp", "-target:library\n")
+				e.SetMtime(editorDAGDir+"/Assembly-CSharp.rsp", testenv.StaleTime.Add(time.Minute))
+			},
+			stale:  true,
+			script: testenv.PlayerScript,
+			reason: "is newer than Library/ScriptAssemblies",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -125,6 +194,16 @@ func TestStalenessReadsTheAssemblyTimes(t *testing.T) {
 	if s.AssembliesMissing || !s.AssembliesTime.Equal(testenv.LibraryTime) {
 		t.Errorf("AssembliesTime = %v, missing %v, want %v, false", s.AssembliesTime,
 			s.AssembliesMissing, testenv.LibraryTime)
+	}
+	if !s.CompiledTime.IsZero() || s.CompiledIn != "" || !s.Compiled().Equal(testenv.LibraryTime) {
+		t.Errorf("with no build cache, CompiledTime = %v in %q, Compiled() = %v; want zero, "+
+			"\"\", %v", s.CompiledTime, s.CompiledIn, s.Compiled(), testenv.LibraryTime)
+	}
+	compiled(e, editorDAGDir, testenv.StaleTime)
+	if s := check(t, e); !s.CompiledTime.Equal(testenv.StaleTime) || s.CompiledIn != editorDAGDir ||
+		!s.Compiled().Equal(testenv.StaleTime) {
+		t.Errorf("CompiledTime = %v in %q, Compiled() = %v; want %v in %q", s.CompiledTime,
+			s.CompiledIn, s.Compiled(), testenv.StaleTime, editorDAGDir)
 	}
 	if !s.ScriptTime.Equal(testenv.ScriptTime) {
 		t.Errorf("ScriptTime = %v, want %v", s.ScriptTime, testenv.ScriptTime)

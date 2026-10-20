@@ -48,7 +48,7 @@ type Seeder struct {
 // as its owner, until Done; the main checkout is held by nothing. With no candidate qualifying it
 // returns an error wrapping ErrNoSeed, and the lines say why.
 //
-// The freshest ready slot is the one whose Library/ScriptAssemblies is newest. A needs-reset
+// The freshest ready slot is the one its Editor compiled last (Staleness.Compiled). A needs-reset
 // slot is reset, `git checkout --detach <base>` and `git clean -fd`, and made ready first ((f)
 // transition 20); one that the reset leaves stale falls through to the main checkout, since
 // refreshing a stale seed arrives in M4 (A19).
@@ -86,7 +86,7 @@ func (sd Seeder) Choose(ctx context.Context) (Seed, []string, error) {
 			skip(s.Name, why)
 			continue
 		}
-		ready = append(ready, candidate{s, st.AssembliesTime})
+		ready = append(ready, candidate{s, st.Compiled()})
 	}
 	slices.SortStableFunc(ready, func(a, b candidate) int {
 		return b.assembled.Compare(a.assembled)
