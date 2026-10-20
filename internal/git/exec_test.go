@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -417,5 +418,58 @@ func TestSymbolicRefFollowsHEADAndOriginHEAD(t *testing.T) {
 	must(t, c, repo, "checkout", "-q", "--detach")
 	if got, ok, err := c.SymbolicRef(ctx, repo, "HEAD"); err != nil || ok {
 		t.Errorf("SymbolicRef(HEAD) when detached = %q, %v, %v, want false, nil", got, ok, err)
+	}
+}
+
+// DiffSides reads both versions through git, the whole file whatever the user's diff settings, and
+// CheckoutPath reverts the one file it names.
+func TestDiffSidesAndCheckoutPathOnAWorktree(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	var long strings.Builder
+	for i := range 40 {
+		fmt.Fprintf(&long, "line %d\r\n", i)
+	}
+	committed := long.String() + "\nlast"
+	writeFile(t, repo, "settings.asset", committed)
+	writeFile(t, repo, "bin.dat", "a\x00b")
+	must(t, c, repo, "add", "-A")
+	must(t, c, repo, "commit", "-q", "-m", "files")
+	for _, setting := range [][2]string{{"diff.suppressBlankEmpty", "true"},
+		{"diff.context", "0"}, {"diff.noprefix", "true"}, {"color.diff", "always"},
+		{"diff.external", "false"}} {
+		must(t, c, repo, "config", setting[0], setting[1])
+	}
+
+	index, worktree, ok, err := c.DiffSides(context.Background(), repo, "settings.asset")
+	if err != nil || ok || index != nil || worktree != nil {
+		t.Errorf("DiffSides of an unchanged file = %q, %q, %v, %v, want no patch", index, worktree,
+			ok, err)
+	}
+
+	changed := strings.Replace(committed, "line 30\r\n", "line thirty\r\n", 1) + "\n"
+	writeFile(t, repo, "settings.asset", changed)
+	writeFile(t, repo, "README.md", "edited\n")
+	writeFile(t, repo, "bin.dat", "a\x00c")
+	index, worktree, ok, err = c.DiffSides(context.Background(), repo, "settings.asset")
+	if err != nil || !ok {
+		t.Fatalf("DiffSides = %v, %v, want a patch", ok, err)
+	}
+	if string(index) != committed || string(worktree) != changed {
+		t.Errorf("DiffSides = %q, %q, want %q, %q", index, worktree, committed, changed)
+	}
+	if _, _, ok, err := c.DiffSides(context.Background(), repo, "bin.dat"); err != nil || ok {
+		t.Errorf("DiffSides of a binary file = %v, %v, want no patch", ok, err)
+	}
+
+	if err := c.CheckoutPath(context.Background(), repo, "settings.asset"); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := os.ReadFile(filepath.Join(repo, "settings.asset")); err != nil ||
+		string(b) != committed {
+		t.Errorf("settings.asset = %q, %v, want it as committed", b, err)
+	}
+	if status := must(t, c, repo, "status", "--porcelain"); status != "M README.md\n M bin.dat" {
+		t.Errorf("status = %q, want README.md and bin.dat still modified", status)
 	}
 }

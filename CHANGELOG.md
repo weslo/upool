@@ -169,3 +169,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the first slot with init's other uncommitted edits until the block is committed. The block's
   text is `assets/claude-md-block.md`, embedded by the new `assets` package, and the upsert is
   `internal/block`.
+- `internal/pool`: the define-order noise rule. `Noise` reports whether a worktree's only change is
+  the Editor reordering `scriptingDefineSymbols`: `ProjectSettings/ProjectSettings.asset` is the
+  only path `git status` reports, modified in the worktree and not staged, every changed line is an
+  entry of its `scriptingDefineSymbols` mapping, and each platform has the same symbols in another
+  order. A define added, removed or replaced, any other changed line, spacing or indentation in that
+  file, a staged change, or a change or untracked file anywhere else is not noise. `RevertNoise`
+  checks that one file out when it is noise and changes nothing otherwise. `internal/git` gains
+  `DiffSides`, the index's and the worktree's versions of a file read through one full-context
+  `git diff` (so the rule needs nothing but git, as the remove hook will), and `CheckoutPath`.
+  Nothing calls them yet; `release` and the remove hook will.

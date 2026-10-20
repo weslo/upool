@@ -110,6 +110,16 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 		{"CheckoutFiles", func(c Client) error {
 			return c.CheckoutFiles(context.Background(), "/work/slot")
 		}, []string{"checkout", "--", "."}},
+		{"DiffSides", func(c Client) error {
+			_, _, _, err := c.DiffSides(context.Background(), "/work/slot",
+				"ProjectSettings/ProjectSettings.asset")
+			return err
+		}, []string{"diff", "--no-ext-diff", "--no-color", "--no-textconv",
+			"--unified=2147483647", "--", "ProjectSettings/ProjectSettings.asset"}},
+		{"CheckoutPath", func(c Client) error {
+			return c.CheckoutPath(context.Background(), "/work/slot",
+				"ProjectSettings/ProjectSettings.asset")
+		}, []string{"checkout", "--", "ProjectSettings/ProjectSettings.asset"}},
 		{"Clean", func(c Client) error {
 			return c.Clean(context.Background(), "/work/slot")
 		}, []string{"clean", "-fd"}},
@@ -385,5 +395,59 @@ func TestRunnerErrorIsReturned(t *testing.T) {
 	c := Client{Runner: &fakeRunner{err: want}}
 	if _, err := c.Status(context.Background(), "/work/repo"); !errors.Is(err, want) {
 		t.Errorf("err = %v, want %v", err, want)
+	}
+}
+
+// recordedDiff is git 2.55.0's reply to DiffSides' call for a file whose second line changed and
+// whose last line lost its newline, under diff.suppressBlankEmpty, so that its empty context line
+// has no leading space.
+const recordedDiff = "diff --git a/f.txt b/f.txt\nindex 38ca73b..1c918c4 100644\n--- a/f.txt\n" +
+	"+++ b/f.txt\n@@ -1,4 +1,4 @@\n one\n-two\n+TWO\n\n-four\n+four\n" +
+	"\\ No newline at end of file\n"
+
+func TestDiffSidesRebuildsBothVersions(t *testing.T) {
+	c, _ := replying(recordedDiff)
+	index, worktree, ok, err := c.DiffSides(context.Background(), "/work/slot", "f.txt")
+	if err != nil || !ok {
+		t.Fatalf("DiffSides = %v, %v, want a patch", ok, err)
+	}
+	if want := "one\ntwo\n\nfour\n"; string(index) != want {
+		t.Errorf("index side = %q, want %q", index, want)
+	}
+	if want := "one\nTWO\n\nfour"; string(worktree) != want {
+		t.Errorf("worktree side = %q, want %q", worktree, want)
+	}
+}
+
+// No hunk is no patch of lines: nothing changed, or git counts the file binary.
+func TestDiffSidesWithoutAHunkReportsNoPatch(t *testing.T) {
+	for _, out := range []string{"", "diff --git a/b.bin b/b.bin\nindex 1..2 100644\n" +
+		"Binary files a/b.bin and b/b.bin differ\n"} {
+		c, _ := replying(out)
+		index, worktree, ok, err := c.DiffSides(context.Background(), "/work/slot", "b.bin")
+		if err != nil || ok || index != nil || worktree != nil {
+			t.Errorf("DiffSides of %q = %q, %q, %v, %v, want no patch", out, index, worktree, ok,
+				err)
+		}
+	}
+}
+
+func TestDiffSidesRejectsMalformedOutput(t *testing.T) {
+	const head = "--- a/f\n+++ b/f\n@@ -1 +1 @@\n"
+	tests := []struct{ name, out, want string }{
+		{"cut short", head + "-a", "output does not end in a newline"},
+		{"a second hunk", head + "-a\n+b\n@@ -9 +9 @@\n", `a second hunk, "@@ -9 +9 @@"`},
+		{"an unknown line", head + "?a\n", `malformed line "?a"`},
+		{"a lone newline marker", head + "\\ No newline at end of file\n",
+			`"\\ No newline at end of file" follows no line`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := replying(tt.out)
+			_, _, _, err := c.DiffSides(context.Background(), "/work/slot", "f")
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("DiffSides error = %v, want it to contain %q", err, tt.want)
+			}
+		})
 	}
 }
