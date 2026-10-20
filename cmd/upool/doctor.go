@@ -30,7 +30,7 @@ const doctorUsage = "doctor [--fix] [--json]"
 // commands, one JSON file per pool", the `doctor` row). Without --fix it changes nothing, beyond
 // the scratch files the clone-sharing check writes and removes; with --fix it also repairs what is
 // safe to repair, interrupted clones and slots whose directory is gone (#56). It exits 1 if any
-// check fails. The version checks arrive with #57, and the hook and Editor checks in M2 and M3.
+// check fails. The hook and Editor checks arrive in M2 and M3.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -137,6 +137,7 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	}
 	r.Checks = append(r.Checks, stateVolumeCheck(inv.home),
 		leaseCheck(rp.pool.Slots, inv.now(), cfg.AgentTTL.Value))
+	r.Checks = append(r.Checks, versionChecks(ctx, inv)...)
 
 	var failed []string
 	for _, c := range r.Checks {

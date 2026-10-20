@@ -19,10 +19,10 @@ import (
 // the script also fails the test when it ends (Install).
 const exitBroken = 1
 
-// Main is TestMain for a package whose tests use the fake. When the test binary runs as `unity`,
-// it acts as the CLI and exits with the scripted code; otherwise it runs the tests.
+// Main is TestMain for a package whose tests use the fake. When the test binary runs as `unity` or
+// `claude`, it acts as that CLI and exits with the scripted code; otherwise it runs the tests.
 func Main(m *testing.M) {
-	if filepath.Base(os.Args[0]) != name {
+	if name := filepath.Base(os.Args[0]); name != unityName && name != claudeName {
 		os.Exit(m.Run())
 	}
 	os.Exit(serve())
@@ -33,7 +33,8 @@ func Main(m *testing.M) {
 func serve() int {
 	a, err := reply()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "fake unity: %v\n", err) // stderr is the only place to say it
+		// stderr is the only place to say it.
+		_, _ = fmt.Fprintf(os.Stderr, "fake %s: %v\n", filepath.Base(os.Args[0]), err)
 		return exitBroken
 	}
 	// A failed write is the caller's to notice, through the output it did not get.
@@ -47,7 +48,7 @@ func reply() (answer, error) {
 	// The symlink Install made, whether it was run by its path or found on PATH, as a shell does.
 	self, err := exec.LookPath(os.Args[0])
 	if err != nil {
-		return answer{}, fmt.Errorf("finding the unity this ran as: %w", err)
+		return answer{}, fmt.Errorf("finding the command this ran as: %w", err)
 	}
 	dir := filepath.Dir(self)
 	raw, err := os.ReadFile(filepath.Join(dir, scriptFile))
@@ -75,8 +76,8 @@ func reply() (answer, error) {
 		return answer{}, err
 	}
 	if n >= len(script) {
-		return answer{}, fmt.Errorf("call %d is beyond the script's %d replies: unity %s",
-			n+1, len(script), strings.Join(call.Args, " "))
+		return answer{}, fmt.Errorf("call %d is beyond the script's %d replies: %s %s",
+			n+1, len(script), filepath.Base(os.Args[0]), strings.Join(call.Args, " "))
 	}
 	return script[n], nil
 }

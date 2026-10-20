@@ -6,7 +6,12 @@ import (
 	"testing"
 
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/unity/fake"
 )
+
+// TestMain lets this package's test binary stand in for `unity` and `claude`, for the tests that
+// put a fake of either on PATH (internal/unity/fake; CONTRIBUTING.md, "Testing").
+func TestMain(m *testing.M) { fake.Main(m) }
 
 func runCaptured(args ...string) (code int, stdout, stderr string) {
 	var out, errOut bytes.Buffer
