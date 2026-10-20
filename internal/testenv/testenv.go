@@ -1,7 +1,7 @@
 // Package testenv is the harness later tests run upool in: a temporary git repository holding a
-// fake Unity project, under a temporary HOME, with nothing taken from this machine but PATH
-// (CONTRIBUTING.md, "Testing": isolated from this machine, real git, temporary paths resolved with
-// filepath.EvalSymlinks).
+// fake Unity project, under a temporary HOME, with nothing taken from this machine but git, the
+// one command on its PATH, so that no test reaches a real Unity CLI (CONTRIBUTING.md, "Testing":
+// isolated from this machine, real git, temporary paths resolved with filepath.EvalSymlinks).
 //
 // The project has what the clone recipe and the staleness check read (docs/contracts.md (g) Clone
 // recipe; docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on
@@ -20,6 +20,7 @@ import (
 	"errors"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -158,10 +159,22 @@ func New(t testing.TB, opts ...Option) *Env {
 		Repo: filepath.Join(root, "project"),
 		t:    t,
 	}
+	// PATH holds git alone, linked from this machine's, so that nothing a test runs reaches this
+	// machine's unity or claude; a test that wants the fake unity puts it first on PATH.
+	bin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitPath, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(gitPath, filepath.Join(bin, "git")); err != nil {
+		t.Fatal(err)
+	}
 	e.env = map[string]string{
 		"HOME": e.Home,
-		// The only thing taken from this machine, so that git, and later the fake unity, are found.
-		"PATH": os.Getenv("PATH"),
+		"PATH": bin,
 		// Isolated from this machine's git configuration: no system file, and the global one is
 		// under Home, where there is none.
 		"GIT_CONFIG_NOSYSTEM": "1",

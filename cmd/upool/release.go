@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -90,20 +91,32 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		return nil, nil, err
 	}
 	clean := len(dirty) == 0
+	var warnings []string
+	reimport := false
 	if clean {
-		if err := pool.ResetToBase(ctx, g, s.Path, rp.pool.Base); err != nil {
+		keys := clone.KeyCheck{Env: inv.environ()}
+		changed, note, err := keys.Around(ctx, s.Path, func() error {
+			return pool.ResetToBase(ctx, g, s.Path, rp.pool.Base)
+		})
+		if err != nil {
 			return nil, nil, err
+		}
+		if note != "" {
+			warnings = append(warnings, note)
+		}
+		if changed {
+			reimport = true
+			warnings = append(warnings, clone.ReimportWarning(s.Name))
 		}
 	}
 	if err := pool.Unlock(ctx, g, repo, s.Path); err != nil {
 		return nil, nil, err
 	}
-	state, err := clearLease(ctx, inv, rp.repo.Key, s, clean)
+	state, err := clearLease(ctx, inv, rp.repo.Key, s, clean, reimport)
 	if err != nil {
 		return nil, nil, err
 	}
 	r := releaseReport{Slot: s.Name, Path: s.Path, State: state, Repo: repo, base: rp.pool.Base}
-	var warnings []string
 	if !clean {
 		r.Dirty = dirty
 		for _, d := range dirty {
@@ -202,10 +215,11 @@ func checkReleasable(s pool.Slot, ifLeaseID string, force bool, c proc.Checker) 
 }
 
 // clearLease writes the release to state.json under the lock: the slot ready, with last_used set,
-// when it was clean, and parked otherwise, its lease cleared either way. The lease must still be
-// the one release read; if another process changed it meanwhile, nothing is written.
+// when it was clean, and parked otherwise, its lease cleared either way, and reimport_pending set
+// when the reset changed the slot's cache key (A20). The lease must still be the one release
+// read; if another process changed it meanwhile, nothing is written.
 func clearLease(ctx context.Context, inv *invocation, key string, s pool.Slot,
-	clean bool) (pool.State, error) {
+	clean, reimport bool) (pool.State, error) {
 	var state pool.State
 	err := pool.Update(ctx, inv.home, key, func(p *pool.Pool) error {
 		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
@@ -223,6 +237,9 @@ func clearLease(ctx context.Context, inv *invocation, key string, s pool.Slot,
 		cur.State, cur.Lease = next, nil
 		if clean {
 			cur.LastUsed = inv.now().UTC()
+		}
+		if reimport {
+			cur.ReimportPending = true
 		}
 		state = next
 		return nil

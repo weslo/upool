@@ -53,6 +53,12 @@ type Recipe struct {
 	// OwnerPID is the cloning process, written with its start time into the creating entry so
 	// that a clone that dies part-way is found by its dead owner ((f) transition 21; A4).
 	OwnerPID int
+	// Keys compares the slot's `unity cache key` across step 7's checkout (A20); its zero value,
+	// with no unity on its PATH, compares nothing.
+	Keys KeyCheck
+	// Warn, when not nil, is told what the caller should warn about: a changed cache key, or one
+	// that could not be compared.
+	Warn func(string)
 	// MaxSlots, when above 0, is the pool's max_slots: a clone that would make more slots than
 	// that is refused, under the lock, with an error wrapping ErrPoolFull (docs/design.md, "Leases
 	// that survive crashes and never reclaim a live tree": growth stops at max_slots).
@@ -87,10 +93,14 @@ func (r Recipe) Clone(ctx context.Context, home, key, seed string) (pool.Slot, e
 	if err != nil {
 		return pool.Slot{}, err
 	}
-	if err := r.build(ctx, seed, s, repo, base, slot.Path); err != nil {
+	pending, err := r.build(ctx, seed, s, repo, base, slot.Path)
+	if err != nil {
 		return pool.Slot{}, fmt.Errorf("cloning %s into %s: %w", slot.Name, slot.Path, err)
 	}
-	return r.finish(ctx, home, key, slot.Name, s)
+	if pending {
+		r.warn(ReimportWarning(slot.Name))
+	}
+	return r.finish(ctx, home, key, slot.Name, s, pending)
 }
 
 // reserve is step 2: under the lock, it adds the next free slot-N to the pool as creating, with
@@ -150,23 +160,36 @@ func nextName(slots []pool.Slot) string {
 // into it, strips the Editor's instance files, rebuilds the index, moves the slot to base and
 // checks the result.
 func (r Recipe) build(ctx context.Context, seed string, s Staleness, repo, base,
-	slot string) error {
+	slot string) (reimportPending bool, err error) {
 	if err := r.Git.WorktreeAdd(ctx, repo, slot, s.Head); err != nil { // 3
-		return err
+		return false, err
 	}
 	if err := r.copySeed(ctx, seed, slot); err != nil { // 4
-		return err
+		return false, err
 	}
 	if err := strip(slot); err != nil { // 5
-		return err
+		return false, err
 	}
 	if err := r.Git.Reset(ctx, slot); err != nil { // 6
-		return err
+		return false, err
 	}
-	if err := r.moveToBase(ctx, slot, base, s.Dirty); err != nil { // 7
-		return err
+	pending, note, err := r.Keys.Around(ctx, slot, func() error { // 7, with A20's comparison
+		return r.moveToBase(ctx, slot, base, s.Dirty)
+	})
+	if err != nil {
+		return false, err
 	}
-	return r.verify(ctx, repo, slot, base) // 8
+	if note != "" {
+		r.warn(note)
+	}
+	return pending, r.verify(ctx, repo, slot, base) // 8
+}
+
+// warn passes a warning to Warn, if the caller gave one.
+func (r Recipe) warn(line string) {
+	if r.Warn != nil {
+		r.Warn(line)
+	}
 }
 
 // copySeed is step 4: `cp -cR` of each top-level entry of seed into slot, except the excluded
@@ -356,11 +379,11 @@ func (r Recipe) checkListed(ctx context.Context, repo, slot string) error {
 	return fmt.Errorf("git worktree list in %s does not list %s", repo, slot)
 }
 
-// finish marks the slot ready under the lock, with no owner and the seed's HEAD and dirtiness
-// recorded, and returns it as written. The slot must still be the creating one this process
+// finish marks the slot ready under the lock, with no owner, the seed's HEAD and dirtiness
+// recorded, and reimport_pending set if step 7 changed its cache key, and returns it as written. The slot must still be the creating one this process
 // reserved.
-func (r Recipe) finish(ctx context.Context, home, key, name string,
-	s Staleness) (pool.Slot, error) {
+func (r Recipe) finish(ctx context.Context, home, key, name string, s Staleness,
+	reimportPending bool) (pool.Slot, error) {
 	var slot pool.Slot
 	err := pool.Update(ctx, home, key, func(p *pool.Pool) error {
 		for i := range p.Slots {
@@ -377,7 +400,7 @@ func (r Recipe) finish(ctx context.Context, home, key, name string,
 				return err
 			}
 			sl.State, sl.OwnerPID, sl.OwnerPIDStart = state, nil, nil
-			sl.SeedHead, sl.SeedDirty = s.Head, s.Dirty
+			sl.SeedHead, sl.SeedDirty, sl.ReimportPending = s.Head, s.Dirty, reimportPending
 			slot = *sl
 			return nil
 		}

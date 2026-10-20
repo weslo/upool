@@ -1,5 +1,6 @@
-// Package unity talks to the Unity CLI. For now it holds only Response, the CLI's --format json
-// reply as upool reads it (docs/contracts.md, section d).
+// Package unity talks to the Unity CLI. For now it holds Response, the CLI's --format json reply
+// as upool reads it (docs/contracts.md, section d), and CacheKey, the one verb upool runs before
+// M3's verb table (#82).
 package unity
 
 import "encoding/json"
