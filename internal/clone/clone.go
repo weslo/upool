@@ -277,16 +277,18 @@ func (r Recipe) verify(ctx context.Context, repo, slot, base string) error {
 	if head != want {
 		return fmt.Errorf("HEAD is %s, not base %s at %s", head, base, want)
 	}
-	if err := checkBacklink(repo, slot); err != nil {
+	if err := CheckBacklink(repo, slot); err != nil {
 		return err
 	}
 	return r.checkListed(ctx, repo, slot)
 }
 
-// checkBacklink checks that slot's .git is a file whose gitdir is inside <repo>/.git/worktrees/,
+// CheckBacklink checks that slot's .git is a file whose gitdir is inside <repo>/.git/worktrees/,
 // compared by internal/paths keys. A relative gitdir is relative to slot, as git writes it under
-// worktree.useRelativePaths.
-func checkBacklink(repo, slot string) error {
+// worktree.useRelativePaths. Step 8 runs it on a new slot, and doctor on every slot
+// (docs/design.md, "Leases that survive crashes and never reclaim a live tree": a slot's backlink
+// is authenticated before it is trusted).
+func CheckBacklink(repo, slot string) error {
 	file := filepath.Join(slot, ".git")
 	info, err := os.Lstat(file)
 	if err != nil {

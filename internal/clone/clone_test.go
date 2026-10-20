@@ -73,7 +73,7 @@ func TestCheckBacklink(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err := checkBacklink(repo, slot)
+			err := CheckBacklink(repo, slot)
 			switch {
 			case tt.want == "" && err != nil:
 				t.Errorf("err = %v, want nil", err)
