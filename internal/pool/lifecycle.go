@@ -75,7 +75,8 @@ type Take struct {
 type Confirm struct{}
 
 // ConfirmTimeout is an unconfirmed lease outliving confirm_timeout: the app refused the session
-// and no remove will come (transition 7).
+// and no remove will come (transition 7). The slot goes back to ready, or to needs-reset when its
+// lease's reset_pending says its deferred reset never ran (A23).
 type ConfirmTimeout struct{}
 
 // Remove is the WorktreeRemove hook (transitions 8 and 9).
@@ -245,6 +246,9 @@ func Next(s Slot, e Event) (State, error) {
 		}
 	case ConfirmTimeout:
 		if s.State == StateLeasedUnconfirmed {
+			if s.Lease != nil && s.Lease.ResetPending {
+				return StateNeedsReset, nil // 7, from 10 (A23)
+			}
 			return StateReady, nil // 7
 		}
 	case Remove:

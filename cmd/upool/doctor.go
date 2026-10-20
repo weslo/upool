@@ -28,10 +28,11 @@ const doctorUsage = "doctor [--fix] [--json]"
 // doctorCommand is `upool doctor`: it checks the preconditions of the pool containing the working
 // directory, as status finds it, and reports each check (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `doctor` row). Without --fix it changes nothing, beyond
-// the scratch files the clone-sharing check writes and removes; with --fix it also repairs what is
-// safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks the
-// hook installation `upool setup` makes, which is the machine's rather than the pool's (#69). It
-// exits 1 if any check fails. The Editor checks arrive in M3.
+// the scratch files the clone-sharing check writes and removes and, as take and status do, the
+// end of unconfirmed leases that outlived confirm_timeout (#75); with --fix it also repairs what
+// is safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks
+// the hook installation `upool setup` makes, which is the machine's rather than the pool's (#69).
+// It exits 1 if any check fails. The Editor checks arrive in M3.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -111,8 +112,12 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	pools, err := readPools(ctx, inv.home,
-		func(repo registry.Repo) bool { return paths.Within(cwd, repo.Path) })
+	keep := func(repo registry.Repo) bool { return paths.Within(cwd, repo.Path) }
+	notes, err := expireLeases(ctx, inv, keep)
+	if err != nil {
+		return nil, nil, err
+	}
+	pools, err := readPools(ctx, inv.home, keep)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -152,10 +157,10 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 		}
 	}
 	if len(failed) > 0 {
-		return r, nil, output.Fail(output.CodeCommandFailed, "%d of %d checks failed: %s",
+		return r, notes, output.Fail(output.CodeCommandFailed, "%d of %d checks failed: %s",
 			len(failed), len(r.Checks), strings.Join(failed, ", "))
 	}
-	return r, nil, nil
+	return r, notes, nil
 }
 
 // failedCheck is a check that failed for err.

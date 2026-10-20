@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
@@ -123,10 +124,14 @@ func newStatusHome(t *testing.T) statusHome {
 	return h
 }
 
-// runStatus runs `upool status args…` in HOME home with wd as the working directory.
+// runStatus runs `upool status args…` in HOME home with wd as the working directory. It sets
+// editor_ram_budget_gb, as newInitEnv does, because status loads a pool's configuration to expire
+// its unconfirmed leases (#75), and off macOS that setting's default, a quarter of physical RAM,
+// cannot be read.
 func runStatus(t *testing.T, home, wd string, args ...string) result {
 	t.Helper()
-	env := map[string]string{"HOME": home, "PWD": wd}
+	env := map[string]string{"HOME": home, "PWD": wd,
+		config.EnvName("editor_ram_budget_gb"): "16"}
 	return dispatch(t, commandTable, hookTable, env, "", append([]string{"status"}, args...)...)
 }
 

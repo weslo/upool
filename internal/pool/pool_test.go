@@ -214,7 +214,8 @@ func TestGoldenHasExactlyTheContractKeys(t *testing.T) {
 			"seed_dirty", "reimport_pending", "last_used", "lease")
 		if i == 0 {
 			check("lease", object(t, slot["lease"]), "lease_id", "holder", "worktree_path",
-				"holder_pid", "holder_pid_start", "acquired_at", "confirmed", "lane", "name_hint")
+				"holder_pid", "holder_pid_start", "acquired_at", "confirmed", "reset_pending",
+				"lane", "name_hint")
 		}
 	}
 	for _, raw := range array(t, pool["agent_worktrees"]) {

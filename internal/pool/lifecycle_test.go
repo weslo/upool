@@ -17,6 +17,10 @@ var (
 	readySlot   = Slot{Name: "slot-1", State: StateReady}
 	unconfirmed = Slot{Name: "slot-1", State: StateLeasedUnconfirmed,
 		Lease: &Lease{Holder: "0f6b1c2d", Confirmed: false}}
+	// unconfirmedReset is an unconfirmed lease on a slot handed out from needs-reset, whose
+	// deferred reset has not run (A23).
+	unconfirmedReset = Slot{Name: "slot-1", State: StateLeasedUnconfirmed,
+		Lease: &Lease{Holder: "0f6b1c2d", Confirmed: false, ResetPending: true}}
 	leased = Slot{Name: "slot-1", State: StateLeased,
 		Lease: &Lease{Holder: "0f6b1c2d", HolderPID: new(48213), Confirmed: true}}
 	bareLeased = Slot{Name: "slot-1", State: StateLeased,
@@ -100,7 +104,10 @@ var transitions = []struct {
 		{readySlot, Take{ReadyAvailable: false}, StateLeased},
 	}},
 	{"6_confirm", []step{{unconfirmed, Confirm{}, StateLeased}}},
-	{"7_confirm_timeout", []step{{unconfirmed, ConfirmTimeout{}, StateReady}}},
+	{"7_confirm_timeout", []step{
+		{unconfirmed, ConfirmTimeout{}, StateReady},
+		{unconfirmedReset, ConfirmTimeout{}, StateNeedsReset},
+	}},
 	{"8_remove_clean", []step{
 		{leased, Remove{Clean: true}, StateNeedsReset},
 		{bareLeased, Remove{Clean: true}, StateNeedsReset},

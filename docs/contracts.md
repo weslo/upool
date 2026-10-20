@@ -5,9 +5,9 @@ The external behaviour `upool` depends on, extracted from [design.md](design.md)
 the spike report wins and a footnote says so. Fixture names refer to files under
 [`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
 [`docs/evidence/`](evidence/README.md). Nothing here is new design except the maintainer's answers
-to open questions, cited A4 to A7, A10 and A17 to A21: they settle what both documents leave open,
-and the tables follow them. Every other gap is listed under [Open questions](#open-questions), not
-filled.
+to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A23: they settle what both
+documents leave open, and the tables follow them. Every other gap is listed under
+[Open questions](#open-questions), not filled.
 
 Citation keys:
 
@@ -248,6 +248,7 @@ Lease:
 | `holder_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the holder | same | D-leases; A6 |
 | `acquired_at` | timestamp | when the lease was taken; drives `confirm_timeout`, and for a lease with no holder PID, `doctor`'s warning once it is older than `agent_ttl` | `take` | D-commands; D-leases; A6 |
 | `confirmed` | bool | `false` only for a lease the create hook takes, set inside `internal/hooks` and never by a CLI flag; `true` after `take --confirm`, and from the start for every other `take`, including `run`'s | `take`, `take --confirm` | D-route; D-env; A6 |
+| `reset_pending` | bool | `true` only for a create-hook lease on a slot handed out from `needs-reset` (transition 10), whose deferred reset has not run: `take --confirm` runs the reset and clears it, and an expiry before then returns the slot to `needs-reset`, not `ready` (transition 7) | hook (create), `take --confirm` | A5; A23 |
 | `lane` | string, `script` or `scene` | default `script`; at most one `scene` lease per project | `take --lane` | D-lanes |
 | `name_hint` | string | the create stdin `name`; never a key | hook (create) | D-route |
 
@@ -331,7 +332,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20` | D-route |
 | 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; `take` checks out the branch `<name>`, creating it from `--base` (default `base`) when it does not exist, and the lease starts confirmed | D-commands; D-route; A6; A18 |
 | 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path; it records the holder PID | D-env; A6 |
-| 7 | `leased-unconfirmed` | `ready` | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come | D-leases; S§8 A.7 |
+| 7 | `leased-unconfirmed` | `ready`, or `needs-reset` when the lease's `reset_pending` is set | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come. `take`, `status` and `doctor` end such a lease whenever they read the pool; the slot goes back to the state it was handed out from, since a slot that came through transition 10 never had its deferred reset | D-leases; S§8 A.7; A23 |
 | 8 | `leased` | `needs-reset` | `WorktreeRemove` hook, the slot clean | D-route; A5 |
 | 9 | `leased` | `parked` | `WorktreeRemove` hook, the slot dirty | D-route; S§8 A.8; A5 |
 | 10 | `needs-reset` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch, when no slot is `ready`; the deferred reset then runs inside transition 6's `take --confirm` | D-env; D-route; A5 |
@@ -607,6 +608,22 @@ need captures first, which [#148](https://github.com/weslo/upool/issues/148) rec
   create branch already runs `git worktree add` from the same disclaimed helper, which the spike
   measured working (4634 ms), so the remove is the same kind of git write, and M2's gate checks it
   ((a); (f); [#74](https://github.com/weslo/upool/issues/74)).
+
+### Decided during M2
+
+Raised while an M2 issue was built, rather than filed by Stage 2.
+
+- **23. Where an unconfirmed lease's origin is kept**
+  ([#75](https://github.com/weslo/upool/issues/75)). An unconfirmed lease that expires sends its
+  slot back to the state it was handed out from, and `take --confirm` runs the deferred reset only
+  for a slot handed out from `needs-reset` (#76). Once the slot is `leased-unconfirmed`, though,
+  nothing in (e) said which of `ready` or `needs-reset` it came from.
+
+  **A23.** The lease records it, as `reset_pending`: `true` when the create hook's take hands out a
+  `needs-reset` slot (transition 10), `false` for a `ready` one (transition 4). `take --confirm`
+  reads it to run the deferred reset and clears it, and an expiry reads it to send the slot back to
+  `needs-reset` rather than `ready` (transition 7). It needs no git call, and `schema_version` stays
+  1, as it did for `reimport_pending` (A20) (maintainer decision, 2026-10-20; (e) Lease; (f)).
 
 ### Other open questions
 

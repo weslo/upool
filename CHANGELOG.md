@@ -84,6 +84,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   without `--force`, after reverting define-order noise, so git still refuses anything else. Its
   branch and commits stay. A dirty one is kept, with a line on stderr per reason, and a path that
   is already gone is nothing to remove; the hook exits 0 every way (A22).
+- `internal/pool` gains the create hook's take, `UnconfirmedTake`, for the hook's pooled branch
+  (#78): it hands out a ready slot, or else a `needs-reset` one (A5), never clones, and leases it
+  unconfirmed with no holder PID and the request's name as `name_hint`. A lease on a `needs-reset`
+  slot is marked with the new `reset_pending` key, the maintainer's answer to the question #75
+  raised (A23).
+- An unconfirmed lease older than `confirm_timeout` (default 60 s) now ends whenever `take`,
+  `status` or `doctor` reads its pool: its slot goes back to `ready`, or to `needs-reset` when
+  `reset_pending` says its deferred reset never ran, its git worktree lock is released, and a
+  line says so (a warning from `status` and `doctor`, progress from `take`). `status` and
+  `doctor` therefore write `state.json` when they end a lease, and only then. state.json gains
+  `reset_pending` in every lease; an older upool refuses the unknown key.
 
 ## [0.1.0] - 2026-10-20
 
