@@ -57,7 +57,7 @@ func TestTakeReclaimsADeadHoldersSlot(t *testing.T) {
 func TestTakeParksADeadHoldersDirtySlot(t *testing.T) {
 	p := deadHolderPool(t)
 	p.WriteFile(".claude/worktrees/slot-1/spike-reuse.txt", "left behind\n")
-	r := runIn(t, p.Env, p.Repo, "take", "feature-z")
+	r := runIn(t, p.Env, p.Repo, "take", "feature-z", "--no-create")
 	if r.code != output.ExitFailure || !strings.Contains(r.stderr, "upool: parked slot-1, since "+
 		"its holder, process "+strconv.Itoa(os.Getpid())+", is gone and it is dirty: "+
 		"?? spike-reuse.txt\n") || !strings.Contains(r.stderr, "skipping slot-1: parked") {

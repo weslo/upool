@@ -189,8 +189,9 @@ func TestTakeRefusesBranchCheckedOutElsewhere(t *testing.T) {
 	}
 }
 
-// With no slot to hand out, take names each slot's skip reason on stderr and exits 1; a ready slot
-// that left the disk, git's list or its backlink is skipped as missing-from-worktree-list.
+// With no slot to hand out, take names each slot's skip reason on stderr and, given --no-create,
+// exits 1; a ready slot that left the disk, git's list or its backlink is skipped as
+// missing-from-worktree-list.
 func TestTakeSkipsLeasedAndParked(t *testing.T) {
 	lease := &pool.Lease{LeaseID: "id", Holder: "bob", AcquiredAt: clock, Confirmed: true,
 		Lane: "script"}
@@ -244,7 +245,7 @@ func TestTakeSkipsLeasedAndParked(t *testing.T) {
 				tt.slot2(t, p, &pl.Slots[1])
 			})
 			before := p.loadPool(t)
-			r := runIn(t, p.Env, p.Repo, "take", "feature-x")
+			r := runIn(t, p.Env, p.Repo, "take", "feature-x", "--no-create")
 			want := "upool: skipping slot-1: leased\nupool: skipping slot-2: " + tt.reason +
 				"\nupool: no slot of " + p.Repo + " is ready\n"
 			if r.code != output.ExitFailure || r.stdout != "" || r.stderr != want {
@@ -276,7 +277,8 @@ func TestTakeWaitsUntilTimeout(t *testing.T) {
 		p.update(t, leaseBoth)
 		synctest.Test(t, func(t *testing.T) {
 			start := time.Now()
-			r := runAt(t, p.Env, p.Repo, time.Now, "take", "feature-x", "--timeout", "3")
+			r := runAt(t, p.Env, p.Repo, time.Now, "take", "feature-x", "--timeout", "3",
+				"--no-create")
 			if waited := time.Since(start); waited != 3*time.Second {
 				t.Errorf("take waited %s, want 3s", waited)
 			}
@@ -300,7 +302,8 @@ func TestTakeWaitsUntilTimeout(t *testing.T) {
 					pl.Slots[1].State, pl.Slots[1].Lease = pool.StateReady, nil
 				})
 			}()
-			r := runAt(t, p.Env, p.Repo, time.Now, "take", "feature-x", "--timeout", "5")
+			r := runAt(t, p.Env, p.Repo, time.Now, "take", "feature-x", "--timeout", "5",
+				"--no-create")
 			if waited := time.Since(start); waited != 2*time.Second {
 				t.Errorf("take waited %s, want 2s: the first try after the slot was freed", waited)
 			}

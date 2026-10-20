@@ -274,3 +274,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   `internal/pool` gains `Reclaimer`, and `Dirty`, `ResetToBase` and `Unlock`, the reset that
   release and the reclaim now share.
+- `upool take` clones a slot when it can hand none out, `--no-create` was not given, no slot is
+  `needs-reset`, and the pool is below `max_slots`. It then leases the new slot.
+  - **The seed** is chosen as docs/contracts.md (g) step 0 and A19 say: the first candidate with
+    no live Editor (by `~/.upool/editors.json` or the Editor's instance files) whose Library
+    passes the staleness check. Candidates come in this order: the freshest ready slot (newest
+    `Library/ScriptAssemblies`), a `needs-reset` slot after its reset, then the main checkout.
+  - **A slot seed** is held `warming`, owned by take, while it is copied, then returns to
+    `ready`.
+  - **The clone** releases the lock during the copy and reports progress on stderr.
+  - **No clone:** with no seed qualifying, or at `max_slots`, take says why on stderr once and
+    waits or fails as for a full pool.
+
+  `--no-create` keeps the wait-or-fail behaviour. `internal/clone` gains `Seeder` (`Choose`,
+  `Done`, `ErrNoSeed`). `Recipe` gains `MaxSlots`, which refuses a clone past `max_slots` under
+  the lock with `ErrPoolFull`. `internal/ledger` gains `LiveIn`, which the reclaim now uses too.

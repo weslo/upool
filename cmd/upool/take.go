@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/clone"
+	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -21,14 +22,14 @@ import (
 )
 
 // takeUsage is take's usage line, which its handler also names when it refuses its arguments.
-// --lane, --no-create and --confirm arrive with their own issues; until a take can clone a slot
-// (#62), every take behaves as with --no-create.
-const takeUsage = "take <name> [--base REF] [--holder ID] [--timeout S] [--json]"
+// --lane and --confirm arrive with their own issues.
+const takeUsage = "take <name> [--base REF] [--holder ID] [--timeout S] [--no-create] [--json]"
 
 // takeCommand is `upool take <name>`: it leases a ready slot of the pool containing the working
-// directory, checks the branch <name> out in it, and prints only the slot's path (docs/design.md,
-// "One binary, a dozen commands, one JSON file per pool", the `take` row; docs/contracts.md (f)
-// transition 5; A18).
+// directory, or with none ready clones one up to max_slots unless --no-create, checks the branch
+// <name> out in it, and prints only the slot's path (docs/design.md, "One binary, a dozen
+// commands, one JSON file per pool", the `take` row; docs/contracts.md (f) transitions 1 and 5;
+// A18; A19).
 var takeCommand = command{
 	usage: takeUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -36,8 +37,10 @@ var takeCommand = command{
 			"default the pool's base")
 		holder := fs.String("holder", "", "who holds the lease, recorded with it")
 		timeout := fs.Int("timeout", 0, "seconds to wait for a ready slot, retrying once a second")
+		noCreate := fs.Bool("no-create", false, "never clone a slot; only wait for a ready one")
 		return func(inv *invocation) (any, []string, error) {
-			return take(inv, takeOptions{base: *base, holder: *holder, timeout: *timeout})
+			return take(inv, takeOptions{base: *base, holder: *holder, timeout: *timeout,
+				noCreate: *noCreate})
 		}
 	},
 }
@@ -47,6 +50,8 @@ type takeOptions struct {
 	base, holder string
 	// timeout is how many seconds take waits for a ready slot.
 	timeout int
+	// noCreate keeps take from cloning a slot when none is ready.
+	noCreate bool
 }
 
 // takeReport is what take leased: the data of its --json envelope, whose human form is the path
@@ -110,9 +115,22 @@ func take(inv *invocation, opts takeOptions) (any, []string, error) {
 	if err := checkBranchFree(ctx, g, repo, name); err != nil {
 		return nil, nil, err
 	}
+	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
+	if err != nil {
+		return nil, nil, err
+	}
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
 		holder: opts.holder, now: inv.now, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{},
 			Home: inv.home, Key: key, Now: inv.now}}
+	if !opts.noCreate {
+		l.cloner = &cloner{
+			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
+				OwnerPID: inv.pid, MaxSlots: cfg.MaxSlots.Value},
+			seeder: clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
+				Key: key},
+			maxSlots: cfg.MaxSlots.Value,
+		}
+	}
 	s, leaseID, err := l.waitForSlot(ctx, inv, time.Duration(opts.timeout)*time.Second)
 	if err != nil {
 		return nil, nil, err
@@ -159,6 +177,16 @@ type leaser struct {
 	now        func() time.Time
 	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61).
 	reclaimer pool.Reclaimer
+	// cloner clones a slot when none can be handed out; nil with --no-create.
+	cloner *cloner
+}
+
+// cloner is how take clones a slot when none is ready (#62): the clone recipe, with max_slots,
+// and the seed choice (docs/contracts.md (g) steps 0 to 8; A19).
+type cloner struct {
+	recipe   clone.Recipe
+	seeder   clone.Seeder
+	maxSlots int
 }
 
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.
@@ -170,6 +198,7 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	deadline := l.now().Add(timeout)
 	var said string
 	failed := map[string]bool{}
+	told := map[string]bool{}
 	for {
 		done, err := l.reclaimer.Reclaim(ctx)
 		if err != nil {
@@ -191,6 +220,13 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 				_, _ = fmt.Fprintln(inv.stderr, "upool: the pool has no slots") // progress only
 			}
 		}
+		cloned, err := l.cloneSlot(ctx, inv, skipped, told)
+		if err != nil {
+			return pool.Slot{}, "", err
+		}
+		if cloned {
+			continue // lease the new slot at once
+		}
 		if !l.now().Before(deadline) {
 			break
 		}
@@ -202,6 +238,54 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	}
 	return pool.Slot{}, "", output.Fail(output.CodeCommandFailed,
 		"no slot of %s became ready within %s", l.repo, timeout)
+}
+
+// cloneSlot clones a slot when take may: no slot could be handed out, none is needs-reset (A5),
+// the pool is below max_slots, and --no-create was not given. It chooses the seed (A19), clones
+// with the lock released during the copy, saying so on stderr, and reports whether it cloned. With
+// no seed qualifying, or the pool at max_slots, it says why on stderr once, in told, and take waits
+// or fails as for a full pool.
+func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string,
+	told map[string]bool) (bool, error) {
+	say := func(line string) {
+		if !told[line] {
+			told[line] = true
+			_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
+		}
+	}
+	if l.cloner == nil {
+		return false, nil
+	}
+	for _, line := range skipped {
+		if strings.HasSuffix(line, ": "+string(pool.StateNeedsReset)) {
+			return false, nil
+		}
+	}
+	if len(skipped) >= l.cloner.maxSlots {
+		say(fmt.Sprintf("not cloning a slot: the pool has %d, its max_slots", l.cloner.maxSlots))
+		return false, nil
+	}
+	seed, why, err := l.cloner.seeder.Choose(ctx)
+	if errors.Is(err, clone.ErrNoSeed) {
+		say("not cloning a slot: no seed qualifies: " + strings.Join(why, "; "))
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	say(fmt.Sprintf("no slot is ready; cloning one from %s, which takes about half a minute",
+		seed.Path))
+	s, err := l.cloner.recipe.Clone(ctx, l.home, l.key, seed.Path)
+	err = errors.Join(err, l.cloner.seeder.Done(ctx, seed))
+	if errors.Is(err, clone.ErrPoolFull) {
+		say(fmt.Sprintf("not cloning a slot: the pool has %d, its max_slots", l.cloner.maxSlots))
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	say("cloned " + s.Name)
+	return true, nil
 }
 
 // sayReclaimed tells stderr what the reclaim did with one slot; a slot it could not reclaim is
