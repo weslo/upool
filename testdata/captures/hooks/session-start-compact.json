@@ -1,0 +1,11 @@
+{
+  "session_id": "277cc5ba-fda9-4f33-8798-10af43417c5f",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-pwd-3bac2e/277cc5ba-fda9-4f33-8798-10af43417c5f.jsonl",
+  "cwd": "${repo}/.claude/worktrees/pwd-3bac2e",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-pwd-3bac2e/277cc5ba-fda9-4f33-8798-10af43417c5f/scratchpad",
+  "prompt_id": "7f3eff55-da0c-4aa6-8d15-f72c7bde4a12",
+  "hook_event_name": "SessionStart",
+  "source": "compact",
+  "model": "claude-opus-5-5",
+  "session_title": "pwd"
+}

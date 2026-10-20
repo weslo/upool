@@ -1,0 +1,8 @@
+{
+  "session_id": "5ad2decd-4b48-49f8-b230-af49f7ce2e0f",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-clear-probe/5ad2decd-4b48-49f8-b230-af49f7ce2e0f.jsonl",
+  "cwd": "${repo}/.claude/worktrees/clear-probe",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-clear-probe/5ad2decd-4b48-49f8-b230-af49f7ce2e0f/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "clear"
+}

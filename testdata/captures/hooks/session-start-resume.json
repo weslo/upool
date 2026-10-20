@@ -1,0 +1,9 @@
+{
+  "session_id": "277cc5ba-fda9-4f33-8798-10af43417c5f",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-pwd-3bac2e/277cc5ba-fda9-4f33-8798-10af43417c5f.jsonl",
+  "cwd": "${repo}/.claude/worktrees/pwd-3bac2e",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-pwd-3bac2e/277cc5ba-fda9-4f33-8798-10af43417c5f/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "session_title": "pwd"
+}
