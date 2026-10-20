@@ -113,6 +113,10 @@ type Lease struct {
 	AcquiredAt time.Time `json:"acquired_at"`
 	// Confirmed is false only for a lease the create hook takes, until `take --confirm` (A6).
 	Confirmed bool `json:"confirmed"`
+	// ResetPending is true for a create-hook lease on a slot handed out from needs-reset
+	// (transition 10), whose deferred reset has not run: `take --confirm` runs it, and an expiry
+	// before then returns the slot to needs-reset rather than ready (A23).
+	ResetPending bool `json:"reset_pending"`
 	// Lane is "script" or "scene"; a project has at most one scene lease.
 	Lane string `json:"lane"`
 	// NameHint is the create stdin's name, kept for display and never used as a key.

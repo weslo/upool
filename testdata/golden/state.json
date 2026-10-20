@@ -21,6 +21,7 @@
         "holder_pid_start": "2026-10-18T09:14:03.123456Z",
         "acquired_at": "2026-10-18T09:14:05Z",
         "confirmed": true,
+        "reset_pending": false,
         "lane": "scene",
         "name_hint": "fix-lighting"
       }

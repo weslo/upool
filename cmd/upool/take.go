@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -132,8 +130,9 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 	}
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
 		holder: opts.holder, holderPID: opts.holderPID, holderStart: opts.holderStart,
-		now: inv.now, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home,
-			Key: key, Now: inv.now}}
+		confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
+		reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home, Key: key,
+			Now: inv.now}}
 	if !opts.noCreate {
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
@@ -193,7 +192,10 @@ type leaser struct {
 	// holderPID and holderStart go into the lease, as takeOptions has them.
 	holderPID   *int
 	holderStart *time.Time
-	now         func() time.Time
+	// confirmTimeout is how long an unconfirmed lease lives: each try at leasing first ends the
+	// pool's unconfirmed leases older than that (#75).
+	confirmTimeout time.Duration
+	now            func() time.Time
 	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61).
 	reclaimer pool.Reclaimer
 	// cloner clones a slot when none can be handed out; nil with --no-create.
@@ -226,7 +228,10 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 		for _, rc := range done {
 			sayReclaimed(inv, rc, failed)
 		}
-		s, leaseID, skipped, err := l.lease(ctx)
+		s, leaseID, skipped, expired, err := l.lease(ctx)
+		for _, line := range endExpired(ctx, l.g, l.repo, expired, l.confirmTimeout) {
+			_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
+		}
 		if err != nil || leaseID != "" {
 			return s, leaseID, err
 		}
@@ -332,15 +337,20 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // (docs/design.md, "Leases that survive crashes and never reclaim a live tree": take prints why
 // each slot was skipped). A ready slot qualifies only while its directory exists, git lists it
 // and its backlink checks out; otherwise it is skipped as missing-from-worktree-list
-// ((f) transition 17).
+// ((f) transition 17). First it ends the unconfirmed leases older than confirm_timeout, and
+// returns the slots they were on, whose git worktree locks the caller releases (#75).
 func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, skipped []string,
-	err error) {
-	id, err := newLeaseID()
+	expired []pool.Slot, err error) {
+	id, err := pool.NewLeaseID()
 	if err != nil {
-		return pool.Slot{}, "", nil, err
+		return pool.Slot{}, "", nil, nil, err
 	}
 	err = pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
 		skipped = nil
+		var err error
+		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout); err != nil {
+			return err
+		}
 		listed, err := worktreeKeys(ctx, l.g, l.repo)
 		if err != nil {
 			return err
@@ -366,9 +376,9 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 		return nil
 	})
 	if err != nil {
-		return pool.Slot{}, "", nil, err
+		return pool.Slot{}, "", nil, nil, err
 	}
-	return taken, leaseID, skipped, nil
+	return taken, leaseID, skipped, expired, nil
 }
 
 // skipReason is why take does not hand s out, or "" when it may: the reasons are the design's
@@ -394,15 +404,6 @@ func skipReason(s pool.Slot, listed map[string]bool, repo string) string {
 		return "missing-from-worktree-list"
 	}
 	return ""
-}
-
-// newLeaseID returns a random lease_id, 16 bytes in hex (docs/contracts.md (e) Lease).
-func newLeaseID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("making a lease ID: %w", err)
-	}
-	return hex.EncodeToString(b), nil
 }
 
 // prepare finishes the lease of s with the lock dropped: it locks the worktree for the lease's

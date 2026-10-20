@@ -137,6 +137,10 @@ func status(inv *invocation, all bool) (any, []string, error) {
 		}
 		keep = func(repo registry.Repo) bool { return paths.Within(cwd, repo.Path) }
 	}
+	notes, err := expireLeases(context.Background(), inv, keep)
+	if err != nil {
+		return nil, nil, err
+	}
 	pools, err := readPools(context.Background(), inv.home, keep)
 	if err != nil {
 		return nil, nil, err
@@ -152,7 +156,7 @@ func status(inv *invocation, all bool) (any, []string, error) {
 	for _, rp := range pools {
 		r.Pools = append(r.Pools, newPoolStatus(rp))
 	}
-	return r, nil, nil
+	return r, notes, nil
 }
 
 // innermost is the pool among pools, which all contain one directory, whose main checkout lies
