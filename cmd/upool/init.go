@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
@@ -23,9 +25,9 @@ import (
 // initCommand is `upool init`, run from Terminal inside a Unity project's repository: it registers
 // the project as a pool and clones its first slot, slot-1, from the main checkout
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row;
-// docs/contracts.md (f) transitions 1 and 2). It refuses an open Editor or a stale Library, which
-// the first slot would seed from. The CLAUDE.md block (#53) and --slots (#64) arrive with their own
-// issues.
+// docs/contracts.md (f) transitions 1 and 2), and adds upool's instruction block to the
+// repository's CLAUDE.md. It refuses an open Editor or a stale Library, which the first slot would
+// seed from. --slots (#64) arrives with its own issue.
 var initCommand = command{
 	usage: "init [--json]",
 	setup: func(*flag.FlagSet) handler { return initRepo },
@@ -44,6 +46,9 @@ const (
 	worktreesProbe = ".claude/worktrees/slot-1"
 	// originHEAD names origin's default branch, base's first default (A17).
 	originHEAD = "refs/remotes/origin/HEAD"
+	// claudeMD is the instruction file, at the repository's root, that init upserts upool's block
+	// into (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row).
+	claudeMD = "CLAUDE.md"
 )
 
 // editorFiles are the files an open Editor holds in its Library. Both are absent after a clean
@@ -76,6 +81,8 @@ type initReport struct {
 	GitignoreUpdated bool `json:"gitignore_updated"`
 	// RepoFileWritten is true when init wrote .upool.toml, and false when the file was there.
 	RepoFileWritten bool `json:"repo_file_written"`
+	// ClaudeMDBlock is what upserting upool's block into CLAUDE.md did.
+	ClaudeMDBlock block.Action `json:"claude_md_block,omitempty"`
 	// Slot is the first slot, which init cloned from the main checkout, and nil when it cloned
 	// none.
 	Slot *clonedSlot `json:"slot,omitempty"`
@@ -122,6 +129,7 @@ func (r initReport) Human() string {
 	} else {
 		lines = append(lines, "kept the existing .upool.toml")
 	}
+	lines = append(lines, describeBlock(r.ClaudeMDBlock))
 	if r.Slot != nil {
 		lines = append(lines, fmt.Sprintf("cloned %s into %s", r.Slot.Name, r.Slot.Path))
 	} else {
@@ -133,6 +141,23 @@ func (r initReport) Human() string {
 	}
 	lines = append(lines, fmt.Sprintf("registered %s as pool %s", r.Repo, r.Key))
 	return strings.Join(lines, "\n")
+}
+
+// describeBlock says what upserting upool's block into CLAUDE.md did.
+func describeBlock(a block.Action) string {
+	switch a {
+	case block.Created:
+		return "created " + claudeMD + " with upool's block"
+	case block.Inserted:
+		return "added upool's block to " + claudeMD
+	case block.Replaced:
+		return fmt.Sprintf("updated upool's block in %s to v%d", claudeMD,
+			assets.ClaudeMDBlockVersion)
+	case block.KeptNewer:
+		return fmt.Sprintf("kept the newer upool block in %s: this upool writes v%d", claudeMD,
+			assets.ClaudeMDBlockVersion)
+	}
+	return claudeMD + " already has upool's block"
 }
 
 // describeBase says where a base came from, after "base is <base>, ".
@@ -152,10 +177,12 @@ func describeBase(source string) string {
 	return "from " + source
 }
 
-// initRepo is init's handler. It checks the repository before it changes anything, then adds
-// .claude/worktrees/ to .gitignore, writes .upool.toml, creates the pool's state.json, clones the
-// first slot into a pool that has none and, last, adds the repository to registry.json, so that a
-// run that fails part-way is finished by the next rather than reported as already registered.
+// initRepo is init's handler. It checks the repository before it changes anything, then upserts
+// upool's block into CLAUDE.md, first so that a CLAUDE.md whose markers do not pair is refused
+// with nothing written; adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates the
+// pool's state.json, clones the first slot into a pool that has none and, last, adds the
+// repository to registry.json, so that a run that fails part-way is finished by the next rather
+// than reported as already registered.
 func initRepo(inv *invocation) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -194,6 +221,10 @@ func initRepo(inv *invocation) (any, []string, error) {
 		return nil, nil, err
 	}
 	if err := checkBaseCommit(ctx, g, repo, r.Base, r.BaseSource); err != nil {
+		return nil, nil, err
+	}
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if r.ClaudeMDBlock, err = block.Upsert(filepath.Join(repo, claudeMD), b); err != nil {
 		return nil, nil, err
 	}
 	if r.GitignoreUpdated, err = ignoreWorktrees(ctx, g, repo); err != nil {
