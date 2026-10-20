@@ -84,6 +84,9 @@ const (
 	checkCloneSharing = "clone-sharing"
 	checkStateVolume  = "state-volume"
 	checkLeases       = "leases"
+	// checkDeadHolders reports only a failure to look for leases whose holder died; each such
+	// lease is reported on its slot's line.
+	checkDeadHolders = "dead-holders"
 )
 
 // cloudFolders are where macOS keeps cloud-synced files, relative to the home directory: File
@@ -130,7 +133,8 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	r := doctorReport{Repo: repo}
 	r.Checks = append(r.Checks, gitignoreCheck(ctx, g, repo), libraryCheck(ctx, g, repo))
 	sd := slotDoctor{g: g, proc: proc.System{}, home: inv.home, key: rp.repo.Key, repo: repo,
-		fix: fix}
+		fix: fix, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home,
+			Key: rp.repo.Key, Now: inv.now}}
 	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
@@ -191,21 +195,76 @@ type slotDoctor struct {
 	// be read.
 	listed  map[string]bool
 	listErr error
+	// reclaimer finds and, with fix, reclaims the leases whose holder died (#61). dead names the
+	// slots it found without fix, and reclaimed what it did with fix, by slot name.
+	reclaimer pool.Reclaimer
+	dead      map[string]bool
+	reclaimed map[string]pool.Reclaimed
 }
 
 // checks checks each slot in slots, the pool as doctor read it: a creating slot by its owner, and
 // every other slot by its presence.
 func (d *slotDoctor) checks(ctx context.Context, slots []pool.Slot) []doctorCheck {
 	d.listed, d.listErr = worktreeKeys(ctx, d.g, d.repo)
-	checks := make([]doctorCheck, 0, len(slots))
+	checks := make([]doctorCheck, 0, len(slots)+1)
+	if err := d.findDeadHolders(ctx, slots); err != nil {
+		checks = append(checks, failedCheck(checkDeadHolders, err))
+	}
 	for _, s := range slots {
 		if s.State == pool.StateCreating {
 			checks = append(checks, d.creating(ctx, s))
-		} else {
-			checks = append(checks, d.present(ctx, s))
+			continue
 		}
+		c := d.present(ctx, s)
+		if c.Result == checkPass {
+			c = d.holder(s, c)
+		}
+		checks = append(checks, c)
 	}
 	return checks
+}
+
+// findDeadHolders finds the leases whose holder died, and with fix reclaims them before any slot
+// is checked: the release reset for a clean slot, parked for a dirty one ((f) transitions 13 and
+// 14). Without fix it only finds them.
+func (d *slotDoctor) findDeadHolders(ctx context.Context, slots []pool.Slot) error {
+	if d.fix {
+		done, err := d.reclaimer.Reclaim(ctx)
+		d.reclaimed = make(map[string]pool.Reclaimed, len(done))
+		for _, rc := range done {
+			d.reclaimed[rc.Slot] = rc
+		}
+		return err
+	}
+	dead, err := d.reclaimer.Candidates(pool.Pool{Slots: slots})
+	d.dead = make(map[string]bool, len(dead))
+	for _, s := range dead {
+		d.dead[s.Name] = true
+	}
+	return err
+}
+
+// holder turns the passing presence check c of the leased slot s into what became of a lease
+// whose holder died: a warning without fix, since the next take reclaims it anyway, and with fix
+// what the reclaim did.
+func (d *slotDoctor) holder(s pool.Slot, c doctorCheck) doctorCheck {
+	if rc, ok := d.reclaimed[s.Name]; ok {
+		gone := fmt.Sprintf("its holder, process %d, was gone", rc.HolderPID)
+		switch {
+		case rc.Err != nil:
+			return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; reclaiming it: %v", gone,
+				rc.Err)}
+		case rc.State == pool.StateParked:
+			return doctorCheck{s.Name, checkPass, fmt.Sprintf("fixed: parked it, since %s and "+
+				"it is dirty: %s", gone, strings.Join(rc.Dirty, "; "))}
+		}
+		return doctorCheck{s.Name, checkPass, "fixed: reset it to ready, since " + gone}
+	}
+	if d.dead[s.Name] {
+		return doctorCheck{s.Name, checkWarn, fmt.Sprintf("leased by process %d, which is gone; "+
+			"upool doctor --fix or the next upool take reclaims it", *s.Lease.HolderPID)}
+	}
+	return c
 }
 
 // creating checks a creating slot: it passes while its owner is alive, and fails once the owner is

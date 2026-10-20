@@ -16,6 +16,7 @@ import (
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
 )
 
@@ -110,7 +111,8 @@ func take(inv *invocation, opts takeOptions) (any, []string, error) {
 		return nil, nil, err
 	}
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
-		holder: opts.holder, now: inv.now}
+		holder: opts.holder, now: inv.now, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{},
+			Home: inv.home, Key: key, Now: inv.now}}
 	s, leaseID, err := l.waitForSlot(ctx, inv, time.Duration(opts.timeout)*time.Second)
 	if err != nil {
 		return nil, nil, err
@@ -155,15 +157,27 @@ type leaser struct {
 	repo, base string
 	holder     string
 	now        func() time.Time
+	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61).
+	reclaimer pool.Reclaimer
 }
 
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.
-// While no slot is ready it prints each slot's skip reason to stderr, again whenever they change.
+// Each try first reclaims the leases whose holder died ((f) transitions 13 and 14), saying so on
+// stderr. While no slot is ready it prints each slot's skip reason to stderr, again whenever they
+// change.
 func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	timeout time.Duration) (pool.Slot, string, error) {
 	deadline := l.now().Add(timeout)
 	var said string
+	failed := map[string]bool{}
 	for {
+		done, err := l.reclaimer.Reclaim(ctx)
+		if err != nil {
+			return pool.Slot{}, "", err
+		}
+		for _, rc := range done {
+			sayReclaimed(inv, rc, failed)
+		}
 		s, leaseID, skipped, err := l.lease(ctx)
 		if err != nil || leaseID != "" {
 			return s, leaseID, err
@@ -188,6 +202,26 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	}
 	return pool.Slot{}, "", output.Fail(output.CodeCommandFailed,
 		"no slot of %s became ready within %s", l.repo, timeout)
+}
+
+// sayReclaimed tells stderr what the reclaim did with one slot; a slot it could not reclaim is
+// told once, though every try reclaims again, in failed.
+func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
+	gone := fmt.Sprintf("its holder, process %d, is gone", rc.HolderPID)
+	var line string
+	switch {
+	case rc.Err != nil && failed[rc.Slot]:
+		return
+	case rc.Err != nil:
+		failed[rc.Slot] = true
+		line = fmt.Sprintf("could not reclaim %s, though %s: %v", rc.Slot, gone, rc.Err)
+	case rc.State == pool.StateParked:
+		line = fmt.Sprintf("parked %s, since %s and it is dirty: %s", rc.Slot, gone,
+			strings.Join(rc.Dirty, "; "))
+	default:
+		line = fmt.Sprintf("reclaimed %s, since %s", rc.Slot, gone)
+	}
+	_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
 }
 
 // lease leases the first ready slot of the pool under the lock, and returns it with the new
