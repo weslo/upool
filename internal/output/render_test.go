@@ -123,6 +123,10 @@ func TestRenderReturnsTheErrorsExitCode(t *testing.T) {
 		{"Fail", Fail(CodeNotInSlot, "m"), ExitFailure},
 		{"NoTarget", NoTarget(CodeCommandFailed, "m"), ExitNoTarget},
 		{"wrapped NoTarget", fmt.Errorf("opening x: %w", NoTarget(CodeCommandFailed, "m")), ExitNoTarget},
+		{"Exited", Exited(3, "m"), 3},
+		{"wrapped Exited", fmt.Errorf("running x: %w", Exited(137, "m")), 137},
+		{"Exited 0", Exited(ExitOK, "m"), ExitFailure},
+		{"Exited out of range", Exited(256, "m"), ExitFailure},
 		{"plain error", errors.New("m"), ExitFailure},
 		{"wrapped plain error", fmt.Errorf("reading x: %w", fs.ErrNotExist), ExitFailure},
 	}

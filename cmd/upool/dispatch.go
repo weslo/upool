@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,10 @@ import (
 type invocation struct {
 	// args are the positional arguments, without the flags or a "--".
 	args []string
+	// dash is the index in args of the first argument after a "--" that ended the flags, and -1
+	// when the command line had none, so that `upool run` can tell its own arguments from its
+	// command's.
+	dash int
 	// flags is the command's parsed flag set, through which a handler can Visit the flags the
 	// command line set, the first configuration layer (internal/config). It is nil for a hook.
 	flags *flag.FlagSet
@@ -29,6 +34,14 @@ type invocation struct {
 	// stderr is for progress, such as a wait for a slot; the result, its warnings and its error
 	// go back to the dispatcher.
 	stderr io.Writer
+	// stdout is upool's standard output, for a command upool runs and nothing else: `upool run`
+	// hands it to its command, so that an agent sees the terminal. upool's own output goes back
+	// to the dispatcher, which is the only part of upool that writes it.
+	stdout io.Writer
+	// notify starts delivering SIGINT and SIGTERM to c instead of letting them end upool, and
+	// stopNotify stops it, as signal.Notify and signal.Stop do; `upool run` forwards them to its
+	// command. Both are set or both nil, as where nothing delivers signals, in most tests.
+	notify, stopNotify func(c chan<- os.Signal)
 	// getenv looks up an environment variable.
 	getenv func(string) string
 	// environ returns the whole environment as "KEY=value" entries, the environment a handler
@@ -88,6 +101,8 @@ type dispatcher struct {
 	now        func() time.Time
 	pid        int
 	executable func() (string, error)
+	// notify and stopNotify are as in invocation.
+	notify, stopNotify func(c chan<- os.Signal)
 }
 
 // run dispatches args, the command line after the program name, and returns the exit code.
@@ -118,7 +133,7 @@ func (d *dispatcher) command(name string, cmd command, args []string) int {
 	fs.SetOutput(io.Discard) // a bad flag is reported below, in the envelope under --json
 	asJSON := fs.Bool("json", false, "print the result as a JSON envelope")
 	handle := cmd.setup(fs)
-	positional, err := parseFlags(fs, args)
+	positional, dash, err := parseFlags(fs, args)
 	if errors.Is(err, flag.ErrHelp) {
 		return d.help(cmd, fs)
 	}
@@ -127,7 +142,9 @@ func (d *dispatcher) command(name string, cmd command, args []string) int {
 		r := output.Result{Command: name, Err: err}
 		return output.Render(d.stdout, d.stderr, jsonRequested(args), r)
 	}
-	data, warnings, err := handle(d.invocation(positional, fs))
+	inv := d.invocation(positional, fs)
+	inv.dash = dash
+	data, warnings, err := handle(inv)
 	return output.Render(d.stdout, d.stderr, *asJSON, output.Result{
 		Command:  name,
 		Data:     data,
@@ -187,9 +204,13 @@ func (d *dispatcher) hook(args []string) int {
 func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 	return &invocation{
 		args:       args,
+		dash:       -1,
 		flags:      fs,
 		stdin:      d.stdin,
 		stderr:     d.stderr,
+		stdout:     d.stdout,
+		notify:     d.notify,
+		stopNotify: d.stopNotify,
 		getenv:     d.getenv,
 		environ:    d.environ,
 		getwd:      d.getwd,
@@ -204,21 +225,21 @@ func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 // before, between and after them, as the design's usage lines place them (`upool take x --json`),
 // where the flag package alone stops at the first positional argument. A "--" ends the flags, and
 // everything after it is positional, so `upool run <name> -- <cmd...>` leaves the command's own
-// flags alone.
-func parseFlags(fs *flag.FlagSet, args []string) ([]string, error) {
-	var positional []string
+// flags alone; dash is the index in positional of the first argument after it, and -1 without
+// one.
+func parseFlags(fs *flag.FlagSet, args []string) (positional []string, dash int, err error) {
 	for {
 		if err := fs.Parse(args); err != nil {
-			return nil, err
+			return nil, -1, err
 		}
 		rest := fs.Args()
-		if len(rest) == 0 {
-			return positional, nil
-		}
 		// Parse stops either at a positional argument, which it leaves first in rest, or just
 		// after a "--", which it consumes.
 		if parsed := len(args) - len(rest); parsed > 0 && args[parsed-1] == "--" {
-			return append(positional, rest...), nil
+			return append(positional, rest...), len(positional), nil
+		}
+		if len(rest) == 0 {
+			return positional, -1, nil
 		}
 		positional = append(positional, rest[0])
 		args = rest[1:]
