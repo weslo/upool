@@ -30,9 +30,10 @@ var commandTable = map[string]command{
 }
 
 // hookTable is the events `upool hook <event>` handles, one per hook script that `upool setup`
-// installs. The handlers are stubs until M2; failExit follows docs/contracts.md (d).
+// installs; failExit follows docs/contracts.md (d). worktree-create handles subagents and refuses
+// sessions until #72; the others are stubs until their M2 issues.
 var hookTable = map[string]hook{
-	"worktree-create": {handle: notImplemented, failExit: output.ExitFailure},
+	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
 	"worktree-remove": {handle: notImplemented, failExit: output.ExitOK},
 	"session-start":   {handle: notImplemented, failExit: output.ExitOK},
 }
@@ -48,7 +49,7 @@ func main() {
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
 // exit code. The rest of the boundary, the clock, the working directory, the environment's full
-// list, the process ID, the binary's path and the delivery of SIGINT and SIGTERM, it takes from
+// list, the process IDs, the binary's path and the delivery of SIGINT and SIGTERM, it takes from
 // the process; a test of a command that reads them builds a dispatcher with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
@@ -62,6 +63,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		getwd:      os.Getwd,
 		now:        time.Now,
 		pid:        os.Getpid(),
+		ppid:       os.Getppid(),
 		executable: os.Executable,
 		notify: func(c chan<- os.Signal) {
 			signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)

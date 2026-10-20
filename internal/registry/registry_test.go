@@ -321,3 +321,51 @@ func TestMalformedDocumentIsAnError(t *testing.T) {
 		})
 	}
 }
+
+// Containing finds the repository a path is in, the innermost of nested ones, but not from inside
+// a repository's .claude/worktrees, which holds slots and agent worktrees (A13).
+func TestContainingMatchesAPrefixButNotTheWorktreesDirectory(t *testing.T) {
+	home := tempDir(t)
+	outer := checkout(t)
+	inner := filepath.Join(outer, "packages", "inner")
+	slot := filepath.Join(outer, ".claude", "worktrees", "slot-1")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, repo := range []string{outer, inner} {
+		if _, err := Add(context.Background(), home, repo); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tt := range []struct {
+		path, want string
+	}{
+		{outer, outer},
+		{filepath.Join(outer, "Assets", "Scripts"), outer},
+		{filepath.Join(outer, ".claude"), outer},
+		{inner, inner},
+		{filepath.Join(inner, "src"), inner},
+		{filepath.Join(outer, ".claude", "worktrees"), ""},
+		{filepath.Join(outer, ".claude", "worktrees", "slot-1"), ""},
+		{filepath.Join(outer, ".claude", "worktrees", "slot-1", "Assets"), ""},
+		{filepath.Dir(outer), ""},
+		{outer + "-sibling", ""},
+	} {
+		repo, ok, err := Containing(home, tt.path)
+		if err != nil {
+			t.Fatalf("Containing(%s): %v", tt.path, err)
+		}
+		switch {
+		case tt.want == "" && ok:
+			t.Errorf("Containing(%s) = %s, want none", tt.path, repo.Path)
+		case tt.want != "" && (!ok || repo.Path != canonical(t, tt.want)):
+			t.Errorf("Containing(%s) = %q, %t; want %s", tt.path, repo.Path, ok, tt.want)
+		}
+	}
+	if _, ok, err := Containing(tempDir(t), outer); err != nil || ok {
+		t.Errorf("Containing with no registry = %t, %v; want none", ok, err)
+	}
+}

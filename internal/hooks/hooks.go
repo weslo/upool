@@ -1,0 +1,178 @@
+// Package hooks is the logic of the Claude Code hooks that `upool hook <event>` runs: it decodes a
+// hook's stdin, tells who sent it, and handles it. A handler returns the worktree path and an
+// error, and only the dispatcher writes stdout, where Claude Code takes the path from, so that
+// nothing else can reach it (docs/design.md, "Repository, CI and Homebrew distribution": the
+// layout and the rules after it; docs/contracts.md (a), "WorktreeCreate output and app
+// behaviour").
+package hooks
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"strings"
+	"time"
+
+	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/registry"
+)
+
+// The hook_event_name values of the events upool handles (docs/contracts.md (a) and (b)).
+const (
+	EventWorktreeCreate = "WorktreeCreate"
+	EventWorktreeRemove = "WorktreeRemove"
+	EventSessionStart   = "SessionStart"
+)
+
+// Request is a hook's stdin, decoded leniently: a field Claude Code adds is ignored, and one it
+// leaves out is empty (docs/contracts.md (a), "WorktreeCreate fields by request kind"; (b)).
+type Request struct {
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	Cwd            string `json:"cwd"`
+	HookEventName  string `json:"hook_event_name"`
+	// Name is the worktree's name: generated from the first prompt in the desktop app, given by
+	// the user to `claude --worktree`, agent-<17 hex> for a subagent. Only a subagent's names a
+	// path; for a session it is a hint, never a key.
+	Name string `json:"name"`
+	// ScratchpadDir and PromptID are a subagent's create request's, and absent from a session's.
+	ScratchpadDir string `json:"scratchpad_dir"`
+	PromptID      string `json:"prompt_id"`
+	// WorktreePath is WorktreeRemove's: the path the create hook printed.
+	WorktreePath string `json:"worktree_path"`
+	// Source is SessionStart's: startup, resume, clear or compact.
+	Source string `json:"source"`
+}
+
+// Decode reads a hook's stdin.
+func Decode(r io.Reader) (Request, error) {
+	var req Request
+	if err := json.NewDecoder(r).Decode(&req); err != nil {
+		return Request{}, fmt.Errorf("decoding the hook's stdin: %w", err)
+	}
+	return req, nil
+}
+
+// Kind is who sent a WorktreeCreate or WorktreeRemove request.
+type Kind string
+
+// The kinds of request (docs/contracts.md (a), "Telling the kinds apart").
+const (
+	Subagent       Kind = "subagent"
+	DesktopSession Kind = "desktop session"
+	CLISession     Kind = "CLI session"
+)
+
+// Kind returns who sent a WorktreeCreate or WorktreeRemove request: a subagent if it has a
+// prompt_id, a desktop session if its transcript_path is empty, and otherwise a CLI session
+// (docs/contracts.md (a), "Telling the kinds apart"). A SessionStart request cannot be told apart
+// this way, since its transcript_path is always set ((b)).
+func (r Request) Kind() Kind {
+	switch {
+	case r.PromptID != "":
+		return Subagent
+	case r.TranscriptPath == "":
+		return DesktopSession
+	}
+	return CLISession
+}
+
+// agentName is the name of a subagent's worktree, agent-<17 hex> in every capture
+// (docs/contracts.md (a)).
+var agentName = regexp.MustCompile(`^agent-[0-9a-f]{17}$`)
+
+// Corroborated says whether a subagent's request also has a scratchpad_dir and a name of the form
+// agent-<17 hex>, as every captured one does (docs/contracts.md (a), "Telling the kinds apart").
+func (r Request) Corroborated() bool {
+	return r.ScratchpadDir != "" && agentName.MatchString(r.Name)
+}
+
+// Env is what the hooks take from the process that runs them.
+type Env struct {
+	Git  git.Client
+	Home string
+	// ParentPID is the hook process's parent: the session's CLI, which a subagent's worktree
+	// records as its parent (docs/contracts.md (e), Agent worktree).
+	ParentPID int
+	Now       func() time.Time
+	// Stderr is for warnings; Claude Code takes the worktree path from stdout alone.
+	Stderr io.Writer
+}
+
+// worktreesDir is Claude Code's managed worktree directory, relative to a repository.
+const worktreesDir = ".claude/worktrees"
+
+// WorktreeCreate handles a WorktreeCreate request and returns the path of the worktree the
+// session or subagent is to work in; an error aborts the creation, and with it the session or
+// subagent (docs/contracts.md (a)). A user-scope hook has no matcher, so it runs for every
+// repository and every kind of request (docs/design.md, "Route Claude Code's worktrees through the
+// pool: three branches in one hook"). Only the subagent branch is built; a session's request is
+// refused until the session branches are (#72).
+func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
+	if req.HookEventName != EventWorktreeCreate {
+		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
+			EventWorktreeCreate)
+	}
+	if kind := req.Kind(); kind != Subagent {
+		return "", fmt.Errorf("worktree requests from a %s are not routed yet", kind)
+	}
+	return subagentWorktree(ctx, env, req)
+}
+
+// subagentWorktree is the subagent branch: an ordinary worktree, detached at the repository's
+// HEAD, at <cwd>/.claude/worktrees/<name>, which is what Claude Code would have made itself. A
+// subagent never gets a pool slot, since no WorktreeRemove ever comes for it (spike §9 F.3). If cwd
+// is in a registered pool, the worktree is recorded in its state.json for `prune` to collect.
+func subagentWorktree(ctx context.Context, env Env, req Request) (string, error) {
+	if !filepath.IsAbs(req.Cwd) {
+		return "", fmt.Errorf("the subagent's cwd %q is not an absolute path", req.Cwd)
+	}
+	if req.Name == "" || req.Name == "." || req.Name == ".." ||
+		strings.ContainsAny(req.Name, `/\`) {
+		return "", fmt.Errorf("the subagent's worktree name %q is not a single path element",
+			req.Name)
+	}
+	if !req.Corroborated() {
+		_, _ = fmt.Fprintf(env.Stderr, "upool: warning: a request with a prompt_id, so from a "+
+			"subagent, has no scratchpad_dir or a name %q not of the form agent-<17 hex>\n",
+			req.Name) // stderr is for warnings only
+	}
+	path := filepath.Join(req.Cwd, filepath.FromSlash(worktreesDir), req.Name)
+	if err := env.Git.WorktreeAddDetached(ctx, req.Cwd, path); err != nil {
+		return "", fmt.Errorf("making the subagent's worktree %s: %w", path, err)
+	}
+	if err := recordAgentWorktree(ctx, env, req, path); err != nil {
+		if rmErr := env.Git.WorktreeRemove(ctx, req.Cwd, path); rmErr != nil {
+			err = errors.Join(err, fmt.Errorf("removing %s again: %w", path, rmErr))
+		}
+		return "", err
+	}
+	return path, nil
+}
+
+// recordAgentWorktree adds the agent worktree at path to the state.json of the pool that the
+// request's cwd is in, matched as A13 says, with the request's session as its parent; outside
+// every pool it records nothing.
+func recordAgentWorktree(ctx context.Context, env Env, req Request, path string) error {
+	repo, ok, err := registry.Containing(env.Home, req.Cwd)
+	if err != nil || !ok {
+		return err
+	}
+	return pool.Update(ctx, env.Home, repo.Key, func(p *pool.Pool) error {
+		// git made the worktree just now, so an entry already at its path is a stale one, for a
+		// worktree removed by hand: the new one replaces it.
+		p.AgentWorktrees = slices.DeleteFunc(p.AgentWorktrees, func(a pool.AgentWorktree) bool {
+			return a.Path == path
+		})
+		p.AgentWorktrees = append(p.AgentWorktrees, pool.AgentWorktree{Path: path,
+			ParentSessionID: req.SessionID, ParentPID: env.ParentPID,
+			CreatedAt: env.Now().UTC()})
+		return nil
+	})
+}

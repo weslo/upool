@@ -61,7 +61,7 @@ func Key(canonicalPath string) string {
 
 // Lookup returns the registered repository whose path is path's key, and whether there is one. A
 // missing registry has no repositories. The match is exact, so a directory inside a registered
-// checkout is not found; open question 13 (#18) may widen this for the create hook in M2.
+// checkout is not found; Containing is the create hook's wider match (A13).
 func Lookup(home, path string) (Repo, bool, error) {
 	canonical, err := paths.Key(path)
 	if err != nil {
@@ -73,6 +73,39 @@ func Lookup(home, path string) (Repo, bool, error) {
 	}
 	repo, ok := find(reg, canonical)
 	return repo, ok, nil
+}
+
+// worktreesDir is where a repository's slots and agent worktrees live, relative to its main
+// checkout: Claude Code's managed worktree directory.
+const worktreesDir = ".claude/worktrees"
+
+// Containing returns the registered repository whose main checkout is path or contains it, and
+// whether there is one: the create hook's match for a request's cwd (A13). Where registered
+// repositories nest, the innermost wins. A path inside a repository's .claude/worktrees is a slot
+// or an agent worktree, not that main checkout, so it is not counted as inside that repository.
+// The match compares internal/paths keys, so it needs no git call, which matters in the desktop
+// app's restricted hook helper. A missing registry has no repositories.
+func Containing(home, path string) (Repo, bool, error) {
+	canonical, err := paths.Key(path)
+	if err != nil {
+		return Repo{}, false, err
+	}
+	reg, err := load(home)
+	if err != nil {
+		return Repo{}, false, err
+	}
+	var found Repo
+	ok := false
+	for _, repo := range reg.Repos {
+		worktrees := filepath.Join(repo.Path, filepath.FromSlash(worktreesDir))
+		if !paths.Within(canonical, repo.Path) || paths.Within(canonical, worktrees) {
+			continue
+		}
+		if !ok || len(repo.Path) > len(found.Path) {
+			found, ok = repo, true
+		}
+	}
+	return found, ok, nil
 }
 
 // List returns every registered repository, in the order they were added. A missing registry has
