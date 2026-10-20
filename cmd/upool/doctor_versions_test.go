@@ -65,7 +65,7 @@ func TestDoctorVersions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			dirs := []string{p.Getenv("PATH")} // git alone
 			var fakes []*fake.Unity
 			if tt.unity != nil {
@@ -144,7 +144,7 @@ func TestDoctorVersionsCompareByPrecedence(t *testing.T) {
 // Neither tool on PATH warns, and warnings alone exit 0: the spike's Claude Code was the desktop
 // app's bundled binary, never on PATH.
 func TestDoctorVersionsWarnWhenNeitherToolIsOnPATH(t *testing.T) {
-	p := newDoctorPool(t) // with only git on PATH
+	p := newHarnessPool(t) // with only git on PATH
 	r := runIn(t, p.Env, p.Repo, "doctor", "--json")
 	if r.code != output.ExitOK {
 		t.Errorf("exit = %d, want %d", r.code, output.ExitOK)

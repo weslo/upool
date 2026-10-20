@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -15,68 +14,12 @@ import (
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
-	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
 	"github.com/weslo/upool/internal/unity/fake"
 )
 
-// The tests of `upool doctor`. The harness pool is made by hand rather than by init, so that the
-// tests run everywhere: a testenv repository whose .gitignore ignores .claude/worktrees, two slots
-// made with `git worktree add --detach`, and the pool registered with both ready, as init and a
-// later clone would leave it. The clone-sharing check runs only on macOS.
-
-// doctorPool is a harness pool.
-type doctorPool struct {
-	*testenv.Env
-	key string
-	// tools is whether a fake unity and claude are on PATH; without them only git is, and the
-	// version checks warn.
-	tools bool
-}
-
-// slot returns the path of the harness pool's slot name.
-func (p doctorPool) slot(name string) string {
-	return p.Path(".claude/worktrees/" + name)
-}
-
-// newDoctorPool makes a harness pool with slot-1 and slot-2, both ready and unleased.
-func newDoctorPool(t *testing.T) doctorPool {
-	t.Helper()
-	return doctorPoolIn(t, newInitEnv(t))
-}
-
-// doctorPoolIn makes e's repository a harness pool, as newDoctorPool does. Only git is on its
-// PATH, so doctor runs neither this machine's unity and claude nor, at the cost of a process
-// each, the fakes; installTools puts the fakes there.
-func doctorPoolIn(t *testing.T, e *testenv.Env) doctorPool {
-	t.Helper()
-	git, err := exec.LookPath("git")
-	if err != nil {
-		t.Fatal(err)
-	}
-	bin := tempDir(t)
-	if err := os.Symlink(git, filepath.Join(bin, "git")); err != nil {
-		t.Fatal(err)
-	}
-	e.Setenv("PATH", bin)
-	p := doctorPool{Env: e}
-	p.WriteFile(".gitignore", readFile(t, p.Env, ".gitignore")+worktreesLine+"\n")
-	var slots []pool.Slot
-	for _, name := range []string{"slot-1", "slot-2"} {
-		p.Git("worktree", "add", "-q", "--detach", p.slot(name), testenv.Base)
-		slots = append(slots, pool.Slot{Name: name, Path: p.slot(name), State: pool.StateReady,
-			SeedHead: p.Head, LastUsed: clock})
-	}
-	reg, err := registry.Add(t.Context(), p.Home, p.Repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.key = reg.Key
-	p.update(t, func(pl *pool.Pool) {
-		pl.Repo, pl.Base, pl.Slots = p.Repo, testenv.Base, slots
-	})
-	return p
-}
+// The tests of `upool doctor`, on the hand-made harness pool (harness_test.go), so that they run
+// everywhere. The clone-sharing check runs only on macOS.
 
 // doctorRuns is how many `--version` calls the fakes fakeTools installs answer: more doctor runs
 // than any one test makes.
@@ -108,7 +51,7 @@ func fakeTools(t *testing.T, e *testenv.Env, unity, claude fake.Reply) (u, c *fa
 }
 
 // installTools puts a fake unity and claude on the harness pool's PATH, as fakeTools does.
-func (p *doctorPool) installTools(t *testing.T, unity, claude fake.Reply) (u, c *fake.Unity) {
+func (p *harnessPool) installTools(t *testing.T, unity, claude fake.Reply) (u, c *fake.Unity) {
 	t.Helper()
 	p.tools = true
 	return fakeTools(t, p.Env, unity, claude)
@@ -118,18 +61,6 @@ func (p *doctorPool) installTools(t *testing.T, unity, claude fake.Reply) (u, c 
 func capturedTools(t *testing.T) (unity, claude fake.Reply) {
 	t.Helper()
 	return capturedVersion(t, "unity", "version.raw.txt"), capturedVersion(t, "claude", "version.txt")
-}
-
-// update changes the harness pool's state.json with f.
-func (p doctorPool) update(t *testing.T, f func(*pool.Pool)) {
-	t.Helper()
-	err := pool.Update(t.Context(), p.Home, p.key, func(pl *pool.Pool) error {
-		f(pl)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }
 
 // doctorChecks returns the checks a doctor run reported, from its --json envelope, and fails the
@@ -161,7 +92,7 @@ func wantChecks() []string {
 // checkResults fails the test unless checks are wantChecks, in order, each passing but the one
 // named in odd, which has that result and a reason containing reason. Without p's tools on PATH
 // the version checks warn instead.
-func (p doctorPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
+func (p harnessPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
 	result checkResult, reason string) {
 	t.Helper()
 	var names []string
@@ -188,7 +119,7 @@ func (p doctorPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
 // on PATH only for the last run, the human form, since each call of one is a run of this test
 // binary; until then the version checks warn.
 func TestDoctorPassesAHealthyPool(t *testing.T) {
-	p := newDoctorPool(t)
+	p := newHarnessPool(t)
 	for _, dir := range []string{p.Repo, p.Path("Assets/Scripts"), p.slot("slot-2")} {
 		r := runIn(t, p.Env, dir, "doctor", "--json")
 		if r.code != output.ExitOK || r.stderr != "" {
@@ -216,38 +147,38 @@ func TestDoctorPassesAHealthyPool(t *testing.T) {
 func TestDoctorFailsEachBrokenPrecondition(t *testing.T) {
 	tests := []struct {
 		name   string
-		breaks func(t *testing.T, p doctorPool)
+		breaks func(t *testing.T, p harnessPool)
 		check  string
 		reason string
 	}{
-		{"a tracked Library", func(_ *testing.T, p doctorPool) {
+		{"a tracked Library", func(_ *testing.T, p harnessPool) {
 			p.Git("add", "-f", "Library/ArtifactDB")
 			p.Git("commit", "-q", "-m", "track the Library")
 		}, checkLibrary, "such as Library/ArtifactDB: untrack Library/"},
-		{"no .gitignore entry", func(t *testing.T, p doctorPool) {
+		{"no .gitignore entry", func(t *testing.T, p harnessPool) {
 			p.WriteFile(".gitignore", strings.Replace(readFile(t, p.Env, ".gitignore"),
 				worktreesLine+"\n", "", 1))
 		}, checkGitignore, "git does not ignore .claude/worktrees: add .claude/worktrees/ to " +
 			".gitignore"},
-		{"a slot removed with git worktree remove", func(_ *testing.T, p doctorPool) {
+		{"a slot removed with git worktree remove", func(_ *testing.T, p harnessPool) {
 			p.Git("worktree", "remove", p.slot("slot-2"))
 		}, "slot-2", "is not on disk; git worktree list does not list it"},
-		{"a slot whose directory was deleted", func(t *testing.T, p doctorPool) {
+		{"a slot whose directory was deleted", func(t *testing.T, p harnessPool) {
 			if err := os.RemoveAll(p.slot("slot-2")); err != nil {
 				t.Fatal(err)
 			}
 		}, "slot-2", "is not on disk"},
-		{"a slot whose .git points elsewhere", func(_ *testing.T, p doctorPool) {
+		{"a slot whose .git points elsewhere", func(_ *testing.T, p harnessPool) {
 			p.WriteFile(".claude/worktrees/slot-2/.git", "gitdir: "+p.Home+"\n")
 		}, "slot-2", "points to " + "HOME, outside"},
-		{"a slot that is a file", func(t *testing.T, p doctorPool) {
+		{"a slot that is a file", func(t *testing.T, p harnessPool) {
 			p.Git("worktree", "remove", p.slot("slot-2"))
 			p.WriteFile(".claude/worktrees/slot-2", "not a slot\n")
 		}, "slot-2", "is not a directory; git worktree list does not list it"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			tt.breaks(t, p)
 			reason := strings.ReplaceAll(tt.reason, "HOME", p.Home)
 			r := runIn(t, p.Env, p.Repo, "doctor", "--json")
@@ -301,7 +232,7 @@ func TestDoctorWarnsAboutALeaseWithNoHolderPIDOlderThanAgentTTL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			if tt.ttl != "" {
 				p.Setenv(config.EnvName("agent_ttl"), tt.ttl)
 			}
@@ -338,7 +269,7 @@ func TestDoctorWarnsWhenStateIsInACloudSyncedFolder(t *testing.T) {
 	if err := os.Symlink(cloud, filepath.Join(e.Home, ".upool")); err != nil {
 		t.Fatal(err)
 	}
-	p := doctorPoolIn(t, e)
+	p := harnessPoolIn(t, e)
 	r := runIn(t, p.Env, p.Repo, "doctor", "--json")
 	if r.code != output.ExitOK {
 		t.Errorf("exit = %d, want %d", r.code, output.ExitOK)
@@ -349,7 +280,7 @@ func TestDoctorWarnsWhenStateIsInACloudSyncedFolder(t *testing.T) {
 }
 
 func TestDoctorOutsideAPoolFails(t *testing.T) {
-	p := newDoctorPool(t)
+	p := newHarnessPool(t)
 	outside := filepath.Dir(p.Repo)
 	r := runIn(t, p.Env, outside, "doctor")
 	want := "upool: " + outside + " is not inside a registered pool; run upool doctor in a " +
@@ -361,7 +292,7 @@ func TestDoctorOutsideAPoolFails(t *testing.T) {
 }
 
 func TestDoctorRefusesArguments(t *testing.T) {
-	p := newDoctorPool(t)
+	p := newHarnessPool(t)
 	r := runIn(t, p.Env, p.Repo, "doctor", "slot-1")
 	if r.code != output.ExitFailure || !strings.Contains(r.stderr,
 		`unexpected arguments ["slot-1"]; usage: upool doctor [--fix] [--json]`) {
@@ -381,45 +312,26 @@ func findCheck(t *testing.T, checks []doctorCheck, name string) doctorCheck {
 	return doctorCheck{}
 }
 
-// slotNames returns the names of the slots in the harness pool's state.json.
-func (p doctorPool) slotNames(t *testing.T) []string {
-	t.Helper()
-	pl, err := pool.Load(p.Home, p.key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, s := range pl.Slots {
-		names = append(names, s.Name)
-	}
-	return names
-}
-
-// listed reports whether `git worktree list` in the harness pool lists path.
-func (p doctorPool) listed(path string) bool {
-	return strings.Contains(p.Git("worktree", "list", "--porcelain"), "worktree "+path+"\n")
-}
-
 // A ready slot with no lease whose directory is gone is reported, and --fix drops it, pruning a
 // registration git still has, so that a later clone replaces it ((f) transition 17).
 func TestDoctorFixDropsAMissingReadySlot(t *testing.T) {
 	tests := []struct {
 		name   string
-		remove func(t *testing.T, p doctorPool)
+		remove func(t *testing.T, p harnessPool)
 		reason string
 	}{
-		{"its directory deleted", func(t *testing.T, p doctorPool) {
+		{"its directory deleted", func(t *testing.T, p harnessPool) {
 			if err := os.RemoveAll(p.slot("slot-2")); err != nil {
 				t.Fatal(err)
 			}
 		}, "SLOT is not on disk"},
-		{"removed with git worktree remove", func(_ *testing.T, p doctorPool) {
+		{"removed with git worktree remove", func(_ *testing.T, p harnessPool) {
 			p.Git("worktree", "remove", p.slot("slot-2"))
 		}, "SLOT is not on disk; git worktree list does not list it"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			tt.remove(t, p)
 			reason := strings.ReplaceAll(tt.reason, "SLOT", p.slot("slot-2"))
 
@@ -459,7 +371,7 @@ func TestDoctorFixDropsAMissingReadySlot(t *testing.T) {
 // --fix never touches a leased, unconfirmed, parked or needs-reset slot, nor one whose directory
 // is still on disk, which may hold work: each stays reported, and stays in the pool.
 func TestDoctorFixLeavesEveryOtherMissingSlot(t *testing.T) {
-	gone := func(t *testing.T, p doctorPool) {
+	gone := func(t *testing.T, p harnessPool) {
 		if err := os.RemoveAll(p.slot("slot-2")); err != nil {
 			t.Fatal(err)
 		}
@@ -470,13 +382,13 @@ func TestDoctorFixLeavesEveryOtherMissingSlot(t *testing.T) {
 		name   string
 		state  pool.State
 		lease  *pool.Lease
-		breaks func(t *testing.T, p doctorPool)
+		breaks func(t *testing.T, p harnessPool)
 	}{
 		{"leased", pool.StateLeased, lease, gone},
 		{"leased, unconfirmed", pool.StateLeasedUnconfirmed, lease, gone},
 		{"parked", pool.StateParked, nil, gone},
 		{"needs-reset", pool.StateNeedsReset, nil, gone},
-		{"on disk but unregistered", pool.StateReady, nil, func(t *testing.T, p doctorPool) {
+		{"on disk but unregistered", pool.StateReady, nil, func(t *testing.T, p harnessPool) {
 			if err := os.RemoveAll(p.Path(".git/worktrees/slot-2")); err != nil {
 				t.Fatal(err)
 			}
@@ -484,7 +396,7 @@ func TestDoctorFixLeavesEveryOtherMissingSlot(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			p.update(t, func(pl *pool.Pool) {
 				pl.Slots[1].State, pl.Slots[1].Lease = tt.state, tt.lease
 			})

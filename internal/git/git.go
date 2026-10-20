@@ -493,6 +493,55 @@ func (c Client) CheckoutDetach(ctx context.Context, dir, rev string) error {
 	return err
 }
 
+// The calls below lease a slot for `upool take`: the branch it names, the slot's checkout of it,
+// and the `git worktree lock` held for the lease's lifetime (docs/contracts.md (f) transition 5;
+// A18; docs/design.md, "Leases that survive crashes and never reclaim a live tree").
+
+// CheckBranchName reports whether name is a valid branch name, from
+// `git check-ref-format --branch <name>`, so that take refuses a bad name before it leases a slot.
+func (c Client) CheckBranchName(ctx context.Context, dir, name string) (bool, error) {
+	res, err := c.Runner.Run(ctx, dir, c.Env, "check-ref-format", "--branch", name)
+	if err != nil {
+		return false, err
+	}
+	return res.ExitCode == 0, nil
+}
+
+// BranchExists reports whether the repository holding dir has the local branch name, from
+// `git show-ref --verify --quiet refs/heads/<name>`: exit 0 when it does, 1 when it does not.
+func (c Client) BranchExists(ctx context.Context, dir, name string) (bool, error) {
+	_, ok, err := c.runStatus(ctx, dir, "show-ref", "--verify", "--quiet", "refs/heads/"+name)
+	return ok, err
+}
+
+// CheckoutBranch checks the existing branch name out in the worktree at dir:
+// `git checkout -q <name>`. git refuses a branch checked out in another worktree.
+func (c Client) CheckoutBranch(ctx context.Context, dir, name string) error {
+	_, err := c.run(ctx, dir, "checkout", "-q", name)
+	return err
+}
+
+// CheckoutNewBranch creates the branch name at start and checks it out in the worktree at dir:
+// `git checkout -q -b <name> <start>`.
+func (c Client) CheckoutNewBranch(ctx context.Context, dir, name, start string) error {
+	_, err := c.run(ctx, dir, "checkout", "-q", "-b", name, start)
+	return err
+}
+
+// WorktreeLock locks the worktree at path with reason, run in repo:
+// `git worktree lock --reason <reason> <path>`, so that git's own cleanup leaves a leased slot
+// alone. Locking a locked worktree is an error.
+func (c Client) WorktreeLock(ctx context.Context, repo, path, reason string) error {
+	_, err := c.run(ctx, repo, "worktree", "lock", "--reason", reason, path)
+	return err
+}
+
+// WorktreeUnlock unlocks the worktree at path, run in repo: `git worktree unlock <path>`.
+func (c Client) WorktreeUnlock(ctx context.Context, repo, path string) error {
+	_, err := c.run(ctx, repo, "worktree", "unlock", path)
+	return err
+}
+
 // runStatus runs a call that answers with its exit status, 0 for yes and 1 for no, as
 // check-ignore and symbolic-ref -q do. It returns the result and whether the call exited 0; any
 // other exit is an error carrying git's stderr.

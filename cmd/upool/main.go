@@ -19,6 +19,7 @@ var commandTable = map[string]command{
 	"doctor": doctorCommand,
 	"init":   initCommand,
 	"status": statusCommand,
+	"take":   takeCommand,
 	"which":  whichCommand,
 }
 

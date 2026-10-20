@@ -34,6 +34,13 @@ func newInitEnv(t *testing.T, opts ...testenv.Option) *testenv.Env {
 // owner and reads the start time of.
 func runIn(t *testing.T, e *testenv.Env, dir string, args ...string) result {
 	t.Helper()
+	return runAt(t, e, dir, func() time.Time { return clock }, args...)
+}
+
+// runAt is runIn with now as upool's clock, such as time.Now inside a testing/synctest bubble.
+func runAt(t *testing.T, e *testenv.Env, dir string, now func() time.Time,
+	args ...string) result {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	d := dispatcher{
 		commands: commandTable,
@@ -44,7 +51,7 @@ func runIn(t *testing.T, e *testenv.Env, dir string, args ...string) result {
 		getenv:   e.Getenv,
 		environ:  e.Environ,
 		getwd:    func() (string, error) { return dir, nil },
-		now:      func() time.Time { return clock },
+		now:      now,
 		pid:      os.Getpid(),
 	}
 	code := d.run(args)

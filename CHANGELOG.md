@@ -218,3 +218,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `PATH`. The fake `unity` in tests (`internal/unity/fake`) now also answers as `claude`, from
   `testdata/captures/claude/` (`InstallClaude`), and `Reply.Replace` replays a copy of a capture
   with a value substituted.
+- `upool take <name> [--base REF] [--holder ID] [--timeout S] [--json]` leases a ready slot of the
+  pool containing the working directory and prints its path and nothing else. `--json` gives
+  `path`, `slot`, `branch`, `lease_id` and `repo`. `<name>` is a branch: take checks it out in the
+  slot, creating it from `--base`, or the pool's base, when it does not exist. A name git would
+  refuse is refused first. So is a branch git already has checked out in a worktree, the main
+  checkout included: the error names that worktree, and nothing is leased.
+  - **Choosing a slot.** Under `~/.upool/lock`, take hands out the first `ready` slot whose
+    directory exists, which `git worktree list` lists, and whose backlink checks out.
+  - **The lease** gets a random `lease_id`, `holder` from `--holder`, the slot's
+    `worktree_path`, no holder PID, `acquired_at`, `confirmed` true and `lane` `script`. With
+    the lock dropped, take runs `git worktree lock --reason "upool lease <id>"`. If the lock or
+    the checkout fails, the lease is undone.
+  - **When no slot is ready,** take prints each slot's skip reason to stderr: `creating`,
+    `warming`, `leased`, `unconfirmed`, `parked`, `needs-reset` or
+    `missing-from-worktree-list`. It retries once a second until `--timeout` seconds
+    (default 0) have passed, then exits 1.
+
+  take does not clone a slot yet. Usage now lists it. `internal/git` gains `CheckBranchName`,
+  `BranchExists`, `CheckoutBranch`, `CheckoutNewBranch`, `WorktreeLock` and `WorktreeUnlock`.
