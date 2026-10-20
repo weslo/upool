@@ -67,16 +67,32 @@ func Lookup(home, path string) (Repo, bool, error) {
 	if err != nil {
 		return Repo{}, false, err
 	}
-	data, err := statefile.Read(home, file)
-	if err != nil {
-		return Repo{}, false, err
-	}
-	reg, err := decode(data)
+	reg, err := load(home)
 	if err != nil {
 		return Repo{}, false, err
 	}
 	repo, ok := find(reg, canonical)
 	return repo, ok, nil
+}
+
+// List returns every registered repository, in the order they were added. A missing registry has
+// none. It takes no lock, as statefile.Read does not: a caller that also reads a pool's state.json
+// and needs the two to agree, as `upool which` does, holds statefile.Lock around both reads.
+func List(home string) ([]Repo, error) {
+	reg, err := load(home)
+	if err != nil {
+		return nil, err
+	}
+	return reg.Repos, nil
+}
+
+// load reads and decodes registry.json under home, without the lock.
+func load(home string) (Registry, error) {
+	data, err := statefile.Read(home, file)
+	if err != nil {
+		return Registry{}, err
+	}
+	return decode(data)
 }
 
 // Add registers path's key under the lock and returns its entry. Adding a path that is already

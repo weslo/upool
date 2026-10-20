@@ -369,16 +369,6 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 	}
 }
 
-// mustJSON is v as JSON, with map keys sorted, for comparing decoded documents.
-func mustJSON(t *testing.T, v any) []byte {
-	t.Helper()
-	b, err := json.Marshal(v)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
-
 // After registry.json is lost, init finds the pool again by its key, keeps its state, and clones
 // no second slot: only a pool with no slots gets a first one.
 func TestInitKeepsTheStateOfAPoolWhoseRegistryWasLost(t *testing.T) {

@@ -76,6 +76,16 @@ func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 	return result{code, out.String(), errOut.String()}
 }
 
+// mustJSON is v as JSON, with map keys sorted, for comparing decoded documents.
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // echoed is the echo command's data: its positional arguments and its --n flag.
 type echoed struct {
 	Args []string `json:"args"`
