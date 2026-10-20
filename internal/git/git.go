@@ -281,6 +281,20 @@ func (c Client) TopLevel(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSuffix(string(out), "\n"), nil
 }
 
+// headArgs is the call that names HEAD's commit, as docs/contracts.md (g) step 1 gives it.
+var headArgs = []string{"rev-parse", "HEAD"}
+
+// Head returns the commit HEAD points at in the worktree at dir, from `git rev-parse HEAD`. The
+// staleness check records a seed's, which becomes the slot's seed_head (docs/contracts.md (g)
+// Clone recipe, step 1; (e) State schemas). In a repository with no commits it is an error.
+func (c Client) Head(ctx context.Context, dir string) (string, error) {
+	out, err := c.run(ctx, dir, headArgs...)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSuffix(string(out), "\n"), nil
+}
+
 // LsFiles returns the tracked paths under dir that match pathspecs, relative to dir and in git's
 // order, from `git ls-files -z -- <pathspecs…>`; no pathspecs lists every tracked path. `init`
 // refuses a repository that tracks anything under Library/, Unity's own check (docs/design.md,

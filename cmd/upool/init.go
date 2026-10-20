@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/paths"
@@ -20,8 +21,9 @@ import (
 
 // initCommand is `upool init`, run from Terminal inside a Unity project's repository: it registers
 // the project as a pool, without cloning a slot yet (docs/design.md, "One binary, a dozen
-// commands, one JSON file per pool", the `init` row). The staleness check (#49), the first slot
-// (#50), the CLAUDE.md block (#53) and --slots (#64) arrive with their own issues.
+// commands, one JSON file per pool", the `init` row). It refuses a stale Library, which the first
+// slot would seed from. The first slot (#50), the CLAUDE.md block (#53) and --slots (#64) arrive
+// with their own issues.
 var initCommand = command{
 	usage: "init [--json]",
 	setup: func(*flag.FlagSet) handler { return initRepo },
@@ -147,6 +149,9 @@ func initRepo(inv *invocation) (any, []string, error) {
 	if err := checkEditorClosed(repo); err != nil {
 		return nil, nil, err
 	}
+	if err := checkLibraryCurrent(ctx, g, repo); err != nil {
+		return nil, nil, err
+	}
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
 	if err != nil {
 		return nil, nil, err
@@ -233,6 +238,22 @@ func checkEditorClosed(repo string) error {
 		}
 	}
 	return nil
+}
+
+// checkLibraryCurrent refuses repo while its Library is stale: the first slot seeds from the main
+// checkout, and every clone of a stale Library recompiles what the seed never did
+// (docs/contracts.md (g) Clone recipe, steps 0 and 1). The recipe would refresh the seed with a
+// batch open; until the stale-seed refresh arrives in M4, init asks the user to.
+func checkLibraryCurrent(ctx context.Context, g git.Client, repo string) error {
+	s, err := clone.CheckStaleness(ctx, g, repo)
+	if err != nil {
+		return err
+	}
+	if !s.Stale() {
+		return nil
+	}
+	return fmt.Errorf("the Library in %s is stale: %s: open the project in Unity, let it finish "+
+		"importing and compiling, quit it, then run upool init again", repo, s.Reason())
 }
 
 // resolveBase returns the pool's base and where it came from: the configured base if a layer set

@@ -115,3 +115,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slots, keeping one already there for the repository; and adds the repository to
   `~/.upool/registry.json`. A repository already registered is reported, and init exits 0.
   Usage now lists it.
+- `upool init` refuses a stale Library, changing nothing: when `Library/ScriptAssemblies` is
+  missing, or a `.cs` file under `Assets/` is newer than the newest assembly there. The message
+  names the script and both times, and says to open the project in Unity, let it finish importing
+  and compiling, and quit it before running init again. Uncommitted changes do not count as stale.
+  `internal/clone` holds the check, which also reads the checkout's HEAD and whether
+  `git status --porcelain` is empty, for the clone recipe to record later.
