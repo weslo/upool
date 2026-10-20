@@ -237,3 +237,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   take does not clone a slot yet. Usage now lists it. `internal/git` gains `CheckBranchName`,
   `BranchExists`, `CheckoutBranch`, `CheckoutNewBranch`, `WorktreeLock` and `WorktreeUnlock`.
+- `upool path <name> [--json]` prints the path of the slot that has the branch `<name>` checked out,
+  found in `git worktree list` in the main checkout of the pool containing the working directory
+  and compared by canonical path, so `/var` and `/private/var` spell the same slot. `--json` gives
+  what `which` gives for that slot. With no slot on the branch, including when only the main
+  checkout or a worktree that is not a slot has it, path exits 1 with the new `NO_SUCH_SLOT` code,
+  naming the worktree that has it. It writes nothing. Usage now lists it.

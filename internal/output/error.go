@@ -17,6 +17,9 @@ const (
 	// CodeNotInSlot means the working directory is not inside a slot, which `upool which` reports
 	// with ExitFailure (docs/contracts.md (d), "upool's own exit codes").
 	CodeNotInSlot Code = "NOT_IN_SLOT"
+	// CodeNoSuchSlot means no slot has the branch `upool path` names checked out (A18), which it
+	// reports with ExitFailure.
+	CodeNoSuchSlot Code = "NO_SUCH_SLOT"
 )
 
 // Failure is an error a command returns: the exit code upool ends with, the code its envelope
