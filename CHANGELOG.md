@@ -77,8 +77,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   branch is dirty), and marks a clean slot `needs-reset` and a dirty one `parked`, each status line
   on stderr, clearing the lease and setting `last_used`. Define-order noise counts as clean but is
   left for the deferred reset, as is the slot's worktree lock: git writes from the app's hook
-  helper are untested. A path that is no slot is left alone (#74), and the hook exits 0 whatever
-  happens, its errors on stderr. `pool.DirtyBesideNoise` is the clean test without the revert.
+  helper are untested. The hook exits 0 whatever happens, its errors on stderr.
+  `pool.DirtyBesideNoise` is the clean test without the revert.
+- `upool hook worktree-remove` removes a pass-through worktree, any worktree that is no pool's
+  slot, when it is clean as a slot would be: `git -C <cwd> worktree remove <worktree_path>`,
+  without `--force`, after reverting define-order noise, so git still refuses anything else. Its
+  branch and commits stay. A dirty one is kept, with a line on stderr per reason, and a path that
+  is already gone is nothing to remove; the hook exits 0 every way (A22).
 
 ## [0.1.0] - 2026-10-20
 

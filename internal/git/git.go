@@ -456,6 +456,15 @@ func (c Client) WorktreeAddBranch(ctx context.Context, repo, path string) error 
 	return err
 }
 
+// WorktreeRemoveClean removes the worktree at path, its registration and its directory, run in
+// repo, only if it is clean: `git -C <repo> worktree remove <path>`, without --force, so git
+// itself refuses a worktree with changes or untracked files, or one that is locked. The remove
+// hook removes a pass-through worktree with it (A22).
+func (c Client) WorktreeRemoveClean(ctx context.Context, repo, path string) error {
+	_, err := c.run(ctx, repo, "worktree", "remove", path)
+	return err
+}
+
 // WorktreeRemove removes the worktree at path, its registration and its directory, run in repo:
 // `git worktree remove --force <path>`, which removes it even with changes or untracked files.
 // `doctor --fix` removes an interrupted clone with it (docs/contracts.md (f) transition 21).

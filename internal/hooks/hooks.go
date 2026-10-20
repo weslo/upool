@@ -12,6 +12,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -218,8 +220,9 @@ func recordAgentWorktree(ctx context.Context, env Env, req Request, path string)
 // marks a clean slot needs-reset and a dirty one parked, its status lines on stderr, clearing the
 // lease (docs/contracts.md (f) transitions 8 and 9). The slot stays on disk and its git worktree
 // lock stays until the deferred reset: the app accepts exit 0 with the directory still present, and
-// hands the path out again (docs/contracts.md (a), WorktreeRemove rules). A path that is no slot is
-// left alone (#74). The hook exits 0 whatever this returns, its error on stderr ((d)).
+// hands the path out again (docs/contracts.md (a), WorktreeRemove rules). Any other worktree is a
+// pass-through one, and is removed when clean (A22). The hook exits 0 whatever this returns, its
+// error on stderr ((d)).
 func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventWorktreeRemove {
 		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
@@ -230,8 +233,11 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 			req.WorktreePath)
 	}
 	key, s, ok, err := findSlot(env.Home, req.WorktreePath)
-	if err != nil || !ok {
-		return req.WorktreePath, err
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		return removePassThrough(ctx, env, req)
 	}
 	if s.Lease == nil {
 		return "", fmt.Errorf("%s is %s, with no lease to end", s.Name, s.State)
@@ -264,6 +270,43 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 		_, _ = fmt.Fprintf(env.Stderr, "upool: parked %s, which is dirty: %s\n", s.Name, d)
 	}
 	return s.Path, nil
+}
+
+// removePassThrough handles the removal of a worktree that is no pool's slot: one the pass-through
+// branch made, for a repository upool does not manage or a session in a slot. Clean as
+// docs/contracts.md (f) defines it, it is removed with `git -C <cwd> worktree remove
+// <worktree_path>`, its branch and commits kept; dirty, it is kept, and stderr says why (A22).
+// Nothing records pass-through worktrees, so nothing else would ever remove one. Define-order noise
+// counts as clean and is reverted first, so that git's own check, which refuses any change, lets
+// the worktree go: the removal is a git write already, of the kind the create branch makes from the
+// app's restricted helper.
+func removePassThrough(ctx context.Context, env Env, req Request) (string, error) {
+	if !filepath.IsAbs(req.Cwd) {
+		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
+	}
+	path := req.WorktreePath
+	// A stat, which worked from the helper under ~/Documents (docs/contracts.md (a)).
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return path, nil // already gone: nothing is left to remove
+	}
+	dirty, err := pool.DirtyBesideNoise(ctx, env.Git, path)
+	if err != nil {
+		return "", fmt.Errorf("checking whether %s is clean: %w", path, err)
+	}
+	if len(dirty) > 0 {
+		for _, d := range dirty {
+			// stderr is for warnings only; the app reads nothing from a remove hook's stdout.
+			_, _ = fmt.Fprintf(env.Stderr, "upool: kept %s, which is dirty: %s\n", path, d)
+		}
+		return path, nil
+	}
+	if _, err := pool.RevertNoise(ctx, env.Git, path); err != nil {
+		return "", fmt.Errorf("reverting define-order noise in %s: %w", path, err)
+	}
+	if err := env.Git.WorktreeRemoveClean(ctx, req.Cwd, path); err != nil {
+		return "", fmt.Errorf("removing %s: %w", path, err)
+	}
+	return path, nil
 }
 
 // findSlot returns the slot of a registered pool whose path is path, by canonical key, since the
