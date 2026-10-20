@@ -16,14 +16,16 @@ import (
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
 )
 
 // initCommand is `upool init`, run from Terminal inside a Unity project's repository: it registers
-// the project as a pool, without cloning a slot yet (docs/design.md, "One binary, a dozen
-// commands, one JSON file per pool", the `init` row). It refuses a stale Library, which the first
-// slot would seed from. The first slot (#50), the CLAUDE.md block (#53) and --slots (#64) arrive
-// with their own issues.
+// the project as a pool and clones its first slot, slot-1, from the main checkout
+// (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row;
+// docs/contracts.md (f) transitions 1 and 2). It refuses an open Editor or a stale Library, which
+// the first slot would seed from. The CLAUDE.md block (#53) and --slots (#64) arrive with their own
+// issues.
 var initCommand = command{
 	usage: "init [--json]",
 	setup: func(*flag.FlagSet) handler { return initRepo },
@@ -74,9 +76,31 @@ type initReport struct {
 	GitignoreUpdated bool `json:"gitignore_updated"`
 	// RepoFileWritten is true when init wrote .upool.toml, and false when the file was there.
 	RepoFileWritten bool `json:"repo_file_written"`
+	// Slot is the first slot, which init cloned from the main checkout, and nil when it cloned
+	// none.
+	Slot *clonedSlot `json:"slot,omitempty"`
+	// ExistingSlots are the slots the pool already had, from an earlier init whose registry entry
+	// was lost or which failed part-way; init keeps them and clones none.
+	ExistingSlots []existingSlot `json:"existing_slots,omitempty"`
 
 	// repoFile is what init wrote to .upool.toml, for the human form.
 	repoFile config.RepoFile
+}
+
+// clonedSlot is the slot init cloned, as state.json records it (docs/contracts.md (e)).
+type clonedSlot struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// SeedHead is the main checkout's HEAD when it was copied, and SeedDirty whether it had
+	// uncommitted changes, which the slot does not keep (docs/contracts.md (g) step 7).
+	SeedHead  string `json:"seed_head"`
+	SeedDirty bool   `json:"seed_dirty"`
+}
+
+// existingSlot is a slot init found in the pool and kept.
+type existingSlot struct {
+	Name  string     `json:"name"`
+	State pool.State `json:"state"`
 }
 
 // Human returns one line per step init took.
@@ -97,6 +121,15 @@ func (r initReport) Human() string {
 			"base = %q", f.Ready, f.MaxSlots, f.Base))
 	} else {
 		lines = append(lines, "kept the existing .upool.toml")
+	}
+	if r.Slot != nil {
+		lines = append(lines, fmt.Sprintf("cloned %s into %s", r.Slot.Name, r.Slot.Path))
+	} else {
+		var slots []string
+		for _, s := range r.ExistingSlots {
+			slots = append(slots, fmt.Sprintf("%s (%s)", s.Name, s.State))
+		}
+		lines = append(lines, "kept the pool's existing slots: "+strings.Join(slots, ", "))
 	}
 	lines = append(lines, fmt.Sprintf("registered %s as pool %s", r.Repo, r.Key))
 	return strings.Join(lines, "\n")
@@ -120,9 +153,9 @@ func describeBase(source string) string {
 }
 
 // initRepo is init's handler. It checks the repository before it changes anything, then adds
-// .claude/worktrees/ to .gitignore, writes .upool.toml, creates the pool's state.json and, last,
-// adds the repository to registry.json, so that a run that fails part-way is finished by the next
-// rather than reported as already registered.
+// .claude/worktrees/ to .gitignore, writes .upool.toml, creates the pool's state.json, clones the
+// first slot into a pool that has none and, last, adds the repository to registry.json, so that a
+// run that fails part-way is finished by the next rather than reported as already registered.
 func initRepo(inv *invocation) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -160,6 +193,9 @@ func initRepo(inv *invocation) (any, []string, error) {
 	if r.Base, r.BaseSource, err = resolveBase(ctx, g, repo, cfg.Base); err != nil {
 		return nil, nil, err
 	}
+	if err := checkBaseCommit(ctx, g, repo, r.Base, r.BaseSource); err != nil {
+		return nil, nil, err
+	}
 	if r.GitignoreUpdated, err = ignoreWorktrees(ctx, g, repo); err != nil {
 		return nil, nil, err
 	}
@@ -167,7 +203,13 @@ func initRepo(inv *invocation) (any, []string, error) {
 	if r.RepoFileWritten, err = config.WriteRepoFile(repo, r.repoFile); err != nil {
 		return nil, nil, err
 	}
-	if err := createPool(ctx, inv.home, repo, r.Base); err != nil {
+	key, existing, err := createPool(ctx, inv.home, repo, r.Base)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(existing) > 0 {
+		r.ExistingSlots = existing
+	} else if r.Slot, err = cloneFirstSlot(ctx, inv, g, key, repo); err != nil {
 		return nil, nil, err
 	}
 	reg, err := registry.Add(ctx, inv.home, repo)
@@ -281,6 +323,19 @@ func resolveBase(ctx context.Context, g git.Client, repo string,
 	return branch, baseFromBranch, nil
 }
 
+// checkBaseCommit refuses a base that names no commit in repo, saying where it came from: the
+// first slot is moved to base with `git checkout --detach <base>` (docs/contracts.md (g) Clone
+// recipe, step 7), so a clone would get as far as copying the checkout and fail there, after init
+// had written its files.
+func checkBaseCommit(ctx context.Context, g git.Client, repo, base, source string) error {
+	if _, err := g.Commit(ctx, repo, base); err != nil {
+		return fmt.Errorf("base is %s, %s, which names no commit in %s, so no slot can be "+
+			"cloned at it: create the branch, or set base to one that exists: %w", base,
+			describeBase(source), repo, err)
+	}
+	return nil
+}
+
 // ignoreWorktrees appends worktreesLine to repo's .gitignore, creating the file if need be, unless
 // git already ignores a path under .claude/worktrees, and reports whether it did.
 func ignoreWorktrees(ctx context.Context, g git.Client, repo string) (bool, error) {
@@ -312,16 +367,18 @@ func ignoreWorktrees(ctx context.Context, g git.Client, repo string) (bool, erro
 }
 
 // createPool creates ~/.upool/pools/<repo-key>/state.json for repo, with its base and no slots
-// (docs/contracts.md (e) State schemas). A state.json already there for repo is kept as it is: the
-// key is derived from the path so that init finds an existing pool again after the registry is
-// lost (A7). One that belongs to another repository is refused, since the two would share a pool.
-func createPool(ctx context.Context, home, repo, base string) error {
+// (docs/contracts.md (e) State schemas), and returns the key and the slots the pool already has.
+// A state.json already there for repo is kept as it is: the key is derived from the path so that
+// init finds an existing pool again after the registry is lost (A7). One that belongs to another
+// repository is refused, since the two would share a pool.
+func createPool(ctx context.Context, home, repo, base string) (key string,
+	slots []existingSlot, err error) {
 	canonical, err := paths.Key(repo)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
-	key := registry.Key(canonical)
-	return pool.Update(ctx, home, key, func(p *pool.Pool) error {
+	key = registry.Key(canonical)
+	err = pool.Update(ctx, home, key, func(p *pool.Pool) error {
 		if p.Repo == "" {
 			p.Repo, p.Base = repo, base
 			return nil
@@ -334,6 +391,27 @@ func createPool(ctx context.Context, home, repo, base string) error {
 			return fmt.Errorf("~/.upool/pools/%s/state.json is the pool of %s, not %s", key,
 				p.Repo, repo)
 		}
+		for _, s := range p.Slots {
+			slots = append(slots, existingSlot{Name: s.Name, State: s.State})
+		}
 		return nil
 	})
+	if err != nil {
+		return "", nil, err
+	}
+	return key, slots, nil
+}
+
+// cloneFirstSlot clones slot-1 into the pool key from the main checkout, repo, which init has
+// checked has no Editor open and a current Library (docs/contracts.md (g) Clone recipe, step 0:
+// init's first slot seeds from the main checkout with its Editor closed).
+func cloneFirstSlot(ctx context.Context, inv *invocation, g git.Client, key,
+	repo string) (*clonedSlot, error) {
+	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid}
+	s, err := recipe.Clone(ctx, inv.home, key, repo)
+	if err != nil {
+		return nil, err
+	}
+	return &clonedSlot{Name: s.Name, Path: s.Path, SeedHead: s.SeedHead,
+		SeedDirty: s.SeedDirty}, nil
 }

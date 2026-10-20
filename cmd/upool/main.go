@@ -37,9 +37,9 @@ func main() {
 }
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
-// exit code. The rest of the boundary, the clock, the working directory and the environment's
-// full list, it takes from the process; a test of a command that reads them builds a dispatcher
-// with its own.
+// exit code. The rest of the boundary, the clock, the working directory, the environment's full
+// list and the process ID, it takes from the process; a test of a command that reads them builds
+// a dispatcher with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
 		commands: commandTable,
@@ -51,6 +51,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		environ:  os.Environ,
 		getwd:    os.Getwd,
 		now:      time.Now,
+		pid:      os.Getpid(),
 	}
 	return d.run(args)
 }

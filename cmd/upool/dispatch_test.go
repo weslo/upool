@@ -22,6 +22,9 @@ import (
 // clock is the fixed time the test dispatchers' clock returns.
 var clock = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 
+// testPID is the process ID the dispatch helper's dispatcher hands its handlers.
+const testPID = 4242
+
 // tempDir is t.TempDir with its symlinks resolved (on macOS it is under /var, which is
 // /private/var).
 func tempDir(t *testing.T) string {
@@ -67,6 +70,7 @@ func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 		},
 		getwd: func() (string, error) { return env["PWD"], nil },
 		now:   func() time.Time { return clock },
+		pid:   testPID,
 	}
 	code := d.run(args)
 	return result{code, out.String(), errOut.String()}
@@ -288,6 +292,9 @@ func TestHandlerGetsTheProcessBoundaryButNotStdout(t *testing.T) {
 	}
 	if now := got.now(); !now.Equal(clock) {
 		t.Errorf("now() = %v, want %v", now, clock)
+	}
+	if got.pid != testPID {
+		t.Errorf("pid = %d, want %d", got.pid, testPID)
 	}
 }
 

@@ -121,3 +121,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and compiling, and quit it before running init again. Uncommitted changes do not count as stale.
   `internal/clone` holds the check, which also reads the checkout's HEAD and whether
   `git status --porcelain` is empty, for the clone recipe to record later.
+- `upool init` clones the pool's first slot, `slot-1`, from the main checkout once its checks pass,
+  and before it registers the repository, using the clone recipe in `internal/clone`
+  (docs/contracts.md (g)). The recipe writes the slot to `state.json` as `creating`, owned by the
+  running process, before `git worktree add --no-checkout --detach` at the main checkout's HEAD.
+  It then runs `/bin/cp -cR` on every top-level entry except `.git`, `Temp`, `Logs`, `obj` and
+  `Builds`, and copies `.claude` without `worktrees`. It strips `Library/EditorInstance.json`,
+  `ProtocolInstance.json` and `Library/Pipeline`, and runs `git reset -q`. If the main checkout
+  had uncommitted changes it reverts them in the slot with `git checkout -- .` and `git clean -fd`,
+  and it checks out `base` detached if HEAD is elsewhere. It marks the slot `ready`, recording
+  `seed_head` and `seed_dirty`, only once the slot's status is empty, its HEAD is `base`, its
+  `.git` file points into `<repo>/.git/worktrees/`, and `git worktree list` lists it. The
+  `.gitignore` line and `.upool.toml` that init itself writes are among the changes reverted, so
+  the slot has neither until they are committed to `base`. A clone that fails part-way leaves the
+  slot `creating`. A pool that already has slots, as after a lost registry, keeps them and gets no
+  new one; init lists them. init now also refuses, changing nothing, a `base` that names no commit,
+  such as origin's default branch with no local branch of that name. Cloning needs macOS: elsewhere
+  init fails when it reaches the clone.
