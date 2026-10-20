@@ -15,9 +15,10 @@ import (
 )
 
 // setupCommand is `upool setup`, run once per machine: it installs the hook scripts under
-// ~/.upool/hooks and writes the user config if there is none (docs/design.md, "One binary, a
-// dozen commands, one JSON file per pool", the `setup` row). It is idempotent: a second run
-// rewrites only what changed, and says what it did to each file.
+// ~/.upool/hooks, registers them at user scope in ~/.claude/settings.json, and writes the user
+// config if there is none (docs/design.md, "One binary, a dozen commands, one JSON file per pool",
+// the `setup` row). It is idempotent: a second run rewrites only what changed, and says what it
+// did to each file.
 var setupCommand = command{
 	usage: setupUsage,
 	setup: func(*flag.FlagSet) handler {
@@ -69,6 +70,11 @@ type setupReport struct {
 	Hooks installed `json:"hooks"`
 	// Scripts are the hook scripts in it, one per event `upool hook` handles, by name.
 	Scripts []installed `json:"scripts"`
+	// Settings is ~/.claude/settings.json, where setup registers the scripts as hooks.
+	Settings installed `json:"settings"`
+	// Backup is the copy of settings.json that setup keeps before its first change to the file,
+	// when this run made it; "" otherwise.
+	Backup string `json:"backup,omitempty"`
 	// Config is ~/.config/upool/config.toml, which setup writes only when there is none.
 	Config installed `json:"config"`
 }
@@ -80,6 +86,10 @@ func (r setupReport) Human() string {
 		lines = append(lines, describeChange(s))
 	}
 	lines = append(lines, "the hook scripts run "+r.Upool)
+	if r.Backup != "" {
+		lines = append(lines, "kept a copy of "+r.Settings.Path+" as "+r.Backup)
+	}
+	lines = append(lines, describeChange(r.Settings))
 	if r.Config.Change == created {
 		lines = append(lines, "created "+r.Config.Path)
 	} else {
@@ -96,8 +106,9 @@ func describeChange(i installed) string {
 	return string(i.Change) + " " + i.Path
 }
 
-// setupMachine is setup's handler. It checks the home directory and finds upool on PATH before it
-// writes anything, so a refusal leaves the machine as it was.
+// setupMachine is setup's handler. It checks the home directory, finds upool on PATH and reads
+// settings.json before it writes anything, so a refusal leaves the machine as it was. It registers
+// the hooks after writing the scripts, so a registered hook never names a missing script.
 func setupMachine(inv *invocation) (any, []string, error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
@@ -116,6 +127,10 @@ func setupMachine(inv *invocation) (any, []string, error) {
 	}
 	r := setupReport{Upool: upool}
 	hooks := filepath.Join(inv.home, ".upool", "hooks")
+	reg, err := planRegistration(inv.home, hooks)
+	if err != nil {
+		return nil, nil, err
+	}
 	if r.Hooks, err = installHooksDir(hooks); err != nil {
 		return nil, nil, err
 	}
@@ -134,6 +149,9 @@ func setupMachine(inv *invocation) (any, []string, error) {
 			return nil, nil, err
 		}
 		r.Scripts = append(r.Scripts, s)
+	}
+	if r.Settings, r.Backup, err = reg.apply(); err != nil {
+		return nil, nil, err
 	}
 	r.Config = installed{Path: config.UserPath(inv.home), Change: unchanged}
 	if written, err := config.WriteUserFile(inv.home); err != nil {
@@ -222,9 +240,8 @@ func installHooksDir(dir string) (installed, error) {
 }
 
 // installScript writes script to file with scriptMode, unless file already holds it with that
-// mode. The write goes to a temporary file beside it that is renamed over it, so a hook that runs
-// meanwhile runs the old script or the new one, never half of either.
-func installScript(file, script string) (_ installed, err error) {
+// mode.
+func installScript(file, script string) (installed, error) {
 	info, err := os.Lstat(file)
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -239,9 +256,37 @@ func installScript(file, script string) (_ installed, err error) {
 			return installed{Path: file, Change: unchanged}, nil
 		}
 	}
+	if err := writeAtomic(file, []byte(script), scriptMode); err != nil {
+		return installed{}, err
+	}
+	if exists {
+		return installed{Path: file, Change: updated}, nil
+	}
+	return installed{Path: file, Change: created}, nil
+}
+
+// writeAtomic writes data to file with mode. The write goes to a temporary file beside it that is
+// renamed over it, so a hook or a Claude Code session that reads it meanwhile reads the old file
+// or the new one, never half of either.
+func writeAtomic(file string, data []byte, mode fs.FileMode) error {
+	tmp, err := writeTemp(file, data, mode)
+	if err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, file); err != nil {
+		// A temporary file that cannot be removed is no reason to hide the error that got here.
+		_ = os.Remove(tmp)
+		return fmt.Errorf("renaming %s to %s: %w", tmp, file, err)
+	}
+	return nil
+}
+
+// writeTemp writes data with mode to a new temporary file beside file, synced, and returns its
+// name.
+func writeTemp(file string, data []byte, mode fs.FileMode) (_ string, err error) {
 	tmp, err := os.CreateTemp(filepath.Dir(file), filepath.Base(file)+".tmp*")
 	if err != nil {
-		return installed{}, fmt.Errorf("writing %s: %w", file, err)
+		return "", fmt.Errorf("writing %s: %w", file, err)
 	}
 	defer func() {
 		if err != nil {
@@ -251,26 +296,20 @@ func installScript(file, script string) (_ installed, err error) {
 			_ = os.Remove(tmp.Name())
 		}
 	}()
-	if _, err := tmp.WriteString(script); err != nil {
-		return installed{}, fmt.Errorf("writing %s: %w", tmp.Name(), err)
+	if _, err := tmp.Write(data); err != nil {
+		return "", fmt.Errorf("writing %s: %w", tmp.Name(), err)
 	}
 	// Chmod, not CreateTemp's mode, which is 0600, and not a mode the umask can narrow.
-	if err := tmp.Chmod(scriptMode); err != nil {
-		return installed{}, fmt.Errorf("setting the mode of %s: %w", tmp.Name(), err)
+	if err := tmp.Chmod(mode); err != nil {
+		return "", fmt.Errorf("setting the mode of %s: %w", tmp.Name(), err)
 	}
 	if err := tmp.Sync(); err != nil {
-		return installed{}, fmt.Errorf("syncing %s: %w", tmp.Name(), err)
+		return "", fmt.Errorf("syncing %s: %w", tmp.Name(), err)
 	}
 	if err := tmp.Close(); err != nil {
-		return installed{}, fmt.Errorf("closing %s: %w", tmp.Name(), err)
+		return "", fmt.Errorf("closing %s: %w", tmp.Name(), err)
 	}
-	if err := os.Rename(tmp.Name(), file); err != nil {
-		return installed{}, fmt.Errorf("renaming %s to %s: %w", tmp.Name(), file, err)
-	}
-	if exists {
-		return installed{Path: file, Change: updated}, nil
-	}
-	return installed{Path: file, Change: created}, nil
+	return tmp.Name(), nil
 }
 
 // shellQuote returns s quoted for sh: in single quotes, each single quote in it closed, escaped

@@ -17,8 +17,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   refuses when no `upool` on `PATH` is the binary running, and when `HOME` is in a `Documents`,
   `Desktop` or `Downloads` folder, where the desktop app's hook helper cannot run the scripts. A
   second run rewrites only what changed and says what it did to each file; `--json` reports the
-  same. Registering the hooks in `~/.claude/settings.json` is still to come (#67), and the hook
-  handlers are still stubs.
+  same. The hook handlers are still stubs.
+- `upool setup` registers the three scripts at user scope in `~/.claude/settings.json`, for
+  `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: one matcher group each, with no matcher,
+  whose handler runs the script in exec form (`"args": []`, so no shell splits its path). Every
+  other key, group and hook in the file is kept, in the order written. upool's own earlier
+  entries, any handler that runs a file in `~/.upool/hooks`, are replaced where the first of them
+  was rather than duplicated, so a second run leaves the file as it was. The write is atomic, keeps
+  the file's mode (0600 for a new one) and goes through a link to the file it links to. Before its
+  first change to an existing file, setup keeps a copy, `settings.json.upool-backup`, which no
+  later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object of
+  arrays, is refused before setup writes anything. Project settings are never written. Until the
+  hook handlers land, the registered create hook exits 1, which fails every Claude Code worktree
+  session in every repository.
 
 ## [0.1.0] - 2026-10-20
 
