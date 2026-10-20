@@ -19,7 +19,7 @@ import (
 
 // addCreating adds slot-3 to the harness pool as creating at path, owned by this process from
 // start.
-func (p doctorPool) addCreating(t *testing.T, path string, start time.Time) {
+func (p harnessPool) addCreating(t *testing.T, path string, start time.Time) {
 	t.Helper()
 	pid := os.Getpid()
 	p.update(t, func(pl *pool.Pool) {
@@ -41,7 +41,7 @@ func TestDoctorFixRemovesAnInterruptedClone(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := newDoctorPool(t)
+			p := newHarnessPool(t)
 			path := p.slot("slot-3")
 			if tt.worktree {
 				p.Git("worktree", "add", "-q", "--no-checkout", "--detach", path, testenv.Base)
@@ -82,7 +82,7 @@ func TestDoctorFixRemovesAnInterruptedClone(t *testing.T) {
 
 // A clone whose owner is alive is left alone, with or without --fix.
 func TestDoctorFixLeavesALiveOwnersClone(t *testing.T) {
-	p := newDoctorPool(t)
+	p := newHarnessPool(t)
 	path := p.slot("slot-3")
 	p.Git("worktree", "add", "-q", "--no-checkout", "--detach", path, testenv.Base)
 	start, err := proc.Start(os.Getpid())
@@ -111,7 +111,7 @@ func TestDoctorFixLeavesALiveOwnersClone(t *testing.T) {
 // A creating entry that a damaged state.json points outside .claude/worktrees is not removed,
 // whatever its owner.
 func TestDoctorFixRemovesNothingOutsideTheWorktreesDirectory(t *testing.T) {
-	p := newDoctorPool(t)
+	p := newHarnessPool(t)
 	outside := p.Path("Assets")
 	p.addCreating(t, outside, clock)
 	r := runIn(t, p.Env, p.Repo, "doctor", "--fix", "--json")

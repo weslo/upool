@@ -111,6 +111,29 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 		{"WorktreePrune", func(c Client) error {
 			return c.WorktreePrune(context.Background(), "/work/slot")
 		}, []string{"worktree", "prune"}},
+		{"CheckBranchName", func(c Client) error {
+			_, err := c.CheckBranchName(context.Background(), "/work/slot", "feature/x")
+			return err
+		}, []string{"check-ref-format", "--branch", "feature/x"}},
+		{"BranchExists", func(c Client) error {
+			_, err := c.BranchExists(context.Background(), "/work/slot", "feature/x")
+			return err
+		}, []string{"show-ref", "--verify", "--quiet", "refs/heads/feature/x"}},
+		{"CheckoutBranch", func(c Client) error {
+			return c.CheckoutBranch(context.Background(), "/work/slot", "feature/x")
+		}, []string{"checkout", "-q", "feature/x"}},
+		{"CheckoutNewBranch", func(c Client) error {
+			return c.CheckoutNewBranch(context.Background(), "/work/slot", "feature/x", "main")
+		}, []string{"checkout", "-q", "-b", "feature/x", "main"}},
+		{"WorktreeLock", func(c Client) error {
+			return c.WorktreeLock(context.Background(), "/work/slot",
+				"/work/repo/.claude/worktrees/slot-1", "upool lease 0123")
+		}, []string{"worktree", "lock", "--reason", "upool lease 0123",
+			"/work/repo/.claude/worktrees/slot-1"}},
+		{"WorktreeUnlock", func(c Client) error {
+			return c.WorktreeUnlock(context.Background(), "/work/slot",
+				"/work/repo/.claude/worktrees/slot-1")
+		}, []string{"worktree", "unlock", "/work/repo/.claude/worktrees/slot-1"}},
 		{"Reset", func(c Client) error {
 			return c.Reset(context.Background(), "/work/slot")
 		}, []string{"reset", "-q"}},

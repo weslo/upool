@@ -506,3 +506,59 @@ func TestWorktreeRemoveAndPrune(t *testing.T) {
 		t.Errorf("worktrees = %+v, want the main one alone", wts)
 	}
 }
+
+// The lease calls on a real worktree: a valid and an invalid branch name, a branch that exists
+// and one that does not, checking each out, and the lock with its reason, then unlocking it.
+func TestLeaseCallsOnAWorktree(t *testing.T) {
+	c := realGit(t)
+	repo, head := newRepo(t, c)
+	ctx := context.Background()
+	wt := filepath.Join(repo, "wt")
+	if err := c.WorktreeAdd(ctx, repo, wt, head); err != nil {
+		t.Fatal(err)
+	}
+	must(t, c, wt, "checkout", "-q", "--detach", head) // fill the --no-checkout worktree
+	for name, want := range map[string]bool{"feature/x": true, "bad..name": false, "-x": false} {
+		if ok, err := c.CheckBranchName(ctx, repo, name); err != nil || ok != want {
+			t.Errorf("CheckBranchName(%q) = %t, %v; want %t", name, ok, err, want)
+		}
+	}
+	if ok, err := c.BranchExists(ctx, repo, "main"); err != nil || !ok {
+		t.Errorf("BranchExists(main) = %t, %v; want true", ok, err)
+	}
+	if ok, err := c.BranchExists(ctx, repo, "feature/x"); err != nil || ok {
+		t.Errorf("BranchExists(feature/x) = %t, %v; want false", ok, err)
+	}
+	if err := c.CheckoutNewBranch(ctx, wt, "feature/x", "main"); err != nil {
+		t.Fatal(err)
+	}
+	if got := must(t, c, wt, "symbolic-ref", "--short", "HEAD"); got != "feature/x" {
+		t.Errorf("HEAD = %s, want feature/x", got)
+	}
+	if err := c.CheckoutBranch(ctx, wt, "main"); err == nil ||
+		!strings.Contains(err.Error(), repo) {
+		t.Errorf("CheckoutBranch(main), checked out in the main worktree: %v, want git's "+
+			"refusal naming %s", err, repo)
+	}
+	must(t, c, repo, "branch", "other")
+	if err := c.CheckoutBranch(ctx, wt, "other"); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.WorktreeLock(ctx, repo, wt, "upool lease 0123"); err != nil {
+		t.Fatal(err)
+	}
+	wts, err := c.WorktreeList(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wts) != 2 || !wts[1].Locked || wts[1].LockReason != "upool lease 0123" {
+		t.Errorf("worktrees = %+v, want wt locked with its reason", wts)
+	}
+	if err := c.WorktreeUnlock(ctx, repo, wt); err != nil {
+		t.Fatal(err)
+	}
+	if wts, err = c.WorktreeList(ctx, repo); err != nil || wts[1].Locked {
+		t.Errorf("worktrees after unlock = %+v, %v; want wt unlocked", wts, err)
+	}
+}
