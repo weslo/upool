@@ -1,0 +1,102 @@
+{
+  "success": true,
+  "command": "status",
+  "data": {
+    "pools": [
+      {
+        "repo": "${home}/Documents/down",
+        "base": "main",
+        "slots": [
+          {
+            "name": "slot-1",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-1",
+            "state": "leased",
+            "lease": {
+              "holder": "issue-51",
+              "lease_id": "lease-slot-1",
+              "confirmed": true,
+              "acquired_at": "2026-10-19T10:55:00Z"
+            }
+          },
+          {
+            "name": "slot-2",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-2",
+            "state": "ready",
+            "lease": null
+          },
+          {
+            "name": "slot-3",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-3",
+            "state": "leased-unconfirmed",
+            "lease": {
+              "holder": "session-3",
+              "lease_id": "lease-slot-3",
+              "confirmed": false,
+              "acquired_at": "2026-10-19T11:59:15Z"
+            }
+          },
+          {
+            "name": "slot-4",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-4",
+            "state": "parked",
+            "lease": null
+          },
+          {
+            "name": "slot-5",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-5",
+            "state": "needs-reset",
+            "lease": null
+          },
+          {
+            "name": "slot-6",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-6",
+            "state": "creating",
+            "lease": null
+          },
+          {
+            "name": "slot-7",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-7",
+            "state": "warming",
+            "lease": null
+          },
+          {
+            "name": "slot-10",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-10",
+            "state": "leased",
+            "lease": {
+              "holder": "run-4242",
+              "lease_id": "lease-slot-10",
+              "confirmed": true,
+              "acquired_at": "2026-10-17T09:00:00Z"
+            }
+          }
+        ]
+      },
+      {
+        "repo": "${home}/Documents/castle",
+        "base": "trunk",
+        "slots": [
+          {
+            "name": "slot-1",
+            "path": "${home}/Documents/castle/.claude/worktrees/slot-1",
+            "state": "ready",
+            "lease": null
+          },
+          {
+            "name": "slot-2",
+            "path": "${home}/Documents/castle/.claude/worktrees/slot-2",
+            "state": "leased",
+            "lease": {
+              "holder": "issue-7",
+              "lease_id": "lease-slot-2",
+              "confirmed": true,
+              "acquired_at": "2026-10-19T11:56:40Z"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": []
+}
