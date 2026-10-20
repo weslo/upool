@@ -318,3 +318,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
   Every command now answers `-h` and `--help` with its usage line and flags on stdout, exiting 0;
   `init`'s says that slots beyond `ready` become `prune` candidates once idle for `shrink_after`.
+- `docs/manual-gates/M1.md`, M1's manual gate. Seven checks, run in order with the spike's
+  project on the spike's Mac:
+  1. `upool init` clones slot-1 in about 26 s for under 100 MB, clean and with the agent files.
+  2. slot-1's first batch open imports about one asset and compiles nothing.
+  3. `status`, `take`, `which`, `path` and `doctor` agree.
+  4. `release` resets a clean slot, keeping the branch's commit and the Library, and parks one
+     with an untracked file.
+  5. `take` clones nothing while the main checkout's Editor is open, and clones slot-2 from it
+     once it is closed.
+  6. `release` parks a commit on no branch.
+  7. `doctor` reports a clone interrupted with Ctrl-C, and `doctor --fix` removes it.
+
+  Sections before and after say how to start, what to record on the Build plan issue, when to
+  tag `v0.1.0`, and how to resolve the two slots the gate leaves parked.
