@@ -8,6 +8,7 @@ import (
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
+	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 )
 
@@ -57,9 +58,22 @@ func pathOf(inv *invocation) (any, []string, error) {
 	if repo == "" {
 		repo = rp.repo.Path
 	}
-	wts, err := git.Client{Runner: git.Exec{}, Env: inv.environ()}.WorktreeList(ctx, repo)
+	s, err := slotOnBranch(ctx, git.Client{Runner: git.Exec{}, Env: inv.environ()}, repo,
+		rp.pool.Slots, name)
 	if err != nil {
 		return nil, nil, err
+	}
+	return *newWhichReport(s, repo), nil, nil
+}
+
+// slotOnBranch returns the slot among slots that has the branch name checked out, from
+// `git worktree list` in repo, compared by canonical key (A18). With none, the main checkout or a
+// worktree that is not a slot having it included, it fails with NO_SUCH_SLOT.
+func slotOnBranch(ctx context.Context, g git.Client, repo string, slots []pool.Slot,
+	name string) (pool.Slot, error) {
+	wts, err := g.WorktreeList(ctx, repo)
+	if err != nil {
+		return pool.Slot{}, err
 	}
 	for _, wt := range wts {
 		if wt.Branch != "refs/heads/"+name {
@@ -67,20 +81,20 @@ func pathOf(inv *invocation) (any, []string, error) {
 		}
 		key, err := paths.Key(wt.Path)
 		if err != nil {
-			return nil, nil, err
+			return pool.Slot{}, err
 		}
-		for _, s := range rp.pool.Slots {
+		for _, s := range slots {
 			sk, err := paths.Key(s.Path)
 			if err != nil {
-				return nil, nil, err
+				return pool.Slot{}, err
 			}
 			if sk == key {
-				return *newWhichReport(s, repo), nil, nil
+				return s, nil
 			}
 		}
-		return nil, nil, output.Fail(output.CodeNoSuchSlot, "no slot of %s has branch %s "+
+		return pool.Slot{}, output.Fail(output.CodeNoSuchSlot, "no slot of %s has branch %s "+
 			"checked out; %s has it, and is not a slot", repo, name, wt.Path)
 	}
-	return nil, nil, output.Fail(output.CodeNoSuchSlot,
+	return pool.Slot{}, output.Fail(output.CodeNoSuchSlot,
 		"no slot of %s has branch %s checked out", repo, name)
 }

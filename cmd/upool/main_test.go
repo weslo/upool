@@ -33,7 +33,7 @@ func TestVersionPrintsVersionAndSucceeds(t *testing.T) {
 }
 
 func TestAnythingElsePrintsUsageAndFails(t *testing.T) {
-	for _, args := range [][]string{nil, {"nope"}, {"release", "a"}, {"--version", "extra"}} {
+	for _, args := range [][]string{nil, {"nope"}, {"prune", "a"}, {"--version", "extra"}} {
 		code, stdout, stderr := runCaptured(args...)
 		if code != output.ExitFailure {
 			t.Errorf("%q: exit = %d, want %d", args, code, output.ExitFailure)

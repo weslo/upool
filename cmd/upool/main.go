@@ -16,12 +16,13 @@ var version = "dev"
 // commandTable is upool's commands by name. Each arrives with its own issue, so usage lists only
 // those that work (docs/design.md, "One binary, a dozen commands, one JSON file per pool").
 var commandTable = map[string]command{
-	"doctor": doctorCommand,
-	"init":   initCommand,
-	"path":   pathCommand,
-	"status": statusCommand,
-	"take":   takeCommand,
-	"which":  whichCommand,
+	"doctor":  doctorCommand,
+	"init":    initCommand,
+	"path":    pathCommand,
+	"release": releaseCommand,
+	"status":  statusCommand,
+	"take":    takeCommand,
+	"which":   whichCommand,
 }
 
 // hookTable is the events `upool hook <event>` handles, one per hook script that `upool setup`

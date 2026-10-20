@@ -243,3 +243,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   what `which` gives for that slot. With no slot on the branch, including when only the main
   checkout or a worktree that is not a slot has it, path exits 1 with the new `NO_SUCH_SLOT` code,
   naming the worktree that has it. It writes nothing. Usage now lists it.
+- `upool release [path|name] [--if-lease-id ID] [--force] [--json]` returns a leased slot to the
+  pool.
+  - **The target** is a path (an argument naming an existing directory), a branch checked out
+    in a slot, or the slot containing the working directory.
+  - **Refusals.** It refuses a slot that is not leased. It refuses a lease whose holder process
+    is alive unless `--if-lease-id` names that lease or `--force` is given. With `--if-lease-id`
+    naming another lease, it changes nothing and exits 1.
+  - **Clean or dirty.** It reverts define-order noise, then judges the slot clean as
+    docs/contracts.md (f) defines it.
+  - **A clean slot** is checked out at base detached and gets `git clean -fd` (never `-x`, so
+    the ignored `Library/` stays). It is unlocked and marked `ready` with its lease cleared and
+    `last_used` set. The branch it was on is kept, commits and all.
+  - **A dirty slot** is parked: unlocked, lease cleared, and nothing in it changed. A warning on
+    stderr names each `git status --porcelain` line, or "HEAD is on no branch".
+
+  `--json` gives `slot`, `path`, `state`, `repo` and, for a parked slot, `dirty`. Usage now
+  lists it.
