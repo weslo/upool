@@ -2,7 +2,6 @@ package pool
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
-	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/proc"
 )
 
@@ -73,7 +71,7 @@ func (r Reclaimer) Candidates(p Pool) ([]Slot, error) {
 		if alive {
 			continue
 		}
-		live, err := r.editorLive(editors, s)
+		live, err := editors.LiveIn(r.Proc, s.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -82,33 +80,6 @@ func (r Reclaimer) Candidates(p Pool) ([]Slot, error) {
 		}
 	}
 	return dead, nil
-}
-
-// editorLive reports whether the ledger records an Editor with s open whose PID is still a
-// process. The ledger keeps no start time, so any process at that PID counts.
-func (r Reclaimer) editorLive(l ledger.Ledger, s Slot) (bool, error) {
-	key, err := paths.Key(s.Path)
-	if err != nil {
-		return false, err
-	}
-	for _, e := range l.Editors {
-		ek, err := paths.Key(e.Project)
-		if err != nil {
-			return false, err
-		}
-		if ek != key {
-			continue
-		}
-		_, err = r.Proc.Start(e.PID)
-		if errors.Is(err, proc.ErrNoProcess) {
-			continue
-		}
-		if err != nil {
-			return false, fmt.Errorf("checking %s's Editor, process %d: %w", s.Name, e.PID, err)
-		}
-		return true, nil
-	}
-	return false, nil
 }
 
 // Reclaim reclaims every candidate of the pool. Each slot's define-order noise is reverted, then a

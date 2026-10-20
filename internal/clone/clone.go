@@ -53,7 +53,14 @@ type Recipe struct {
 	// OwnerPID is the cloning process, written with its start time into the creating entry so
 	// that a clone that dies part-way is found by its dead owner ((f) transition 21; A4).
 	OwnerPID int
+	// MaxSlots, when above 0, is the pool's max_slots: a clone that would make more slots than
+	// that is refused, under the lock, with an error wrapping ErrPoolFull (docs/design.md, "Leases
+	// that survive crashes and never reclaim a live tree": growth stops at max_slots).
+	MaxSlots int
 }
+
+// ErrPoolFull is the error Clone wraps when the pool already has MaxSlots slots.
+var ErrPoolFull = errors.New("the pool is at max_slots")
 
 // Clone runs docs/contracts.md (g) Clone recipe, steps 1 to 8, from seed, an absolute path to a
 // checkout of the repository whose pool is ~/.upool/pools/<key>/state.json under home. It adds the
@@ -98,6 +105,10 @@ func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, 
 	err = pool.Update(ctx, home, key, func(p *pool.Pool) error {
 		if p.Repo == "" {
 			return fmt.Errorf("~/.upool/pools/%s/state.json has no pool to clone a slot into", key)
+		}
+		if r.MaxSlots > 0 && len(p.Slots) >= r.MaxSlots {
+			return fmt.Errorf("%w: it has %d slots, and max_slots is %d", ErrPoolFull,
+				len(p.Slots), r.MaxSlots)
 		}
 		state, err := pool.Next(pool.Slot{}, pool.CloneStart{})
 		if err != nil {
