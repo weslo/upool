@@ -21,7 +21,9 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -34,7 +36,16 @@ const (
 	scriptsDir = "Assets"
 	// assembliesDir is where the Editor writes the assemblies it compiles those scripts into.
 	assembliesDir = "Library/ScriptAssemblies"
+	// buildCacheDir is where Unity's build program keeps what it builds, a directory per DAG
+	// (spike §3).
+	buildCacheDir = "Library/Bee/artifacts"
 )
+
+// editorDAG matches the name of the Editor's DAG directory under buildCacheDir: a lowercase hex
+// hash, E, then the configuration, as in 200b0aEDbg.dag. A player build's DAG has P where the
+// Editor's has E (200b0aP.dag, 200b0aPDevDbg.dag) and compiles the same scripts into player
+// assemblies, which say nothing of the Editor's (#144).
+var editorDAG = regexp.MustCompile(`^[0-9a-f]+E[A-Za-z]*\.dag$`)
 
 // scriptExt is the extension of the scripts the check compares, as `Assets/**/*.cs` spells it.
 const scriptExt = ".cs"
@@ -54,6 +65,13 @@ type Staleness struct {
 	// it: when the Editor last wrote an assembly there, whether it replaced the file or rewrote it.
 	// It is zero when AssembliesMissing.
 	AssembliesTime time.Time
+	// CompiledTime is the newest mtime of an assembly in the build cache's Editor DAG, and
+	// CompiledIn that DAG's directory, slash-separated and relative to the seed; zero and "" when
+	// there is none. The build writes an assembly there on every compile, but the Editor copies it
+	// into ScriptAssemblies only when its content changed, so after a compile that changed nothing,
+	// such as one of scripts a checkout gave new mtimes, only CompiledTime moves (#144).
+	CompiledTime time.Time
+	CompiledIn   string
 	// Head is the seed's `git rev-parse HEAD`: the commit its Library matches, when it is not
 	// stale.
 	Head string
@@ -62,11 +80,20 @@ type Staleness struct {
 }
 
 // Stale reports whether the seed's Library is behind its scripts: it has no ScriptAssemblies, or
-// a script is newer than the newest of them, which is how the spike found its stale main checkout
-// (spike §1). Whether the seed is dirty does not matter: a clone reverts what a dirty seed left in
-// the slot ((g) step 7).
+// a script is newer than the Editor's last compile, which is how the spike found its stale main
+// checkout (spike §1). Whether the seed is dirty does not matter: a clone reverts what a dirty
+// seed left in the slot ((g) step 7).
 func (s Staleness) Stale() bool {
-	return s.AssembliesMissing || s.ScriptTime.After(s.AssembliesTime)
+	return s.AssembliesMissing || s.ScriptTime.After(s.Compiled())
+}
+
+// Compiled is when the Editor last compiled the seed's scripts, as far as its Library shows: the
+// newer of AssembliesTime and CompiledTime.
+func (s Staleness) Compiled() time.Time {
+	if s.CompiledTime.After(s.AssembliesTime) {
+		return s.CompiledTime
+	}
+	return s.AssembliesTime
 }
 
 // Reason says why the Library is stale, for a message about the seed, and is "" when it is not.
@@ -75,15 +102,20 @@ func (s Staleness) Reason() string {
 	case s.AssembliesMissing:
 		return "it has no " + assembliesDir
 	case s.Stale():
+		against := assembliesDir
+		if s.CompiledTime.After(s.AssembliesTime) {
+			against = s.CompiledIn
+		}
 		return fmt.Sprintf("%s (modified %s) is newer than %s (modified %s)", s.NewestScript,
-			s.ScriptTime.UTC().Format(time.RFC3339), assembliesDir,
-			s.AssembliesTime.UTC().Format(time.RFC3339))
+			s.ScriptTime.UTC().Format(time.RFC3339), against,
+			s.Compiled().UTC().Format(time.RFC3339))
 	}
 	return ""
 }
 
 // CheckStaleness runs docs/contracts.md (g) step 1 on seed, an absolute path to a checkout: the
-// newest mtime under `Assets/**/*.cs` against Library/ScriptAssemblies, then
+// newest mtime under `Assets/**/*.cs` against the Editor's last compile, the newer of
+// Library/ScriptAssemblies and the build cache's Editor DAG (#144), then
 // `git -C <seed> rev-parse HEAD` and `git -C <seed> status --porcelain` through g. It changes
 // nothing; refreshing a stale seed arrives in M4.
 func CheckStaleness(ctx context.Context, g git.Client, seed string) (Staleness, error) {
@@ -93,6 +125,9 @@ func CheckStaleness(ctx context.Context, g git.Client, seed string) (Staleness, 
 		return Staleness{}, err
 	}
 	if s.AssembliesTime, s.AssembliesMissing, err = assembliesTime(seed); err != nil {
+		return Staleness{}, err
+	}
+	if s.CompiledTime, s.CompiledIn, err = compiledTime(seed); err != nil {
 		return Staleness{}, err
 	}
 	if s.Head, err = g.Head(ctx, seed); err != nil {
@@ -173,4 +208,45 @@ func assembliesTime(seed string) (time.Time, bool, error) {
 		}
 	}
 	return newest, false, nil
+}
+
+// compiledTime returns the newest mtime of a .dll in the build cache's Editor DAG under seed, and
+// that DAG's directory, slash-separated and relative to seed; zero and "" when the seed has no
+// build cache or no Editor DAG in it. Only files count: a clone gives every directory a new
+// mtime, while its files keep theirs.
+func compiledTime(seed string) (time.Time, string, error) {
+	cache := filepath.Join(seed, filepath.FromSlash(buildCacheDir))
+	dags, err := os.ReadDir(cache)
+	if errors.Is(err, fs.ErrNotExist) {
+		return time.Time{}, "", nil
+	}
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("reading %s: %w", cache, err)
+	}
+	var newest time.Time
+	var in string
+	for _, dag := range dags {
+		if !dag.IsDir() || !editorDAG.MatchString(dag.Name()) {
+			continue
+		}
+		dir := filepath.Join(cache, dag.Name())
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return time.Time{}, "", fmt.Errorf("reading %s: %w", dir, err)
+		}
+		for _, e := range entries {
+			if !e.Type().IsRegular() || !strings.HasSuffix(e.Name(), ".dll") {
+				continue
+			}
+			info, err := e.Info()
+			if err != nil {
+				return time.Time{}, "", fmt.Errorf("checking %s: %w", filepath.Join(dir, e.Name()),
+					err)
+			}
+			if info.ModTime().After(newest) {
+				newest, in = info.ModTime(), path.Join(buildCacheDir, dag.Name())
+			}
+		}
+	}
+	return newest, in, nil
 }

@@ -165,6 +165,27 @@ func TestChooseSeedTakesTheFreshestReadySlotAndHoldsItWarming(t *testing.T) {
 	}
 }
 
+// Freshness is the Editor's last compile: a slot whose build cache has an assembly newer than the
+// other slot's ScriptAssemblies is the fresher, though its own ScriptAssemblies is older (#144).
+func TestChooseSeedCountsTheBuildCacheInFreshness(t *testing.T) {
+	e := newSeedEnv(t, []pool.State{pool.StateReady, pool.StateReady}, []time.Time{newer, older})
+	dag := filepath.Join(e.slot(t, "slot-2").Path, "Library", "Bee", "artifacts", "200b0aEDbg.dag")
+	if err := os.MkdirAll(dag, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dll := filepath.Join(dag, "Assembly-CSharp.dll")
+	if err := os.WriteFile(dll, []byte("assembly\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(dll, newer.Add(time.Hour), newer.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	seed, _, err := e.sd.Choose(t.Context())
+	if err != nil || seed.Slot != "slot-2" {
+		t.Fatalf("Choose = %+v, %v; want slot-2, compiled last", seed, err)
+	}
+}
+
 // Candidates in A19's order, each skipped for its own reason: a ready slot with a live Editor, a
 // stale one, then a needs-reset slot, reset and chosen.
 func TestChooseSeedSkipsALiveEditorAndAStaleLibrary(t *testing.T) {

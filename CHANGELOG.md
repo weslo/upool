@@ -116,8 +116,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.upool/registry.json`. A repository already registered is reported, and init exits 0.
   Usage now lists it.
 - `upool init` refuses a stale Library, changing nothing: when `Library/ScriptAssemblies` is
-  missing, or a `.cs` file under `Assets/` is newer than the newest assembly there. The message
-  names the script and both times, and says to open the project in Unity, let it finish importing
+  missing, or a `.cs` file under `Assets/` is newer than the Editor's last compile, the newest
+  assembly in `Library/ScriptAssemblies` or in the build cache's Editor DAG,
+  `Library/Bee/artifacts/<hash>E….dag/`, whichever is newer. The build cache counts because the
+  Editor copies an assembly into `ScriptAssemblies` only when its content changed, so a pull or
+  branch switch that gave scripts new mtimes and no new content left init refusing after any
+  number of refreshes (#144); a player build's DAG does not count. The message names the script,
+  the assemblies it compared against, and both times, and says to open the project in Unity, let it finish importing
   and compiling, and quit it before running init again. Uncommitted changes do not count as stale.
   `internal/clone` holds the check, which also reads the checkout's HEAD and whether
   `git status --porcelain` is empty, for the clone recipe to record later.
@@ -278,8 +283,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `needs-reset`, and the pool is below `max_slots`. It then leases the new slot.
   - **The seed** is chosen as docs/contracts.md (g) step 0 and A19 say: the first candidate with
     no live Editor (by `~/.upool/editors.json` or the Editor's instance files) whose Library
-    passes the staleness check. Candidates come in this order: the freshest ready slot (newest
-    `Library/ScriptAssemblies`), a `needs-reset` slot after its reset, then the main checkout.
+    passes the staleness check. Candidates come in this order: the freshest ready slot (the one its
+    Editor compiled last, as the staleness check reads it), a `needs-reset` slot after its reset, then the main checkout.
   - **A slot seed** is held `warming`, owned by take, while it is copied, then returns to
     `ready`.
   - **The clone** releases the lock during the copy and reports progress on stderr.
