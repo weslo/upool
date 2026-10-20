@@ -289,3 +289,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `--no-create` keeps the wait-or-fail behaviour. `internal/clone` gains `Seeder` (`Choose`,
   `Done`, `ErrNoSeed`). `Recipe` gains `MaxSlots`, which refuses a clone past `max_slots` under
   the lock with `ErrPoolFull`. `internal/ledger` gains `LiveIn`, which the reclaim now uses too.
+- The clone recipe's step 7 and `release`'s reset compare the slot's `unity cache key` before and
+  after the checkout.
+  - **The call** is `unity cache key "<slot>" --format json`, with the path positional and never
+    `--project-path`, which `cache key` rejects.
+  - **A changed key** sets the slot's `reimport_pending` and warns that its next open is a large
+    reimport, on stderr from `take` and in the warnings of `init` and `release`.
+  - **A key that cannot be read** leaves `reimport_pending` as it was, with a warning.
+  - **No `unity` on `PATH`:** nothing is compared, and nothing is said, since `doctor` reports a
+    missing Unity CLI.
+
+  `internal/unity` gains `CacheKey`, this one verb's entry point until M3's verb table.
+  `internal/clone` gains `KeyCheck` and `Recipe.Keys` and `Recipe.Warn`. `internal/testenv` now
+  puts only git on its `PATH`, so that no test reaches this machine's Unity CLI.

@@ -10,6 +10,7 @@ import (
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // The tests of `upool release`, on the harness pool (harness_test.go), with slot-1 leased by
@@ -253,5 +254,42 @@ func TestReleaseRefusesWhatItCannotRelease(t *testing.T) {
 	if r.code != output.ExitFailure || !strings.Contains(r.stderr,
 		outside+" is not inside a registered pool") {
 		t.Errorf("outside a pool: exit %d, stderr %q; want 1", r.code, r.stderr)
+	}
+}
+
+// release compares the slot's cache key across its reset: a changed key sets reimport_pending and
+// warns that the next open is a large reimport; an equal one changes nothing (A20). The fake unity
+// replays testdata/captures/unity/cache-key.json, and a copy with the key changed.
+func TestReleaseComparesTheCacheKeyAcrossTheReset(t *testing.T) {
+	const key = "0cce5c29ab901534b6575c7da8c743206ba94cf3ff8898d5f290334719897bf7"
+	for _, tt := range []struct {
+		name    string
+		after   []string
+		pending bool
+	}{
+		{"equal keys", nil, false},
+		{"a changed key", []string{key, strings.Repeat("ef", 32)}, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := takenPool(t)
+			u := fake.Install(t, fake.Reply{Capture: "cache-key.json"},
+				fake.Reply{Capture: "cache-key.json", Replace: tt.after})
+			p.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+p.Getenv("PATH"))
+			r := runIn(t, p.Env, p.Repo, "release", "feature-x")
+			want := ""
+			if tt.pending {
+				want = "upool: warning: slot-1's unity cache key changed across its checkout: its " +
+					"next open is a large reimport\n"
+			}
+			if r.code != output.ExitOK || r.stderr != want {
+				t.Errorf("exit %d, stderr %q; want 0 and %q", r.code, r.stderr, want)
+			}
+			if s := p.checkReleased(t, pool.StateReady); s.ReimportPending != tt.pending {
+				t.Errorf("reimport_pending = %t, want %t", s.ReimportPending, tt.pending)
+			}
+			if calls := u.Calls(); len(calls) != 2 || calls[0].Args[2] != p.slot("slot-1") {
+				t.Errorf("unity calls = %+v, want two, on slot-1", calls)
+			}
+		})
 	}
 }

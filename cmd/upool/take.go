@@ -125,7 +125,11 @@ func take(inv *invocation, opts takeOptions) (any, []string, error) {
 	if !opts.noCreate {
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
-				OwnerPID: inv.pid, MaxSlots: cfg.MaxSlots.Value},
+				OwnerPID: inv.pid, MaxSlots: cfg.MaxSlots.Value,
+				Keys: clone.KeyCheck{Env: inv.environ()},
+				Warn: func(line string) {
+					_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
+				}},
 			seeder: clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
 				Key: key},
 			maxSlots: cfg.MaxSlots.Value,

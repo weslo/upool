@@ -238,9 +238,10 @@ func initRepo(inv *invocation) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	var warnings []string
 	if len(existing) > 0 {
 		r.ExistingSlots = existing
-	} else if r.Slot, err = cloneFirstSlot(ctx, inv, g, key, repo); err != nil {
+	} else if r.Slot, warnings, err = cloneFirstSlot(ctx, inv, g, key, repo); err != nil {
 		return nil, nil, err
 	}
 	reg, err := registry.Add(ctx, inv.home, repo)
@@ -248,7 +249,7 @@ func initRepo(inv *invocation) (any, []string, error) {
 		return nil, nil, err
 	}
 	r.Key = reg.Key
-	return r, nil, nil
+	return r, warnings, nil
 }
 
 // checkProject refuses repo unless it is a Unity project at its root. A project in a subdirectory
@@ -437,12 +438,15 @@ func createPool(ctx context.Context, home, repo, base string) (key string,
 // checked has no Editor open and a current Library (docs/contracts.md (g) Clone recipe, step 0:
 // init's first slot seeds from the main checkout with its Editor closed).
 func cloneFirstSlot(ctx context.Context, inv *invocation, g git.Client, key,
-	repo string) (*clonedSlot, error) {
-	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid}
+	repo string) (*clonedSlot, []string, error) {
+	var warnings []string
+	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,
+		Keys: clone.KeyCheck{Env: inv.environ()},
+		Warn: func(line string) { warnings = append(warnings, line) }}
 	s, err := recipe.Clone(ctx, inv.home, key, repo)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return &clonedSlot{Name: s.Name, Path: s.Path, SeedHead: s.SeedHead,
-		SeedDirty: s.SeedDirty}, nil
+		SeedDirty: s.SeedDirty}, warnings, nil
 }
