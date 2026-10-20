@@ -229,7 +229,50 @@ func WriteRepoFile(repo string, f RepoFile) (written bool, err error) {
 	if err := toml.NewEncoder(&b).Encode(f); err != nil {
 		return false, fmt.Errorf("encoding %s: %w", RepoPath(repo), err)
 	}
-	path := RepoPath(repo)
+	return writeNew(RepoPath(repo), b.String())
+}
+
+// userFile is what WriteUserFile writes: comments alone, naming every key, so that it sets
+// nothing until the user sets a key.
+const userFile = `# upool's settings for this machine, written by upool setup:
+# https://github.com/weslo/upool
+#
+# Every key is optional. A command-line flag, a UPOOL_* environment variable (UPOOL_MAX_SLOTS)
+# and a repository's .upool.toml each take precedence over this file, and an unknown key is an
+# error. The keys:
+#
+#   ready                 ready slots each pool keeps
+#   max_slots             the most slots a pool has
+#   base                  the git ref slots are cloned at and reset to
+#   max_cold_imports      cold imports running at once
+#   editor_ram_budget_gb  RAM, in GB, that Editors may be charged
+#   editor_ram_gb         the charge, in GB, for each long-lived Editor
+#   helper_ram_gb         the charge, in GB, once any Editor is up
+#   max_editors           Editors running at once
+#   shrink_after          how long a slot beyond ready stays idle before prune may remove it
+#   agent_ttl             how old a subagent worktree gets before prune may collect it
+#   confirm_timeout       how long a session's lease waits for the session to confirm it
+`
+
+// WriteUserFile writes the user file under home, UserPath(home), unless it already exists, and
+// reports whether it wrote it (`upool setup`, docs/design.md, "One binary, a dozen commands, one
+// JSON file per pool"). The file names every key in comments and sets none. An existing file is
+// left as it is, whatever it holds.
+func WriteUserFile(home string) (written bool, err error) {
+	if !filepath.IsAbs(home) {
+		return false, fmt.Errorf("home directory %q is not an absolute path", home)
+	}
+	path := UserPath(home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, fmt.Errorf("creating %s: %w", filepath.Dir(path), err)
+	}
+	return writeNew(path, userFile)
+}
+
+// writeNew writes data to a new file at path, with mode 0644, and reports whether it did: a file
+// already at path is left as it is. A write that fails part-way removes the file, so the next run
+// writes it whole.
+func writeNew(path, data string) (written bool, err error) {
 	// O_EXCL makes "unless it exists" and the create one step, so a file that appears meanwhile is
 	// not overwritten either.
 	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
@@ -246,7 +289,7 @@ func WriteRepoFile(repo string, f RepoFile) (written bool, err error) {
 			_ = os.Remove(path)
 		}
 	}()
-	if _, err := out.WriteString(b.String()); err != nil {
+	if _, err := out.WriteString(data); err != nil {
 		return false, fmt.Errorf("writing %s: %w", path, err)
 	}
 	if err := out.Close(); err != nil {

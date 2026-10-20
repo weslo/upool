@@ -44,6 +44,8 @@ type invocation struct {
 	// pid is upool's own process ID, which a clone records as its slot's owner_pid
 	// (docs/contracts.md (e) State schemas; A4).
 	pid int
+	// executable returns the path of upool's own binary, which `upool setup` looks for on PATH.
+	executable func() (string, error)
 }
 
 // handler runs a command and returns its data, its warnings and its error, which output.Render
@@ -75,16 +77,17 @@ type hook struct {
 // dispatcher is upool's command line: the tables it routes on, and the process boundary it hands
 // each handler. It is the only writer of stdout.
 type dispatcher struct {
-	commands map[string]command
-	hooks    map[string]hook
-	stdin    io.Reader
-	stdout   io.Writer
-	stderr   io.Writer
-	getenv   func(string) string
-	environ  func() []string
-	getwd    func() (string, error)
-	now      func() time.Time
-	pid      int
+	commands   map[string]command
+	hooks      map[string]hook
+	stdin      io.Reader
+	stdout     io.Writer
+	stderr     io.Writer
+	getenv     func(string) string
+	environ    func() []string
+	getwd      func() (string, error)
+	now        func() time.Time
+	pid        int
+	executable func() (string, error)
 }
 
 // run dispatches args, the command line after the program name, and returns the exit code.
@@ -183,16 +186,17 @@ func (d *dispatcher) hook(args []string) int {
 // invocation returns what a handler gets for args and fs.
 func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 	return &invocation{
-		args:    args,
-		flags:   fs,
-		stdin:   d.stdin,
-		stderr:  d.stderr,
-		getenv:  d.getenv,
-		environ: d.environ,
-		getwd:   d.getwd,
-		home:    d.getenv("HOME"),
-		now:     d.now,
-		pid:     d.pid,
+		args:       args,
+		flags:      fs,
+		stdin:      d.stdin,
+		stderr:     d.stderr,
+		getenv:     d.getenv,
+		environ:    d.environ,
+		getwd:      d.getwd,
+		home:       d.getenv("HOME"),
+		now:        d.now,
+		pid:        d.pid,
+		executable: d.executable,
 	}
 }
 

@@ -6,7 +6,19 @@
 // an issue (AGENTS.md, "This repository's agent files are not upool's").
 package assets
 
-import _ "embed" // for go:embed
+import "embed"
+
+// Hooks holds the hook scripts `upool setup` installs to ~/.upool/hooks, hooks/<event>.sh for
+// each event `upool hook` handles (docs/design.md, "Repository, CI and Homebrew distribution":
+// "Hook scripts stay trivial on purpose"). Each is POSIX sh, since the desktop app's restricted
+// helper runs it (CONTRIBUTING.md, "Scripts"), and ends in `exec HookUpool hook <event>`.
+//
+//go:embed hooks/*.sh
+var Hooks embed.FS
+
+// HookUpool stands in each hook script for the upool it runs. setup replaces it with the path it
+// found upool through on PATH, quoted for sh, because PATH under the helper is not the user's.
+const HookUpool = "'@UPOOL@'"
 
 // ClaudeMDBlock is the instruction block `upool init` upserts into a project's CLAUDE.md
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row): short

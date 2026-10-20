@@ -1,6 +1,9 @@
 package assets
 
 import (
+	"io/fs"
+	"os/exec"
+	"path"
 	"strings"
 	"testing"
 
@@ -30,6 +33,42 @@ func TestClaudeMDBlockSaysHowToWorkInASlot(t *testing.T) {
 	} {
 		if !strings.Contains(ClaudeMDBlock, want) {
 			t.Errorf("claude-md-block.md does not say %q", want)
+		}
+	}
+}
+
+// Each hook script is the POSIX sh setup can fill in: a comment, set -eu, and an exec of
+// HookUpool, once, for the event its name gives (CONTRIBUTING.md, "Scripts").
+func TestHookScriptsExecUpoolForTheirEvent(t *testing.T) {
+	names, err := fs.Glob(Hooks, "hooks/*.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 3 {
+		t.Errorf("hook scripts = %q, want 3", names)
+	}
+	for _, name := range names {
+		b, err := fs.ReadFile(Hooks, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		script := string(b)
+		lines := strings.Split(strings.TrimSuffix(script, "\n"), "\n")
+		event := strings.TrimSuffix(path.Base(name), ".sh")
+		if len(lines) < 4 || lines[0] != "#!/bin/sh" || !strings.HasPrefix(lines[1], "# ") ||
+			lines[len(lines)-2] != "set -eu" {
+			t.Errorf("%s = %q, want #!/bin/sh, a comment, then set -eu", name, script)
+		}
+		if want := "exec " + HookUpool + " hook " + event; lines[len(lines)-1] != want {
+			t.Errorf("%s ends in %q, want %q", name, lines[len(lines)-1], want)
+		}
+		if n := strings.Count(script, HookUpool); n != 1 {
+			t.Errorf("%s has HookUpool %d times, want 1", name, n)
+		}
+		cmd := exec.Command("sh", "-n")
+		cmd.Stdin = strings.NewReader(script)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Errorf("sh -n %s: %v: %s", name, err, out)
 		}
 	}
 }

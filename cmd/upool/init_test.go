@@ -43,16 +43,17 @@ func runAt(t *testing.T, e *testenv.Env, dir string, now func() time.Time,
 	t.Helper()
 	var out, errOut bytes.Buffer
 	d := dispatcher{
-		commands: commandTable,
-		hooks:    hookTable,
-		stdin:    strings.NewReader(""),
-		stdout:   &out,
-		stderr:   &errOut,
-		getenv:   e.Getenv,
-		environ:  e.Environ,
-		getwd:    func() (string, error) { return dir, nil },
-		now:      now,
-		pid:      os.Getpid(),
+		commands:   commandTable,
+		hooks:      hookTable,
+		stdin:      strings.NewReader(""),
+		stdout:     &out,
+		stderr:     &errOut,
+		getenv:     e.Getenv,
+		environ:    e.Environ,
+		getwd:      func() (string, error) { return dir, nil },
+		now:        now,
+		pid:        os.Getpid(),
+		executable: os.Executable,
 	}
 	code := d.run(args)
 	return result{code, out.String(), errOut.String()}
