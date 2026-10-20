@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/output"
 )
@@ -57,6 +60,26 @@ func (e setupEnv) script(event string) string {
 	return filepath.Join(e.hooks(), event+".sh")
 }
 
+// skills are the copies of the skill setup installs in e, in skillFiles' order.
+func (e setupEnv) skills() []string {
+	return homePaths(e, skillFiles)
+}
+
+// instructions are the instruction files setup upserts upool's block into in e, in
+// instructionFiles' order.
+func (e setupEnv) instructions() []string {
+	return homePaths(e, instructionFiles)
+}
+
+// homePaths returns names, slash-separated paths relative to e's home, as absolute paths.
+func homePaths(e setupEnv, names []string) []string {
+	var files []string
+	for _, name := range names {
+		files = append(files, filepath.Join(e.home, filepath.FromSlash(name)))
+	}
+	return files
+}
+
 // events are the events `upool hook` handles, sorted, as setup lists their scripts.
 func events() []string {
 	return slices.Sorted(maps.Keys(hookTable))
@@ -92,8 +115,14 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	for _, event := range events() {
 		want = append(want, "created "+e.script(event))
 	}
-	want = append(want, "the hook scripts run "+e.upool, "created "+settingsPath(e.home),
-		"created "+config.UserPath(e.home))
+	want = append(want, "the hook scripts run "+e.upool, "created "+settingsPath(e.home))
+	for _, file := range e.skills() {
+		want = append(want, "created "+file)
+	}
+	for _, file := range e.instructions() {
+		want = append(want, "created "+file+" with upool's block")
+	}
+	want = append(want, "created "+config.UserPath(e.home))
 	if got := strings.Join(want, "\n") + "\n"; r.stdout != got {
 		t.Errorf("stdout = %q, want %q", r.stdout, got)
 	}
@@ -143,6 +172,13 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 		t.Fatal(err)
 	}
 	before[settingsPath(e.home)] = info
+	for _, file := range append(e.skills(), e.instructions()...) {
+		info, err := os.Stat(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		before[file] = info
+	}
 	userFile, err := os.ReadFile(config.UserPath(e.home))
 	if err != nil {
 		t.Fatal(err)
@@ -156,8 +192,14 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	for _, event := range events() {
 		want = append(want, e.script(event)+" is up to date")
 	}
-	want = append(want, "the hook scripts run "+e.upool, settingsPath(e.home)+" is up to date",
-		"kept the existing "+config.UserPath(e.home))
+	want = append(want, "the hook scripts run "+e.upool, settingsPath(e.home)+" is up to date")
+	for _, file := range e.skills() {
+		want = append(want, file+" is up to date")
+	}
+	for _, file := range e.instructions() {
+		want = append(want, file+" already has upool's block")
+	}
+	want = append(want, "kept the existing "+config.UserPath(e.home))
 	if got := strings.Join(want, "\n") + "\n"; r.stdout != got {
 		t.Errorf("second run: stdout = %q, want %q", r.stdout, got)
 	}
@@ -203,6 +245,9 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 	if err := os.Chmod(e.script("session-start"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(e.skills()[1], []byte("an older skill\n"), skillMode); err != nil {
+		t.Fatal(err)
+	}
 	const userFile = "max_slots = 5\n"
 	if err := os.WriteFile(config.UserPath(e.home), []byte(userFile), 0o644); err != nil {
 		t.Fatal(err)
@@ -218,7 +263,12 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 			{e.script("worktree-remove"), updated},
 		},
 		Settings: installed{settingsPath(e.home), unchanged},
-		Config:   installed{config.UserPath(e.home), unchanged},
+		Skills:   []installed{{e.skills()[0], unchanged}, {e.skills()[1], updated}},
+		Blocks: []upserted{
+			{e.instructions()[0], block.Unchanged},
+			{e.instructions()[1], block.Unchanged},
+		},
+		Config: installed{config.UserPath(e.home), unchanged},
 	}
 	if string(mustJSON(t, got)) != string(mustJSON(t, want)) {
 		t.Errorf("data = %s, want %s", mustJSON(t, got), mustJSON(t, want))
@@ -228,6 +278,9 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 	if b, err := os.ReadFile(e.script("worktree-remove")); err != nil ||
 		!strings.HasSuffix(string(b), "exec '"+e.upool+"' hook worktree-remove\n") {
 		t.Errorf("worktree-remove.sh = %q, %v, want it to exec %s", b, err, e.upool)
+	}
+	if b, err := os.ReadFile(e.skills()[1]); err != nil || string(b) != assets.Skill {
+		t.Errorf("%s = %q, %v, want the skill", e.skills()[1], b, err)
 	}
 	if b, err := os.ReadFile(config.UserPath(e.home)); err != nil || string(b) != userFile {
 		t.Errorf("config.toml = %q, %v, want it unchanged: %q", b, err, userFile)
@@ -352,5 +405,122 @@ func checkSetupRefused(t *testing.T, e setupEnv, r result, want string) {
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s exists after a refusal", path)
 		}
+	}
+}
+
+// The acceptance test of #68: both copies of the skill, and one block in each instruction file
+// after two runs, with the other content untouched.
+func TestSetupInstallsSkillAndBlock(t *testing.T) {
+	e := newSetupEnv(t)
+	originals := []string{"# My rules\n\nAlways run the tests.\n", "Use tabs."}
+	for i, file := range e.instructions() {
+		if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(file, []byte(originals[i]), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := filepath.Join(e.home, ".claude", "skills", "other", "SKILL.md")
+	if err := os.MkdirAll(filepath.Dir(other), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(other, []byte("another skill\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first := setupData(t, e.setup(t, "--json"))
+	second := setupData(t, e.setup(t, "--json"))
+	for i, file := range e.instructions() {
+		if first.Blocks[i] != (upserted{file, block.Inserted}) {
+			t.Errorf("first run: blocks[%d] = %+v, want %s inserted", i, first.Blocks[i], file)
+		}
+		if second.Blocks[i] != (upserted{file, block.Unchanged}) {
+			t.Errorf("second run: blocks[%d] = %+v, want %s unchanged", i, second.Blocks[i], file)
+		}
+	}
+	for i, file := range e.skills() {
+		if second.Skills[i] != (installed{file, unchanged}) {
+			t.Errorf("second run: skills[%d] = %+v, want %s unchanged", i, second.Skills[i], file)
+		}
+		b, err := os.ReadFile(file)
+		if err != nil || string(b) != assets.Skill {
+			t.Errorf("%s = %q, %v, want the skill", file, b, err)
+		}
+		checkMode(t, file, skillMode)
+	}
+
+	rendered := string(block.Block{Version: assets.ClaudeMDBlockVersion,
+		Body: assets.ClaudeMDBlock}.Render())
+	for i, file := range e.instructions() {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(b)
+		for _, marker := range []string{block.Begin(assets.ClaudeMDBlockVersion),
+			block.End(assets.ClaudeMDBlockVersion)} {
+			if n := strings.Count(got, marker); n != 1 {
+				t.Errorf("%s has %q %d times, want 1", file, marker, n)
+			}
+		}
+		sep := "\n"
+		if !strings.HasSuffix(originals[i], "\n") {
+			sep = "\n\n"
+		}
+		if want := originals[i] + sep + rendered; got != want {
+			t.Errorf("%s = %q, want its own text, a blank line and the block: %q", file, got, want)
+		}
+	}
+	if b, err := os.ReadFile(other); err != nil || string(b) != "another skill\n" {
+		t.Errorf("%s = %q, %v, want it unchanged", other, b, err)
+	}
+}
+
+// A newer upool's block is kept and reported, not replaced by this one's.
+func TestSetupKeepsANewerBlock(t *testing.T) {
+	e := newSetupEnv(t)
+	file := e.instructions()[0]
+	newer := string(block.Block{Version: assets.ClaudeMDBlockVersion + 1,
+		Body: "a newer block\n"}.Render())
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(newer), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := e.setup(t)
+	if r.code != output.ExitOK {
+		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	want := fmt.Sprintf("kept the newer upool block in %s: this upool writes v%d\n", file,
+		assets.ClaudeMDBlockVersion)
+	if !strings.Contains(r.stdout, want) {
+		t.Errorf("stdout = %q, want a line %q", r.stdout, want)
+	}
+	if b, err := os.ReadFile(file); err != nil || string(b) != newer {
+		t.Errorf("%s = %q, %v, want it unchanged", file, b, err)
+	}
+}
+
+// An instruction file whose upool markers do not pair is refused before anything is written, and
+// left as it was.
+func TestSetupRefusesAnInstructionFileItCannotUpsert(t *testing.T) {
+	e := newSetupEnv(t)
+	file := e.instructions()[1]
+	const doc = "Use tabs.\n<!-- upool:begin v1 -->\nno end marker\n"
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r := e.setup(t)
+	checkSetupRefused(t, e, r, file+": line 2 begins a upool block that no line after it ends")
+	if b, err := os.ReadFile(file); err != nil || string(b) != doc {
+		t.Errorf("%s = %q, %v, want it unchanged", file, b, err)
+	}
+	if _, err := os.Lstat(filepath.Join(e.home, ".agents")); err == nil {
+		t.Errorf("~/.agents exists after a refusal")
 	}
 }

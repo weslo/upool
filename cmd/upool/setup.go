@@ -11,14 +11,17 @@ import (
 	"strings"
 
 	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 )
 
 // setupCommand is `upool setup`, run once per machine: it installs the hook scripts under
-// ~/.upool/hooks, registers them at user scope in ~/.claude/settings.json, and writes the user
-// config if there is none (docs/design.md, "One binary, a dozen commands, one JSON file per pool",
-// the `setup` row). It is idempotent: a second run rewrites only what changed, and says what it
-// did to each file.
+// ~/.upool/hooks, registers them at user scope in ~/.claude/settings.json, installs the skill and
+// upserts upool's block into the user-scope instruction files, and writes the user config if there
+// is none (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `setup`
+// row; "Hooks route, skills teach, leases and lanes keep agents from colliding", the three
+// layers). It is idempotent: a second run rewrites only what changed, and says what it did to each
+// file.
 var setupCommand = command{
 	usage: setupUsage,
 	setup: func(*flag.FlagSet) handler {
@@ -39,11 +42,22 @@ var protectedFolders = []string{"Documents", "Desktop", "Downloads"}
 const upoolName = "upool"
 
 // hooksMode and scriptMode are the modes of ~/.upool/hooks and of the scripts in it: private to
-// the user, as the rest of ~/.upool is (internal/statefile), and executable.
+// the user, as the rest of ~/.upool is (internal/statefile), and executable. skillMode is the
+// mode of an installed SKILL.md.
 const (
 	hooksMode  fs.FileMode = 0o700
 	scriptMode fs.FileMode = 0o755
+	skillMode  fs.FileMode = 0o644
 )
+
+// skillFiles are where setup installs the skill, relative to the home directory: Claude Code's
+// user skills, and the shared directory other agents read skills from (docs/design.md, "Hooks
+// route, skills teach, leases and lanes keep agents from colliding").
+var skillFiles = []string{".claude/skills/upool/SKILL.md", ".agents/skills/upool/SKILL.md"}
+
+// instructionFiles are the user-scope instruction files setup upserts upool's block into,
+// relative to the home directory: Claude Code's and Codex's (the same section).
+var instructionFiles = []string{".claude/CLAUDE.md", ".codex/AGENTS.md"}
 
 // change is what setup did to one file or directory.
 type change string
@@ -58,6 +72,12 @@ const (
 type installed struct {
 	Path   string `json:"path"`
 	Change change `json:"change"`
+}
+
+// upserted is an instruction file setup upserts upool's block into, and what that did.
+type upserted struct {
+	Path   string       `json:"path"`
+	Action block.Action `json:"action"`
 }
 
 // setupReport is what setup did: the data of its --json envelope and, in human form, one line per
@@ -75,6 +95,10 @@ type setupReport struct {
 	// Backup is the copy of settings.json that setup keeps before its first change to the file,
 	// when this run made it; "" otherwise.
 	Backup string `json:"backup,omitempty"`
+	// Skills are the copies of the skill, in skillFiles' order.
+	Skills []installed `json:"skills"`
+	// Blocks are the instruction files, in instructionFiles' order.
+	Blocks []upserted `json:"blocks"`
 	// Config is ~/.config/upool/config.toml, which setup writes only when there is none.
 	Config installed `json:"config"`
 }
@@ -90,6 +114,12 @@ func (r setupReport) Human() string {
 		lines = append(lines, "kept a copy of "+r.Settings.Path+" as "+r.Backup)
 	}
 	lines = append(lines, describeChange(r.Settings))
+	for _, s := range r.Skills {
+		lines = append(lines, describeChange(s))
+	}
+	for _, b := range r.Blocks {
+		lines = append(lines, describeBlock(b.Path, b.Action))
+	}
 	if r.Config.Change == created {
 		lines = append(lines, "created "+r.Config.Path)
 	} else {
@@ -106,9 +136,10 @@ func describeChange(i installed) string {
 	return string(i.Change) + " " + i.Path
 }
 
-// setupMachine is setup's handler. It checks the home directory, finds upool on PATH and reads
-// settings.json before it writes anything, so a refusal leaves the machine as it was. It registers
-// the hooks after writing the scripts, so a registered hook never names a missing script.
+// setupMachine is setup's handler. It checks the home directory, finds upool on PATH, and reads
+// settings.json and the instruction files before it writes anything, so a refusal leaves the
+// machine as it was. It registers the hooks after writing the scripts, so a registered hook never
+// names a missing script.
 func setupMachine(inv *invocation) (any, []string, error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
@@ -131,6 +162,12 @@ func setupMachine(inv *invocation) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	for _, name := range instructionFiles {
+		if err := checkBlock(filepath.Join(inv.home, filepath.FromSlash(name)), b); err != nil {
+			return nil, nil, err
+		}
+	}
 	if r.Hooks, err = installHooksDir(hooks); err != nil {
 		return nil, nil, err
 	}
@@ -144,7 +181,7 @@ func setupMachine(inv *invocation) (any, []string, error) {
 			return nil, nil, fmt.Errorf("reading the hook script %s: %w", name, err)
 		}
 		script := strings.Replace(string(template), assets.HookUpool, shellQuote(upool), 1)
-		s, err := installScript(filepath.Join(hooks, path.Base(name)), script)
+		s, err := installFile(filepath.Join(hooks, path.Base(name)), script, scriptMode)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -152,6 +189,28 @@ func setupMachine(inv *invocation) (any, []string, error) {
 	}
 	if r.Settings, r.Backup, err = reg.apply(); err != nil {
 		return nil, nil, err
+	}
+	for _, name := range skillFiles {
+		file := filepath.Join(inv.home, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
+			return nil, nil, fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
+		}
+		s, err := installFile(file, assets.Skill, skillMode)
+		if err != nil {
+			return nil, nil, err
+		}
+		r.Skills = append(r.Skills, s)
+	}
+	for _, name := range instructionFiles {
+		file := filepath.Join(inv.home, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
+			return nil, nil, fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
+		}
+		action, err := block.Upsert(file, b)
+		if err != nil {
+			return nil, nil, err
+		}
+		r.Blocks = append(r.Blocks, upserted{Path: file, Action: action})
 	}
 	r.Config = installed{Path: config.UserPath(inv.home), Change: unchanged}
 	if written, err := config.WriteUserFile(inv.home); err != nil {
@@ -239,24 +298,39 @@ func installHooksDir(dir string) (installed, error) {
 	return installed{Path: dir, Change: updated}, nil
 }
 
-// installScript writes script to file with scriptMode, unless file already holds it with that
-// mode.
-func installScript(file, script string) (installed, error) {
+// checkBlock refuses an instruction file that upool's block b cannot be upserted into, such as one
+// whose markers do not pair, without writing it. A missing file is fine: the upsert creates it.
+func checkBlock(file string, b block.Block) error {
+	doc, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", file, err)
+	}
+	if _, _, err := block.Apply(doc, b); err != nil {
+		return fmt.Errorf("upserting upool's block into %s: %w", file, err)
+	}
+	return nil
+}
+
+// installFile writes content to file with mode, unless file already holds it with that mode.
+func installFile(file, content string, mode fs.FileMode) (installed, error) {
 	info, err := os.Lstat(file)
 	exists := err == nil
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return installed{}, fmt.Errorf("checking %s: %w", file, err)
 	}
-	if exists && info.Mode().IsRegular() && info.Mode().Perm() == scriptMode {
+	if exists && info.Mode().IsRegular() && info.Mode().Perm() == mode {
 		old, err := os.ReadFile(file)
 		if err != nil {
 			return installed{}, fmt.Errorf("reading %s: %w", file, err)
 		}
-		if string(old) == script {
+		if string(old) == content {
 			return installed{Path: file, Change: unchanged}, nil
 		}
 	}
-	if err := writeAtomic(file, []byte(script), scriptMode); err != nil {
+	if err := writeAtomic(file, []byte(content), mode); err != nil {
 		return installed{}, err
 	}
 	if exists {

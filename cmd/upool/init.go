@@ -137,7 +137,7 @@ func (r initReport) Human() string {
 	} else {
 		lines = append(lines, "kept the existing .upool.toml")
 	}
-	lines = append(lines, describeBlock(r.ClaudeMDBlock))
+	lines = append(lines, describeBlock(claudeMD, r.ClaudeMDBlock))
 	for i, s := range r.Slots {
 		line := fmt.Sprintf("cloned %s into %s", s.Name, s.Path)
 		if i > 0 {
@@ -160,21 +160,21 @@ func (r initReport) Human() string {
 	return strings.Join(lines, "\n")
 }
 
-// describeBlock says what upserting upool's block into CLAUDE.md did.
-func describeBlock(a block.Action) string {
+// describeBlock says what upserting upool's block into file did.
+func describeBlock(file string, a block.Action) string {
 	switch a {
 	case block.Created:
-		return "created " + claudeMD + " with upool's block"
+		return "created " + file + " with upool's block"
 	case block.Inserted:
-		return "added upool's block to " + claudeMD
+		return "added upool's block to " + file
 	case block.Replaced:
-		return fmt.Sprintf("updated upool's block in %s to v%d", claudeMD,
+		return fmt.Sprintf("updated upool's block in %s to v%d", file,
 			assets.ClaudeMDBlockVersion)
 	case block.KeptNewer:
-		return fmt.Sprintf("kept the newer upool block in %s: this upool writes v%d", claudeMD,
+		return fmt.Sprintf("kept the newer upool block in %s: this upool writes v%d", file,
 			assets.ClaudeMDBlockVersion)
 	}
-	return claudeMD + " already has upool's block"
+	return file + " already has upool's block"
 }
 
 // describeBase says where a base came from, after "base is <base>, ".

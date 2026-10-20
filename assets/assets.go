@@ -20,6 +20,14 @@ var Hooks embed.FS
 // found upool through on PATH, quoted for sh, because PATH under the helper is not the user's.
 const HookUpool = "'@UPOOL@'"
 
+// Skill is the upool skill, which `upool setup` installs to ~/.claude/skills/upool/SKILL.md and
+// ~/.agents/skills/upool/SKILL.md (docs/design.md, "Hooks route, skills teach, leases and lanes
+// keep agents from colliding"). Its body is short and operational, Unity's own rules restated so
+// that they travel into subagents, which do not inherit an invoked skill.
+//
+//go:embed skill/upool/SKILL.md
+var Skill string
+
 // ClaudeMDBlock is the instruction block `upool init` upserts into a project's CLAUDE.md
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row): short
 // and operational, because without one agents keep running `git worktree add` (docs/design.md,

@@ -30,6 +30,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   arrays, is refused before setup writes anything. Project settings are never written. Until the
   hook handlers land, the registered create hook exits 1, which fails every Claude Code worktree
   session in every repository.
+- `upool setup` installs the upool skill, `assets/skill/upool/SKILL.md`, at
+  `~/.claude/skills/upool/SKILL.md` and `~/.agents/skills/upool/SKILL.md`, and upserts upool's
+  marked block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, creating each file and its
+  directory when absent. The skill is short and operational: pass `UNITY_PROJECT_PATH` positionally
+  to `unity test`, `run`, `build`, `close` and `cache key`; `save_all` before `close`; no
+  hand-edited scene YAML while a live Editor is reachable; re-query after a timeout before
+  retrying; open your scene explicitly after a headless session; and a subagent that needs Unity
+  takes its own slot with `upool take` and releases it. A copy of the skill that differs is
+  rewritten. The block is upserted as `init` does it, every byte outside its markers kept, and an
+  instruction file whose markers do not pair is refused before setup writes anything.
 
 ## [0.1.0] - 2026-10-20
 

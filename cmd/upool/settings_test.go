@@ -170,7 +170,7 @@ func TestSetupCreatesSettings(t *testing.T) {
   "SessionStart": ["@session-start@"]
 }}`))
 	checkMode(t, settingsPath(e.home), settingsMode)
-	checkMode(t, filepath.Dir(settingsPath(e.home)), claudeDirMode)
+	checkMode(t, filepath.Dir(settingsPath(e.home)), agentDirMode)
 	if _, err := os.Lstat(settingsPath(e.home) + backupSuffix); err == nil {
 		t.Errorf("setup kept a copy of a settings.json that did not exist")
 	}
@@ -192,7 +192,7 @@ func TestSetupCreatesSettings(t *testing.T) {
 	for _, event := range events() {
 		want = append(want, e.script(event))
 	}
-	want = append(want, local)
+	want = append(append(append(want, e.skills()...), e.instructions()...), local)
 	slices.Sort(files)
 	slices.Sort(want)
 	if !slices.Equal(files, want) {
