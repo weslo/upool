@@ -22,11 +22,11 @@ var hookEvents = []struct{ script, event string }{
 }
 
 // settingsMode is the mode of a settings.json that setup creates, private to the user as Claude
-// Code keeps its own; an existing file keeps its mode. claudeDirMode is the mode of ~/.claude when
-// setup has to create it.
+// Code keeps its own; an existing file keeps its mode. agentDirMode is the mode of a directory
+// setup creates for an agent's files, such as ~/.claude, ~/.codex or a skill's directory.
 const (
-	settingsMode  fs.FileMode = 0o600
-	claudeDirMode fs.FileMode = 0o700
+	settingsMode fs.FileMode = 0o600
+	agentDirMode fs.FileMode = 0o700
 )
 
 // backupSuffix names the copy of settings.json that setup keeps before it first changes the file.
@@ -133,7 +133,7 @@ func (reg registration) apply() (installed, string, error) {
 		if made {
 			backup = reg.file + backupSuffix
 		}
-	} else if err := os.MkdirAll(filepath.Dir(reg.target), claudeDirMode); err != nil {
+	} else if err := os.MkdirAll(filepath.Dir(reg.target), agentDirMode); err != nil {
 		return installed{}, "", fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
 	}
 	if err := writeAtomic(reg.target, reg.content, reg.mode); err != nil {
