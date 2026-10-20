@@ -103,8 +103,24 @@ Hook stdin as Claude Code delivered it, with paths as variables. Session ids are
 | `sibling-b4-start.json` | `test-a/session-1791844966.json` | §8 B.4 | its `SessionStart` |
 | `sibling-b4-remove.json` | `test-a/remove-1791844977.json` | §8 B.4 | its remove on archive |
 
+Captures added after the spike come from `scripts/capture-hook.sh`, run during the manual-gate
+check that the "Source" column names, with the desktop app's and Claude Code's versions. A row
+marked **pending** is a capture that check has not added yet: whoever runs it names the file it
+wrote, replaces **pending** with the versions and the date, and says what the capture showed; a
+hook that never fired gets no file, and its row says so.
+
+| Capture | Source | Versions | What it is |
+|---|---|---|---|
+| `desktop-create-timeout.txt` | [M2 gate](../docs/manual-gates/M2.md), "Capture the M2 hook inputs", step 3 | **pending** | not hook stdin: a create hook's log and the desktop app's `main.log` for a worktree session whose create hook slept 30 s before printing its path, which shows whether the app waits that long and, if not, when it gives up (A11) |
+| `session-start-resume.json` | same, step 4 | **pending** | `SessionStart` of a desktop worktree session resumed after the app was quit and opened again, `source: "resume"`; the row says whether the hook's parent PID was the one `startup` logged, which shows whether a resumed session runs in a new CLI process (A14) |
+| `session-start-clear.json` | same, step 4 | **pending** | `SessionStart` after `/clear` in that session, `source: "clear"` (A14) |
+| `session-start-compact.json` | same, step 4 | **pending** | `SessionStart` after `/compact` in that session, `source: "compact"` (A14) |
+| `cli-session-remove.json` | same, step 5 | **pending** | `WorktreeRemove` when a logged-in interactive `claude --worktree` session in a scratch repository ends, or a note here that it never fired (A15) |
+| `cli-session-end.json` | same, step 5 | **pending** | `SessionEnd` when that session ends, or a note here that it never fired (A15) |
+
 The file names say what kind of request each one is. The test for hook classification
-(docs/contracts.md (a)) runs over every file here and checks each one against its name.
+(docs/contracts.md (a)) runs over every `.json` file here and checks each one against its name;
+`desktop-create-timeout.txt`, a log rather than stdin, is the one file it passes over.
 
 ### captures/unity/
 
