@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
@@ -15,7 +16,7 @@ import (
 // The harness pool that doctor's and take's tests run against, made by hand rather than by init so
 // that the tests run everywhere: a testenv repository whose .gitignore ignores .claude/worktrees,
 // two slots made with `git worktree add --detach` at base, and the pool registered with both
-// ready, as init and a later clone would leave it.
+// ready, as init and a later clone would leave it, on a machine where `upool setup` has run.
 
 // harnessPool is a harness pool.
 type harnessPool struct {
@@ -37,9 +38,10 @@ func newHarnessPool(t *testing.T) harnessPool {
 	return harnessPoolIn(t, newInitEnv(t))
 }
 
-// harnessPoolIn makes e's repository a harness pool, as newHarnessPool does. Only git is on its
-// PATH, so doctor runs neither this machine's unity and claude nor, at the cost of a process
-// each, the fakes; installTools (doctor_test.go) puts the fakes there.
+// harnessPoolIn makes e's repository a harness pool, as newHarnessPool does, and runs setup. Only
+// git and upool, this test binary, are on its PATH, so doctor runs neither this machine's unity
+// and claude nor, at the cost of a process each, the fakes; installTools (doctor_test.go) puts the
+// fakes there.
 func harnessPoolIn(t *testing.T, e *testenv.Env) harnessPool {
 	t.Helper()
 	git, err := exec.LookPath("git")
@@ -51,6 +53,7 @@ func harnessPoolIn(t *testing.T, e *testenv.Env) harnessPool {
 		t.Fatal(err)
 	}
 	e.Setenv("PATH", bin)
+	runSetup(t, e)
 	p := harnessPool{Env: e}
 	p.WriteFile(".gitignore", readFile(t, p.Env, ".gitignore")+worktreesLine+"\n")
 	var slots []pool.Slot
@@ -68,6 +71,24 @@ func harnessPoolIn(t *testing.T, e *testenv.Env) harnessPool {
 		pl.Repo, pl.Base, pl.Slots = p.Repo, testenv.Base, slots
 	})
 	return p
+}
+
+// runSetup runs `upool setup` in e, as a machine with a pool has had it run, through a link to this
+// test binary that it puts in a directory of its own at the end of e's PATH.
+func runSetup(t *testing.T, e *testenv.Env) {
+	t.Helper()
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := tempDir(t)
+	if err := os.Symlink(exe, filepath.Join(bin, upoolName)); err != nil {
+		t.Fatal(err)
+	}
+	e.Setenv("PATH", e.Getenv("PATH")+string(os.PathListSeparator)+bin)
+	if r := runIn(t, e, e.Repo, "setup"); r.code != output.ExitOK {
+		t.Fatalf("upool setup: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
 }
 
 // update changes the harness pool's state.json with f.

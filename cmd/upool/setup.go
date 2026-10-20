@@ -233,18 +233,27 @@ func checkHomeReachable(home string) error {
 	if err != nil {
 		return fmt.Errorf("resolving the home directory: %w", err)
 	}
-	for dir := resolved; ; dir = filepath.Dir(dir) {
+	if dir, ok := protectedFolder(resolved); ok {
+		return fmt.Errorf("the home directory %s is in %s, which the desktop app's hook helper "+
+			"cannot read from, so it could not run the hook scripts under ~/.upool/hooks: run "+
+			"upool setup with HOME outside %s", resolved, dir,
+			strings.Join(protectedFolders, ", "))
+	}
+	return nil
+}
+
+// protectedFolder returns the folder named in protectedFolders that path, symlinks resolved, is
+// or is inside, if there is one.
+func protectedFolder(path string) (string, bool) {
+	for dir := path; ; dir = filepath.Dir(dir) {
 		for _, name := range protectedFolders {
 			// APFS is case-insensitive by default, so documents is the same folder.
 			if strings.EqualFold(filepath.Base(dir), name) {
-				return fmt.Errorf("the home directory %s is in %s, which the desktop app's hook "+
-					"helper cannot read from, so it could not run the hook scripts under "+
-					"~/.upool/hooks: run upool setup with HOME outside %s", resolved, dir,
-					strings.Join(protectedFolders, ", "))
+				return dir, true
 			}
 		}
 		if filepath.Dir(dir) == dir {
-			return nil
+			return "", false
 		}
 	}
 }
