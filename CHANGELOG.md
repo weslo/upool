@@ -302,3 +302,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `internal/unity` gains `CacheKey`, this one verb's entry point until M3's verb table.
   `internal/clone` gains `KeyCheck` and `Recipe.Keys` and `Recipe.Warn`. `internal/testenv` now
   puts only git on its `PATH`, so that no test reaches this machine's Unity CLI.
+- `upool init --slots N` clones N slots now, from 1 to `max_slots`.
+  - **Seeds:** slot-1 comes from the main checkout, and the rest are seeded as A19 says, normally
+    from slot-1, which is held `warming` while it is copied.
+  - **Config:** it writes nothing about N to `.upool.toml` or the user config; keeping slots
+    ready is `ready`'s job.
+  - **Refused, before init writes anything:** `--slots` outside 1 to `max_slots`.
+  - **Output:** the human form names each slot's seed. `--json` now gives `slots`, a list, each
+    with its `seed`, in place of `slot`.
+
+  Every command now answers `-h` and `--help` with its usage line and flags on stdout, exiting 0;
+  `init`'s says that slots beyond `ready` become `prune` candidates once idle for `shrink_after`.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -115,6 +116,9 @@ func (d *dispatcher) command(name string, cmd command, args []string) int {
 	asJSON := fs.Bool("json", false, "print the result as a JSON envelope")
 	handle := cmd.setup(fs)
 	positional, err := parseFlags(fs, args)
+	if errors.Is(err, flag.ErrHelp) {
+		return d.help(cmd, fs)
+	}
 	if err != nil {
 		err = fmt.Errorf("%w; usage: upool %s", err, cmd.usage)
 		r := output.Result{Command: name, Err: err}
@@ -127,6 +131,21 @@ func (d *dispatcher) command(name string, cmd command, args []string) int {
 		Warnings: warnings,
 		Err:      err,
 	})
+}
+
+// help prints a command's usage line and its flags to stdout for -h or --help, and exits 0: a
+// flag's description is where a command says what a person needs before using it, such as init's
+// note on slots beyond ready (A21).
+func (d *dispatcher) help(cmd command, fs *flag.FlagSet) int {
+	var b strings.Builder
+	b.WriteString("usage: upool " + cmd.usage + "\n\nflags:\n")
+	fs.SetOutput(&b)
+	fs.PrintDefaults()
+	if _, err := io.WriteString(d.stdout, b.String()); err != nil {
+		say(d.stderr, "writing the help: "+err.Error())
+		return output.ExitFailure
+	}
+	return output.ExitOK
 }
 
 // hook runs `upool hook <event>`. On success stdout gets the handler's path and a newline and

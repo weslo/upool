@@ -23,14 +23,19 @@ import (
 )
 
 // initCommand is `upool init`, run from Terminal inside a Unity project's repository: it registers
-// the project as a pool and clones its first slot, slot-1, from the main checkout
-// (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row;
-// docs/contracts.md (f) transitions 1 and 2), and adds upool's instruction block to the
-// repository's CLAUDE.md. It refuses an open Editor or a stale Library, which the first slot would
-// seed from. --slots (#64) arrives with its own issue.
+// the project as a pool and clones its first --slots slots, slot-1 from the main checkout and the
+// rest seeded as A19 says (docs/design.md, "One binary, a dozen commands, one JSON file per pool",
+// the `init` row; docs/contracts.md (f) transitions 1 and 2; A21), and adds upool's instruction
+// block to the repository's CLAUDE.md. It refuses an open Editor or a stale Library, which the
+// first slot would seed from.
 var initCommand = command{
-	usage: "init [--json]",
-	setup: func(*flag.FlagSet) handler { return initRepo },
+	usage: "init [--slots N] [--json]",
+	setup: func(fs *flag.FlagSet) handler {
+		slots := fs.Int("slots", 1, "how many slots to clone now, from 1 to max_slots; writes "+
+			"nothing to config: ready in .upool.toml keeps slots ready, and slots beyond ready "+
+			"become prune candidates once idle for shrink_after")
+		return func(inv *invocation) (any, []string, error) { return initRepo(inv, *slots) }
+	},
 }
 
 const (
@@ -83,9 +88,9 @@ type initReport struct {
 	RepoFileWritten bool `json:"repo_file_written"`
 	// ClaudeMDBlock is what upserting upool's block into CLAUDE.md did.
 	ClaudeMDBlock block.Action `json:"claude_md_block,omitempty"`
-	// Slot is the first slot, which init cloned from the main checkout, and nil when it cloned
-	// none.
-	Slot *clonedSlot `json:"slot,omitempty"`
+	// Slots are the slots init cloned, slot-1 first, from the main checkout; none when the pool
+	// already had slots.
+	Slots []clonedSlot `json:"slots,omitempty"`
 	// ExistingSlots are the slots the pool already had, from an earlier init whose registry entry
 	// was lost or which failed part-way; init keeps them and clones none.
 	ExistingSlots []existingSlot `json:"existing_slots,omitempty"`
@@ -94,12 +99,15 @@ type initReport struct {
 	repoFile config.RepoFile
 }
 
-// clonedSlot is the slot init cloned, as state.json records it (docs/contracts.md (e)).
+// clonedSlot is a slot init cloned, as state.json records it (docs/contracts.md (e)).
 type clonedSlot struct {
 	Name string `json:"name"`
 	Path string `json:"path"`
-	// SeedHead is the main checkout's HEAD when it was copied, and SeedDirty whether it had
-	// uncommitted changes, which the slot does not keep (docs/contracts.md (g) step 7).
+	// Seed is what the slot was copied from: the main checkout for slot-1, and for the rest the
+	// seed A19 chose, normally slot-1.
+	Seed string `json:"seed"`
+	// SeedHead is the seed's HEAD when it was copied, and SeedDirty whether it had uncommitted
+	// changes, which the slot does not keep (docs/contracts.md (g) step 7).
 	SeedHead  string `json:"seed_head"`
 	SeedDirty bool   `json:"seed_dirty"`
 }
@@ -130,9 +138,18 @@ func (r initReport) Human() string {
 		lines = append(lines, "kept the existing .upool.toml")
 	}
 	lines = append(lines, describeBlock(r.ClaudeMDBlock))
-	if r.Slot != nil {
-		lines = append(lines, fmt.Sprintf("cloned %s into %s", r.Slot.Name, r.Slot.Path))
-	} else {
+	for i, s := range r.Slots {
+		line := fmt.Sprintf("cloned %s into %s", s.Name, s.Path)
+		if i > 0 {
+			from := "the main checkout"
+			if s.Seed != r.Repo {
+				from = filepath.Base(s.Seed)
+			}
+			line += ", seeded from " + from
+		}
+		lines = append(lines, line)
+	}
+	if len(r.Slots) == 0 {
 		var slots []string
 		for _, s := range r.ExistingSlots {
 			slots = append(slots, fmt.Sprintf("%s (%s)", s.Name, s.State))
@@ -177,13 +194,13 @@ func describeBase(source string) string {
 	return "from " + source
 }
 
-// initRepo is init's handler. It checks the repository before it changes anything, then upserts
+// initRepo is init's handler, cloning n slots into a new pool. It checks the repository before it changes anything, then upserts
 // upool's block into CLAUDE.md, first so that a CLAUDE.md whose markers do not pair is refused
 // with nothing written; adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates the
 // pool's state.json, clones the first slot into a pool that has none and, last, adds the
 // repository to registry.json, so that a run that fails part-way is finished by the next rather
 // than reported as already registered.
-func initRepo(inv *invocation) (any, []string, error) {
+func initRepo(inv *invocation, n int) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
 	if err != nil {
@@ -216,6 +233,11 @@ func initRepo(inv *invocation) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	if n < 1 || n > cfg.MaxSlots.Value {
+		return nil, nil, fmt.Errorf("--slots %d is not from 1 to max_slots, %d; max_slots is "+
+			"set in %s or ~/.config/upool/config.toml", n, cfg.MaxSlots.Value,
+			config.RepoPath(repo))
+	}
 	r := initReport{Repo: repo}
 	if r.Base, r.BaseSource, err = resolveBase(ctx, g, repo, cfg.Base); err != nil {
 		return nil, nil, err
@@ -241,7 +263,8 @@ func initRepo(inv *invocation) (any, []string, error) {
 	var warnings []string
 	if len(existing) > 0 {
 		r.ExistingSlots = existing
-	} else if r.Slot, warnings, err = cloneFirstSlot(ctx, inv, g, key, repo); err != nil {
+	} else if r.Slots, warnings, err = cloneSlots(ctx, inv, g, key, repo, n,
+		cfg.MaxSlots.Value); err != nil {
 		return nil, nil, err
 	}
 	reg, err := registry.Add(ctx, inv.home, repo)
@@ -434,19 +457,34 @@ func createPool(ctx context.Context, home, repo, base string) (key string,
 	return key, slots, nil
 }
 
-// cloneFirstSlot clones slot-1 into the pool key from the main checkout, repo, which init has
+// cloneSlots clones n slots into the pool key: slot-1 from the main checkout, repo, which init has
 // checked has no Editor open and a current Library (docs/contracts.md (g) Clone recipe, step 0:
-// init's first slot seeds from the main checkout with its Editor closed).
-func cloneFirstSlot(ctx context.Context, inv *invocation, g git.Client, key,
-	repo string) (*clonedSlot, []string, error) {
+// init's first slot seeds from the main checkout with its Editor closed), and the rest from the
+// seed A19 chooses, normally slot-1, held warming while it is copied (A21). It returns the slots
+// and what the recipe warned about, such as a cache key that changed (A20).
+func cloneSlots(ctx context.Context, inv *invocation, g git.Client, key, repo string, n,
+	maxSlots int) ([]clonedSlot, []string, error) {
 	var warnings []string
 	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,
-		Keys: clone.KeyCheck{Env: inv.environ()},
+		MaxSlots: maxSlots, Keys: clone.KeyCheck{Env: inv.environ()},
 		Warn: func(line string) { warnings = append(warnings, line) }}
-	s, err := recipe.Clone(ctx, inv.home, key, repo)
-	if err != nil {
-		return nil, nil, err
+	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
+		Key: key}
+	slots := make([]clonedSlot, 0, n)
+	for i := range n {
+		seed := clone.Seed{Path: repo}
+		if i > 0 {
+			var err error
+			if seed, _, err = seeder.Choose(ctx); err != nil {
+				return nil, nil, fmt.Errorf("choosing a seed for slot %d of %d: %w", i+1, n, err)
+			}
+		}
+		s, err := recipe.Clone(ctx, inv.home, key, seed.Path)
+		if err := errors.Join(err, seeder.Done(ctx, seed)); err != nil {
+			return nil, nil, err
+		}
+		slots = append(slots, clonedSlot{Name: s.Name, Path: s.Path, Seed: seed.Path,
+			SeedHead: s.SeedHead, SeedDirty: s.SeedDirty})
 	}
-	return &clonedSlot{Name: s.Name, Path: s.Path, SeedHead: s.SeedHead,
-		SeedDirty: s.SeedDirty}, warnings, nil
+	return slots, warnings, nil
 }
