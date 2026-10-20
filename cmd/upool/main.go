@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/weslo/upool/internal/output"
@@ -20,6 +22,7 @@ var commandTable = map[string]command{
 	"init":    initCommand,
 	"path":    pathCommand,
 	"release": releaseCommand,
+	"run":     runCommand,
 	"setup":   setupCommand,
 	"status":  statusCommand,
 	"take":    takeCommand,
@@ -45,8 +48,8 @@ func main() {
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
 // exit code. The rest of the boundary, the clock, the working directory, the environment's full
-// list, the process ID and the binary's path, it takes from the process; a test of a command that
-// reads them builds a dispatcher with its own.
+// list, the process ID, the binary's path and the delivery of SIGINT and SIGTERM, it takes from
+// the process; a test of a command that reads them builds a dispatcher with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
 		commands:   commandTable,
@@ -60,6 +63,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		now:        time.Now,
 		pid:        os.Getpid(),
 		executable: os.Executable,
+		notify: func(c chan<- os.Signal) {
+			signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+		},
+		stopNotify: func(c chan<- os.Signal) { signal.Stop(c) },
 	}
 	return d.run(args)
 }

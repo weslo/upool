@@ -47,6 +47,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   each script for its event; and `hook-provenance` warns about each registered repository whose
   own `.claude/settings*.json` also registers upool's hooks, which the desktop app does not vouch
   for there.
+- `upool run <name> -- <cmd...>`, the agent-agnostic launcher: it takes a slot as `take <name>`
+  does, runs the command in it with the slot as its working directory and `UNITY_PROJECT_PATH`
+  (and `PWD`) set to it, forwards SIGINT and SIGTERM to it, releases the slot when it exits with
+  `--if-lease-id` of its own lease (clean → ready, dirty → parked), and exits with the command's
+  status, or 128 plus the signal's number when a signal ended it. The lease's holder is `run`'s
+  own process, so a `run` that is killed leaves a lease the next `take` can reclaim; off macOS,
+  where process start times are unsupported, the lease has no holder. The command keeps upool's
+  standard streams; `run` says what it took and released on stderr. A command that does not
+  start fails `run`, and its slot is still released.
 
 ## [0.1.0] - 2026-10-20
 

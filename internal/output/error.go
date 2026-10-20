@@ -23,8 +23,9 @@ const (
 )
 
 // Failure is an error a command returns: the exit code upool ends with, the code its envelope
-// reports, and a message. Only Fail and NoTarget make one, so its exit code is ExitFailure or
-// ExitNoTarget: a failure never exits ExitOK, and upool exits with no codes but these three
+// reports, and a message. Only Fail, NoTarget and Exited make one, so its exit code is
+// ExitFailure, ExitNoTarget, or the status of a command upool ran and passes on: a failure never
+// exits ExitOK, and upool's own failures exit with no codes but ExitFailure and ExitNoTarget
 // (docs/contracts.md (d), "upool's own exit codes").
 type Failure struct {
 	exit int
@@ -45,13 +46,27 @@ func NoTarget(code Code, format string, args ...any) error {
 	return &Failure{exit: ExitNoTarget, code: code, err: fmt.Errorf(format, args...)}
 }
 
+// maxStatus is the highest exit status a process can end with.
+const maxStatus = 255
+
+// Exited returns a failure that exits with status, the exit status of a command upool ran for its
+// caller and passes on: `upool run` ends with its command's (#70). A status of 0, or one no
+// process can end with, becomes ExitFailure, so that a failure still never exits ExitOK. Its code
+// is CodeCommandFailed; format and args are as for Fail.
+func Exited(status int, format string, args ...any) error {
+	if status <= ExitOK || status > maxStatus {
+		status = ExitFailure
+	}
+	return &Failure{exit: status, code: CodeCommandFailed, err: fmt.Errorf(format, args...)}
+}
+
 // Error returns the message.
 func (e *Failure) Error() string { return e.err.Error() }
 
 // Unwrap returns the message as an error, through which a cause wrapped with %w is found.
 func (e *Failure) Unwrap() error { return e.err }
 
-// Exit returns the exit code: ExitFailure or ExitNoTarget.
+// Exit returns the exit code: ExitFailure, ExitNoTarget, or the status Exited passes on.
 func (e *Failure) Exit() int { return e.exit }
 
 // Code returns the envelope's errors[].code.

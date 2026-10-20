@@ -39,19 +39,32 @@ var takeCommand = command{
 		timeout := fs.Int("timeout", 0, "seconds to wait for a ready slot, retrying once a second")
 		noCreate := fs.Bool("no-create", false, "never clone a slot; only wait for a ready one")
 		return func(inv *invocation) (any, []string, error) {
-			return take(inv, takeOptions{base: *base, holder: *holder, timeout: *timeout,
-				noCreate: *noCreate})
+			if len(inv.args) != 1 || inv.args[0] == "" {
+				return nil, nil, fmt.Errorf("take needs one branch name; usage: upool %s",
+					takeUsage)
+			}
+			r, err := takeSlot(inv, inv.args[0], takeOptions{base: *base, holder: *holder,
+				timeout: *timeout, noCreate: *noCreate})
+			if err != nil {
+				return nil, nil, err
+			}
+			return r, nil, nil
 		}
 	},
 }
 
-// takeOptions are take's flags.
+// takeOptions are take's flags, and the holder process `upool run` records.
 type takeOptions struct {
 	base, holder string
 	// timeout is how many seconds take waits for a ready slot.
 	timeout int
 	// noCreate keeps take from cloning a slot when none is ready.
 	noCreate bool
+	// holderPID and holderStart are the process whose life the lease follows, for dead-PID
+	// reclaim, and its start time: `upool run`'s own (A6). Both are nil for a bare take, which
+	// records none.
+	holderPID   *int
+	holderStart *time.Time
 }
 
 // takeReport is what take leased: the data of its --json envelope, whose human form is the path
@@ -75,34 +88,32 @@ const leaseLockReason = "upool lease "
 // "Leases that survive crashes and never reclaim a live tree": pool-full is a wait, not a failure).
 const retryInterval = time.Second
 
-// take is take's handler. It checks the branch before it leases anything, leases a ready slot
-// under ~/.upool/lock, waiting for one up to the timeout, and then, with the lock dropped, locks
-// the slot's worktree and checks the branch out. If either fails, the lease is undone.
-func take(inv *invocation, opts takeOptions) (any, []string, error) {
-	if len(inv.args) != 1 || inv.args[0] == "" {
-		return nil, nil, fmt.Errorf("take needs one branch name; usage: upool %s", takeUsage)
-	}
+// takeSlot leases a slot of the pool containing the working directory with the branch name
+// checked out, for take and `upool run`. It checks the branch before it leases anything, leases a
+// ready slot under ~/.upool/lock, waiting for one up to the timeout, and then, with the lock
+// dropped, locks the slot's worktree and checks the branch out. If either fails, the lease is
+// undone.
+func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error) {
 	if opts.timeout < 0 {
-		return nil, nil, fmt.Errorf("--timeout %d is negative; usage: upool %s", opts.timeout,
-			takeUsage)
+		return takeReport{}, fmt.Errorf("--timeout %d is negative; usage: upool %s",
+			opts.timeout, takeUsage)
 	}
-	name := inv.args[0]
 	ctx := context.Background()
 	wd, err := inv.getwd()
 	if err != nil {
-		return nil, nil, fmt.Errorf("reading the working directory: %w", err)
+		return takeReport{}, fmt.Errorf("reading the working directory: %w", err)
 	}
 	cwd, err := paths.Key(wd)
 	if err != nil {
-		return nil, nil, err
+		return takeReport{}, err
 	}
 	pools, err := readPools(ctx, inv.home,
 		func(repo registry.Repo) bool { return paths.Within(cwd, repo.Path) })
 	if err != nil {
-		return nil, nil, err
+		return takeReport{}, err
 	}
 	if len(pools) == 0 {
-		return nil, nil, output.Fail(output.CodeCommandFailed,
+		return takeReport{}, output.Fail(output.CodeCommandFailed,
 			"%s is not inside a registered pool; run upool take in a pool's checkout", wd)
 	}
 	rp := innermost(pools)
@@ -113,15 +124,16 @@ func take(inv *invocation, opts takeOptions) (any, []string, error) {
 	g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
 
 	if err := checkBranchFree(ctx, g, repo, name); err != nil {
-		return nil, nil, err
+		return takeReport{}, err
 	}
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
 	if err != nil {
-		return nil, nil, err
+		return takeReport{}, err
 	}
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
-		holder: opts.holder, now: inv.now, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{},
-			Home: inv.home, Key: key, Now: inv.now}}
+		holder: opts.holder, holderPID: opts.holderPID, holderStart: opts.holderStart,
+		now: inv.now, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home,
+			Key: key, Now: inv.now}}
 	if !opts.noCreate {
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
@@ -137,13 +149,13 @@ func take(inv *invocation, opts takeOptions) (any, []string, error) {
 	}
 	s, leaseID, err := l.waitForSlot(ctx, inv, time.Duration(opts.timeout)*time.Second)
 	if err != nil {
-		return nil, nil, err
+		return takeReport{}, err
 	}
 	if err := l.prepare(ctx, s, leaseID, name, opts.base); err != nil {
-		return nil, nil, errors.Join(err, l.undo(ctx, s, leaseID))
+		return takeReport{}, errors.Join(err, l.undo(ctx, s, leaseID))
 	}
 	return takeReport{Path: s.Path, Slot: s.Name, Branch: name, LeaseID: leaseID, Repo: repo},
-		nil, nil
+		nil
 }
 
 // checkBranchFree refuses a branch name git would refuse, and a branch git already has checked
@@ -178,7 +190,10 @@ type leaser struct {
 	// --base names another ref.
 	repo, base string
 	holder     string
-	now        func() time.Time
+	// holderPID and holderStart go into the lease, as takeOptions has them.
+	holderPID   *int
+	holderStart *time.Time
+	now         func() time.Time
 	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61).
 	reclaimer pool.Reclaimer
 	// cloner clones a slot when none can be handed out; nil with --no-create.
@@ -343,6 +358,7 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 			}
 			s.State = state
 			s.Lease = &pool.Lease{LeaseID: id, Holder: l.holder, WorktreePath: s.Path,
+				HolderPID: l.holderPID, HolderPIDStart: l.holderStart,
 				AcquiredAt: l.now().UTC(), Confirmed: true, Lane: "script"}
 			taken, leaseID = *s, id
 			return nil
