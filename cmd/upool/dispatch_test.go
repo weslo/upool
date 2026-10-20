@@ -380,9 +380,9 @@ func TestHookSuccessPrintsOnlyThePath(t *testing.T) {
 }
 
 // Each hook that fails says so on stderr, with its event's exit code and nothing on stdout: the
-// stubs, and worktree-create for a session in a repository that is not there, whose pass-through
-// worktree git cannot make.
-func TestHookStubsReportNotImplemented(t *testing.T) {
+// stub, worktree-create for a session in a repository that is not there, whose pass-through
+// worktree git cannot make, and worktree-remove given another event's request.
+func TestHookFailuresGoToStderr(t *testing.T) {
 	tests := []struct {
 		event, capture string
 		want           int
@@ -390,7 +390,8 @@ func TestHookStubsReportNotImplemented(t *testing.T) {
 	}{
 		{"worktree-create", "desktop-session-create.json", output.ExitFailure,
 			"making the worktree "},
-		{"worktree-remove", "desktop-session-remove.json", output.ExitOK, "not implemented"},
+		{"worktree-remove", "desktop-session-create.json", output.ExitOK,
+			`stdin is a "WorktreeCreate" request, not WorktreeRemove`},
 		{"session-start", "session-start.json", output.ExitOK, "not implemented"},
 	}
 	if len(tests) != len(hookTable) {
@@ -424,7 +425,10 @@ func TestWorktreeRemoveAlwaysExitsZero(t *testing.T) {
 	remove := hookTable["worktree-remove"]
 	stdin := hookStdin(t, "desktop-session-remove.json")
 	failures := map[string]hookHandler{
-		"the stub":      remove.handle,
+		"the handler, given a create request": func(inv *invocation) (string, error) {
+			inv.stdin = strings.NewReader(hookStdin(t, "desktop-session-create.json"))
+			return remove.handle(inv)
+		},
 		"a plain error": func(*invocation) (string, error) { return "", errors.New("disk full") },
 		"a no-target failure": func(*invocation) (string, error) {
 			return "", output.NoTarget(output.CodeCommandFailed, "no Editor")

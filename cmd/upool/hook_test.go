@@ -102,3 +102,39 @@ func TestHookWorktreeCreatePrintsThePassThroughWorktree(t *testing.T) {
 		t.Errorf("git worktree list = %q, want %s", got, path)
 	}
 }
+
+// After `upool take`, the WorktreeRemove hook on the captured archive of a session in slot-1 marks
+// the slot needs-reset, clears the lease, prints the slot's path and exits 0 (#73).
+func TestHookWorktreeRemoveMarksTheTakenSlot(t *testing.T) {
+	p := newHarnessPool(t)
+	if r := runIn(t, p.Env, p.Repo, "take", "feature"); r.code != output.ExitOK {
+		t.Fatalf("take: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "hooks",
+		"desktop-session-remove.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := pathvars.Fill(string(b), pathvars.Var{Name: "repo", Path: p.Repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	d := dispatcher{commands: commandTable, hooks: hookTable, stdin: strings.NewReader(stdin),
+		stdout: &out, stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
+		now: func() time.Time { return clock }, pid: os.Getpid()}
+	if code := d.run([]string{"hook", "worktree-remove"}); code != output.ExitOK {
+		t.Fatalf("exit = %d, want %d; stderr %q", code, output.ExitOK, errOut.String())
+	}
+	if want := p.slot("slot-1") + "\n"; out.String() != want || errOut.Len() != 0 {
+		t.Errorf("stdout = %q, stderr %q; want %q and nothing", out.String(), errOut.String(),
+			want)
+	}
+	pl, err := pool.Load(p.Home, p.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := pl.Slots[0]; s.Name != "slot-1" || s.State != pool.StateNeedsReset || s.Lease != nil {
+		t.Errorf("slot-1 = %+v, want needs-reset with no lease", s)
+	}
+}
