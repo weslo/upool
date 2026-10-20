@@ -379,14 +379,18 @@ func TestHookSuccessPrintsOnlyThePath(t *testing.T) {
 	}
 }
 
+// Each hook either is a stub or, for worktree-create, refuses a session's request until #72, and
+// says so on stderr with its event's exit code and nothing on stdout.
 func TestHookStubsReportNotImplemented(t *testing.T) {
 	tests := []struct {
 		event, capture string
 		want           int
+		message        string
 	}{
-		{"worktree-create", "desktop-session-create.json", output.ExitFailure},
-		{"worktree-remove", "desktop-session-remove.json", output.ExitOK},
-		{"session-start", "session-start.json", output.ExitOK},
+		{"worktree-create", "desktop-session-create.json", output.ExitFailure,
+			"worktree requests from a desktop session are not routed yet"},
+		{"worktree-remove", "desktop-session-remove.json", output.ExitOK, "not implemented"},
+		{"session-start", "session-start.json", output.ExitOK, "not implemented"},
 	}
 	if len(tests) != len(hookTable) {
 		t.Errorf("%d events tested, want all %d in the hook table", len(tests), len(hookTable))
@@ -403,7 +407,7 @@ func TestHookStubsReportNotImplemented(t *testing.T) {
 		if out.String() != "" {
 			t.Errorf("%s: stdout = %q, want empty", tt.event, out.String())
 		}
-		if want := "upool: hook " + tt.event + ": not implemented\n"; errOut.String() != want {
+		if want := "upool: hook " + tt.event + ": " + tt.message + "\n"; errOut.String() != want {
 			t.Errorf("%s: stderr = %q, want %q", tt.event, errOut.String(), want)
 		}
 	}

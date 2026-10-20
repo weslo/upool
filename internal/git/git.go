@@ -438,6 +438,15 @@ func (c Client) WorktreeAdd(ctx context.Context, repo, path, commit string) erro
 	return err
 }
 
+// WorktreeAddDetached adds a worktree at path, an absolute path, detached at repo's HEAD and
+// checked out: `git -C <repo> worktree add --detach <path>`, what Claude Code makes for a subagent
+// itself, which the create hook's subagent branch makes in its place (docs/design.md, "Route
+// Claude Code's worktrees through the pool: three branches in one hook").
+func (c Client) WorktreeAddDetached(ctx context.Context, repo, path string) error {
+	_, err := c.run(ctx, repo, "worktree", "add", "--detach", path)
+	return err
+}
+
 // WorktreeRemove removes the worktree at path, its registration and its directory, run in repo:
 // `git worktree remove --force <path>`, which removes it even with changes or untracked files.
 // `doctor --fix` removes an interrupted clone with it (docs/contracts.md (f) transition 21).

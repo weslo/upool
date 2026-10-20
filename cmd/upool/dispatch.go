@@ -57,6 +57,9 @@ type invocation struct {
 	// pid is upool's own process ID, which a clone records as its slot's owner_pid
 	// (docs/contracts.md (e) State schemas; A4).
 	pid int
+	// ppid is upool's parent's process ID: for a hook, the Claude Code process that ran it, which
+	// a subagent's worktree records as its parent_pid ((e), Agent worktree).
+	ppid int
 	// executable returns the path of upool's own binary, which `upool setup` looks for on PATH.
 	executable func() (string, error)
 }
@@ -100,6 +103,7 @@ type dispatcher struct {
 	getwd      func() (string, error)
 	now        func() time.Time
 	pid        int
+	ppid       int
 	executable func() (string, error)
 	// notify and stopNotify are as in invocation.
 	notify, stopNotify func(c chan<- os.Signal)
@@ -217,6 +221,7 @@ func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 		home:       d.getenv("HOME"),
 		now:        d.now,
 		pid:        d.pid,
+		ppid:       d.ppid,
 		executable: d.executable,
 	}
 }

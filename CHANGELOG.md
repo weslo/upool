@@ -56,6 +56,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   where process start times are unsupported, the lease has no holder. The command keeps upool's
   standard streams; `run` says what it took and released on stderr. A command that does not
   start fails `run`, and its slot is still released.
+- `upool hook worktree-create` decodes the request on stdin leniently and tells a subagent's,
+  by `prompt_id`, from a session's, desktop or CLI by `transcript_path` (docs/contracts.md (a)).
+  A subagent gets an ordinary worktree, detached at the repository's HEAD, at
+  `<cwd>/.claude/worktrees/<name>`, as Claude Code would have made it; if `cwd` is in a
+  registered pool, matched as A13 says, the pool's `state.json` records it under
+  `agent_worktrees` with its parent session and the hook's parent PID, and a worktree that cannot
+  be recorded is removed again. The hook prints only the path. A session's request is refused,
+  "not routed yet", until the session branches arrive, so the registered create hook still fails
+  every worktree session. `registry.Containing` is the A13 match: a registered main checkout or
+  any directory in it but its `.claude/worktrees`, the innermost of nested ones.
 
 ## [0.1.0] - 2026-10-20
 
