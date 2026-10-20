@@ -69,3 +69,36 @@ func TestHookWorktreeCreatePrintsTheSubagentsWorktree(t *testing.T) {
 			ppid)
 	}
 }
+
+// `upool hook worktree-create` on a captured desktop session's request, in a repository that is not
+// a pool, prints exactly the pass-through worktree's path and a newline (#72).
+func TestHookWorktreeCreatePrintsThePassThroughWorktree(t *testing.T) {
+	e := testenv.New(t)
+	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "hooks",
+		"desktop-session-create.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdin, err := pathvars.Fill(string(b), pathvars.Var{Name: "repo", Path: e.Repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	d := dispatcher{commands: commandTable, hooks: hookTable, stdin: strings.NewReader(stdin),
+		stdout: &out, stderr: &errOut, getenv: e.Getenv, environ: e.Environ,
+		now: func() time.Time { return clock }, pid: os.Getpid()}
+	if code := d.run([]string{"hook", "worktree-create"}); code != output.ExitOK {
+		t.Fatalf("exit = %d, want %d; stderr %q", code, output.ExitOK, errOut.String())
+	}
+	path := filepath.Join(e.Repo, ".claude", "worktrees", "system-diagnostics-9f8a09")
+	if want := path + "\n"; out.String() != want {
+		t.Errorf("stdout = %q, want exactly %q", out.String(), want)
+	}
+	if errOut.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", errOut.String())
+	}
+	if got := e.Git("worktree", "list", "--porcelain"); !strings.Contains(got,
+		"worktree "+path+"\n") {
+		t.Errorf("git worktree list = %q, want %s", got, path)
+	}
+}

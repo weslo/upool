@@ -230,21 +230,75 @@ func TestSubagentOutsideAPoolIsNotRecorded(t *testing.T) {
 	}
 }
 
-// A session's request is refused, with nothing made, until the session branches are built (#72).
-func TestSessionRequestsAreNotRoutedYet(t *testing.T) {
+// The acceptance test of #72, its first half: a session in a repository upool does not manage
+// gets the worktree Claude Code would have made, at <repo>/.claude/worktrees/<name> on a branch
+// named <name>, whichever kind of session asks (docs/contracts.md (a); the three fixtures).
+func TestPassThroughForUnregisteredRepo(t *testing.T) {
+	for _, file := range []string{"desktop-session-create.json", "cli-session-create.json",
+		"desktop-probe-create.json"} {
+		t.Run(file, func(t *testing.T) {
+			h := newHarness(t, false)
+			req := h.capture(t, file)
+			path, err := WorktreeCreate(context.Background(), h.env, req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := filepath.Join(h.e.Repo, ".claude", "worktrees", req.Name)
+			if path != want {
+				t.Errorf("path = %q, want %q", path, want)
+			}
+			wt, ok := h.worktree(t, want)
+			if !ok || wt.Branch != "refs/heads/"+req.Name {
+				t.Errorf("git lists %+v, %t; want %s on branch %s", wt, ok, want, req.Name)
+			}
+			if h.stderr.Len() != 0 {
+				t.Errorf("stderr = %q, want nothing", h.stderr)
+			}
+		})
+	}
+}
+
+// The pass-through branch refuses a name that is not one path element, before git runs.
+func TestPassThroughRefusesABadName(t *testing.T) {
+	h := newHarness(t, false)
+	for _, name := range []string{"", "..", "../../escape"} {
+		req := h.capture(t, "desktop-session-create.json")
+		req.Name = name
+		if path, err := WorktreeCreate(context.Background(), h.env, req); err == nil {
+			t.Errorf("name %q: path = %q, want an error", name, path)
+		}
+	}
+	wts, err := h.env.Git.WorktreeList(context.Background(), h.e.Repo)
+	if err != nil || len(wts) != 1 {
+		t.Errorf("git worktree list = %+v, %v; want the main checkout alone", wts, err)
+	}
+}
+
+// The acceptance test of #72, its second half: a session whose cwd is a registered main checkout,
+// or a directory in one, is the pool's (A13), and is refused, with nothing made, until the pooled
+// branch is built (#78); one in a pool's slot is not the main checkout, and passes through.
+func TestRegisteredRepoRoutesToPool(t *testing.T) {
 	h := newHarness(t, true)
-	for file, kind := range map[string]Kind{
-		"desktop-session-create.json": DesktopSession,
-		"cli-session-create.json":     CLISession,
-	} {
-		_, err := WorktreeCreate(context.Background(), h.env, h.capture(t, file))
-		if want := "worktree requests from a " + string(kind) + " are not routed yet"; err == nil ||
-			err.Error() != want {
-			t.Errorf("%s: err = %v, want %q", file, err, want)
+	for _, dir := range []string{h.e.Repo, filepath.Join(h.e.Repo, "Assets")} {
+		req := h.capture(t, "desktop-session-create.json")
+		req.Cwd = dir
+		_, err := WorktreeCreate(context.Background(), h.env, req)
+		want := "is in pool " + h.key + ", and handing a session one of its slots is not built yet"
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("from %s: err = %v, want it to say %q", dir, err, want)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(h.e.Repo, ".claude", "worktrees")); err == nil {
-		t.Error(".claude/worktrees exists, want nothing made for a session")
+		t.Error(".claude/worktrees exists, want nothing made for a pooled session")
+	}
+
+	slot := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+	h.e.Git("worktree", "add", "-q", "--detach", slot)
+	req := h.capture(t, "desktop-session-create.json")
+	req.Cwd = slot
+	path, err := WorktreeCreate(context.Background(), h.env, req)
+	if want := filepath.Join(slot, ".claude", "worktrees", req.Name); err != nil || path != want {
+		t.Errorf("from slot-1: path = %q, %v; want the pass-through %s", path, err, want)
 	}
 }
 
