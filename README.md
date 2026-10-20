@@ -2,8 +2,10 @@
 
 [![ci](https://github.com/weslo/upool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weslo/upool/actions/workflows/ci.yml?query=branch%3Amain)
 
-**Status: pre-alpha, nothing released yet.** The [roadmap](#-roadmap) shows where the build stands;
-the commands below describe upool once it installs from Homebrew.
+**Status: pre-alpha.** v0.1.0, the pool core, is on
+[GitHub Releases](https://github.com/weslo/upool/releases) but not yet on Homebrew. The
+[roadmap](#-roadmap) shows where the build stands; the commands below describe upool once it
+installs from Homebrew.
 
 upool keeps a small pool of pre-warmed Unity workspaces for each project and hands one to every
 coding-agent session, so the agent's Unity Editor opens in seconds instead of re-importing the
@@ -50,9 +52,9 @@ passes.
 |---|---|---|---|
 | ✅ Done | Bootstrap ([#1](https://github.com/weslo/upool/pull/1), [#7](https://github.com/weslo/upool/pull/7)) | The repository: design documents, spike captures, CI and the release pipeline | — |
 | ✅ Done | Planning ([#2](https://github.com/weslo/upool/issues/2), [#10](https://github.com/weslo/upool/pull/10)) | Each milestone below split into issues, listed in the [Build plan](https://github.com/weslo/upool/issues/107) | — |
-| 🚧 In progress | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
-| ⬜ Planned | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
-| ⬜ Planned | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `setup` and the worktree hooks that hand each session a slot, plus the skill and `run` | v0.2.0 |
+| ✅ Done | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
+| ✅ Done | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
+| 🚧 In progress | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `setup` and the worktree hooks that hand each session a slot, plus the skill and `run` | v0.2.0 |
 | ⬜ Planned | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ⬜ Planned | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh`, `prune`, the disk budget and `.upool.toml`, then the Homebrew release the Quickstart uses | v0.4.0 |
 

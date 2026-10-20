@@ -29,11 +29,14 @@ jobs:
             echo "CHANGELOG.md has no notes under ## [${GITHUB_REF_NAME#v}]" >&2
             exit 1
           fi
+      # Until the tap token exists (#104), a release publishes to GitHub Releases only (#146).
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean --release-notes ${{ runner.temp }}/release-notes.md
+          args: >-
+            release --clean --release-notes ${{ runner.temp }}/release-notes.md
+            ${{ secrets.HOMEBREW_TAP_TOKEN == '' && '--skip=homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Fine-grained token with contents write on weslo/homebrew-tap only.
