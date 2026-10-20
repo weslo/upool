@@ -529,3 +529,68 @@ func TestParseDuration(t *testing.T) {
 		}
 	}
 }
+
+// What init writes is read back as the repo layer, with a base that needs TOML quoting intact.
+func TestWriteRepoFileRoundTripsThroughLoad(t *testing.T) {
+	home, repo := tempDir(t), tempDir(t)
+	want := RepoFile{Ready: 2, MaxSlots: 4, Base: `release/"2026"`}
+	written, err := WriteRepoFile(repo, want)
+	if err != nil || !written {
+		t.Fatalf("WriteRepoFile = %v, %v, want true, nil", written, err)
+	}
+	c := load(t, Inputs{Repo: repo, Home: home})
+	got := RepoFile{Ready: c.Ready.Value, MaxSlots: c.MaxSlots.Value, Base: c.Base.Value}
+	if got != want {
+		t.Errorf("Load after WriteRepoFile = %+v, want %+v", got, want)
+	}
+	for key, src := range map[string]Source{
+		"ready": c.Ready.Source, "max_slots": c.MaxSlots.Source, "base": c.Base.Source,
+	} {
+		if src != Repo {
+			t.Errorf("%s source = %s, want %s", key, src, Repo)
+		}
+	}
+}
+
+func TestWriteRepoFileWritesTheRepoKeysInOrder(t *testing.T) {
+	repo := tempDir(t)
+	if _, err := WriteRepoFile(repo, RepoFile{Ready: 1, MaxSlots: 3, Base: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(RepoPath(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := repoFileHeader + "ready = 1\nmax_slots = 3\nbase = \"main\"\n"
+	if string(got) != want {
+		t.Errorf(".upool.toml = %q, want %q", got, want)
+	}
+	// RepoFile must keep up with the keys the repo file takes.
+	var keys []string
+	for _, line := range strings.Split(strings.TrimSpace(string(got)), "\n")[1:] {
+		key, _, _ := strings.Cut(line, " = ")
+		keys = append(keys, key)
+	}
+	if !slices.Equal(keys, repoKeys) {
+		t.Errorf("keys written = %q, want the repo file's keys %q", keys, repoKeys)
+	}
+}
+
+func TestWriteRepoFileLeavesAnExistingFileAlone(t *testing.T) {
+	repo := tempDir(t)
+	const existing = "# the team's\nready = 2\n"
+	writeRepo(t, repo, existing)
+	written, err := WriteRepoFile(repo, RepoFile{Ready: 1, MaxSlots: 3, Base: "main"})
+	if err != nil || written {
+		t.Errorf("WriteRepoFile over an existing file = %v, %v, want false, nil", written, err)
+	}
+	if got, err := os.ReadFile(RepoPath(repo)); err != nil || string(got) != existing {
+		t.Errorf(".upool.toml = %q, %v, want it unchanged: %q", got, err, existing)
+	}
+}
+
+func TestWriteRepoFileRefusesARelativeRepository(t *testing.T) {
+	if written, err := WriteRepoFile("project", RepoFile{}); err == nil || written {
+		t.Errorf("WriteRepoFile(project) = %v, %v, want false and an error", written, err)
+	}
+}

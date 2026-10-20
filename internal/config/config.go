@@ -205,6 +205,56 @@ func Load(in Inputs) (Config, error) {
 	return c, nil
 }
 
+// RepoFile is the repo file's keys, repoKeys, as `upool init` writes them: the values in effect
+// when it runs, base included, so that they are visible, editable and shared (A17).
+type RepoFile struct {
+	Ready    int    `toml:"ready"`
+	MaxSlots int    `toml:"max_slots"`
+	Base     string `toml:"base"`
+}
+
+// repoFileHeader opens the repo file WriteRepoFile writes.
+const repoFileHeader = "# upool's settings for this repository, written by upool init: " +
+	"https://github.com/weslo/upool\n"
+
+// WriteRepoFile writes f to the main checkout repo's .upool.toml, RepoPath(repo), unless that file
+// already exists, and reports whether it wrote it. An existing file is left as it is, whatever it
+// holds. A write that fails part-way removes the file, so the next run writes it whole.
+func WriteRepoFile(repo string, f RepoFile) (written bool, err error) {
+	if !filepath.IsAbs(repo) {
+		return false, fmt.Errorf("repository %q is not an absolute path", repo)
+	}
+	var b strings.Builder
+	b.WriteString(repoFileHeader)
+	if err := toml.NewEncoder(&b).Encode(f); err != nil {
+		return false, fmt.Errorf("encoding %s: %w", RepoPath(repo), err)
+	}
+	path := RepoPath(repo)
+	// O_EXCL makes "unless it exists" and the create one step, so a file that appears meanwhile is
+	// not overwritten either.
+	out, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if errors.Is(err, fs.ErrExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("writing %s: %w", path, err)
+	}
+	defer func() {
+		if err != nil {
+			// The write's error is the one worth reporting.
+			_ = out.Close()
+			_ = os.Remove(path)
+		}
+	}()
+	if _, err := out.WriteString(b.String()); err != nil {
+		return false, fmt.Errorf("writing %s: %w", path, err)
+	}
+	if err := out.Close(); err != nil {
+		return false, fmt.Errorf("closing %s: %w", path, err)
+	}
+	return true, nil
+}
+
 // file is either TOML file's contents. Every key is a pointer, so one the file leaves out is nil
 // and falls through to the next layer.
 type file struct {

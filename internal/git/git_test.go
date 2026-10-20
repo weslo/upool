@@ -75,6 +75,22 @@ func TestReadsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.HeadReachable(context.Background(), "/work/slot")
 			return err
 		}, []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)"}},
+		{"TopLevel", func(c Client) error {
+			_, err := c.TopLevel(context.Background(), "/work/slot")
+			return err
+		}, []string{"rev-parse", "--show-toplevel"}},
+		{"LsFiles", func(c Client) error {
+			_, err := c.LsFiles(context.Background(), "/work/slot", "Library/")
+			return err
+		}, []string{"ls-files", "-z", "--", "Library/"}},
+		{"CheckIgnore", func(c Client) error {
+			_, err := c.CheckIgnore(context.Background(), "/work/slot", ".claude/worktrees/slot-1")
+			return err
+		}, []string{"check-ignore", "-q", "--", ".claude/worktrees/slot-1"}},
+		{"SymbolicRef", func(c Client) error {
+			_, _, err := c.SymbolicRef(context.Background(), "/work/slot", "HEAD")
+			return err
+		}, []string{"symbolic-ref", "-q", "--short", "HEAD"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -227,6 +243,45 @@ func TestHeadReachableFollowsWhetherARefIsPrinted(t *testing.T) {
 	}
 }
 
+func TestLsFilesSplitsOnNUL(t *testing.T) {
+	c, _ := replying("Library/a b.asset\x00Library/c.asset\x00")
+	got, err := c.LsFiles(context.Background(), "/work/repo", "Library/")
+	want := []string{"Library/a b.asset", "Library/c.asset"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("LsFiles = %q, %v, want %q, nil", got, err, want)
+	}
+	c, _ = replying("Library/a.asset")
+	if got, err := c.LsFiles(context.Background(), "/work/repo"); err == nil {
+		t.Errorf("LsFiles without a final NUL = %q, nil, want an error", got)
+	}
+}
+
+func TestTopLevelTrimsOnlyTheNewline(t *testing.T) {
+	c, _ := replying("/work/my repo \n")
+	if got, err := c.TopLevel(context.Background(), "/work/my repo /Assets"); err != nil ||
+		got != "/work/my repo " {
+		t.Errorf("TopLevel = %q, %v, want %q, nil", got, err, "/work/my repo ")
+	}
+}
+
+// check-ignore and symbolic-ref -q answer with exit 0 or 1; exit 1 is "no", not a failure.
+func TestExitOneIsAnAnswerNotAnError(t *testing.T) {
+	for code, want := range map[int]bool{0: true, 1: false} {
+		r := &fakeRunner{res: Result{Stdout: []byte("main\n"), ExitCode: code}}
+		c := Client{Runner: r}
+		ignored, err := c.CheckIgnore(context.Background(), "/work/repo", "x")
+		if err != nil || ignored != want {
+			t.Errorf("exit %d: CheckIgnore = %v, %v, want %v, nil", code, ignored, err, want)
+		}
+		ref, ok, err := c.SymbolicRef(context.Background(), "/work/repo", "HEAD")
+		wantRef := map[bool]string{true: "main"}[want]
+		if err != nil || ok != want || ref != wantRef {
+			t.Errorf("exit %d: SymbolicRef = %q, %v, %v, want %q, %v, nil", code, ref, ok, err,
+				wantRef, want)
+		}
+	}
+}
+
 // A git call that exits non-zero is an error naming the call and carrying git's stderr, from every
 // read.
 func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
@@ -242,6 +297,22 @@ func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 		},
 		"HeadReachable": func(c Client) error {
 			_, err := c.HeadReachable(context.Background(), "/work/none")
+			return err
+		},
+		"TopLevel": func(c Client) error {
+			_, err := c.TopLevel(context.Background(), "/work/none")
+			return err
+		},
+		"LsFiles": func(c Client) error {
+			_, err := c.LsFiles(context.Background(), "/work/none")
+			return err
+		},
+		"CheckIgnore": func(c Client) error {
+			_, err := c.CheckIgnore(context.Background(), "/work/none", "x")
+			return err
+		},
+		"SymbolicRef": func(c Client) error {
+			_, _, err := c.SymbolicRef(context.Background(), "/work/none", "HEAD")
 			return err
 		},
 	}
