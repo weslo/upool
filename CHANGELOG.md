@@ -95,6 +95,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   line says so (a warning from `status` and `doctor`, progress from `take`). `status` and
   `doctor` therefore write `state.json` when they end a lease, and only then. state.json gains
   `reset_pending` in every lease; an older upool refuses the unknown key.
+- `upool take --confirm <path>` confirms the create hook's lease on the slot at path, matched by
+  its canonical path, as the SessionStart hook will run it: it takes the lease's git worktree lock
+  if the take did not, runs the deferred reset of a slot handed out from `needs-reset` (define-order
+  noise reverted, `git checkout --detach <base>`, `git clean -fd`, the cache key compared across
+  it), makes the lease `leased` and confirmed with upool's parent, the session's CLI, as its
+  holder, and replaces the slot's `CLAUDE.md`, `AGENTS.md`, `.agents/` and `.claude/` (all but
+  `.claude/worktrees`) with the main checkout's, copied with `cp -cR`, so an entry the main
+  checkout lacks goes and relative links stay relative. A confirmed lease confirms again and
+  re-copies again. It prints the slot's path; a path that is no leased slot exits 1, and so does
+  a slot owed a reset that is not clean, with nothing reset.
 
 ## [0.1.0] - 2026-10-20
 

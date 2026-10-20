@@ -31,7 +31,8 @@ func newInitEnv(t *testing.T, opts ...testenv.Option) *testenv.Env {
 
 // runIn runs upool with args in e, with dir as the working directory: the real command table,
 // e's environment, the test clock, and this process's ID, which a clone records as its slot's
-// owner and reads the start time of.
+// owner and reads the start time of, and its parent's, which take --confirm records as a lease's
+// holder.
 func runIn(t *testing.T, e *testenv.Env, dir string, args ...string) result {
 	t.Helper()
 	return runAt(t, e, dir, func() time.Time { return clock }, args...)
@@ -53,6 +54,7 @@ func runAt(t *testing.T, e *testenv.Env, dir string, now func() time.Time,
 		getwd:      func() (string, error) { return dir, nil },
 		now:        now,
 		pid:        os.Getpid(),
+		ppid:       os.Getppid(),
 		executable: os.Executable,
 	}
 	code := d.run(args)

@@ -20,14 +20,16 @@ import (
 )
 
 // takeUsage is take's usage line, which its handler also names when it refuses its arguments.
-// --lane and --confirm arrive with their own issues.
-const takeUsage = "take <name> [--base REF] [--holder ID] [--timeout S] [--no-create] [--json]"
+// --lane arrives with its own issue.
+const takeUsage = "take <name> [--base REF] [--holder ID] [--timeout S] [--no-create] [--json] " +
+	"| take --confirm <path> [--json]"
 
 // takeCommand is `upool take <name>`: it leases a ready slot of the pool containing the working
 // directory, or with none ready clones one up to max_slots unless --no-create, checks the branch
 // <name> out in it, and prints only the slot's path (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `take` row; docs/contracts.md (f) transitions 1 and 5;
-// A18; A19).
+// A18; A19). `take --confirm <path>` instead confirms the create hook's lease on the slot at path
+// (confirm.go).
 var takeCommand = command{
 	usage: takeUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -36,7 +38,13 @@ var takeCommand = command{
 		holder := fs.String("holder", "", "who holds the lease, recorded with it")
 		timeout := fs.Int("timeout", 0, "seconds to wait for a ready slot, retrying once a second")
 		noCreate := fs.Bool("no-create", false, "never clone a slot; only wait for a ready one")
+		confirmPath := fs.String("confirm", "", "confirm the create hook's lease on the slot at "+
+			"this path, run its deferred reset and refresh its agent files; with no branch name")
 		return func(inv *invocation) (any, []string, error) {
+			if *confirmPath != "" {
+				return confirm(inv, *confirmPath, *base != "" || *holder != "" ||
+					*timeout != 0 || *noCreate)
+			}
 			if len(inv.args) != 1 || inv.args[0] == "" {
 				return nil, nil, fmt.Errorf("take needs one branch name; usage: upool %s",
 					takeUsage)
