@@ -113,10 +113,10 @@ hook that never fired gets no file, and its row says so.
 |---|---|---|---|
 | `desktop-create-timeout.txt` | [M2 gate](../docs/manual-gates/M2.md), "Capture the M2 hook inputs", step 3 | **pending** | not hook stdin: a create hook's log and the desktop app's `main.log` for a worktree session whose create hook slept 30 s before printing its path, which shows whether the app waits that long and, if not, when it gives up (A11) |
 | `session-start-resume.json` | same, step 4 | **pending** | `SessionStart` of a desktop worktree session resumed after the app was quit and opened again, `source: "resume"`; the row says whether the hook's parent PID was the one `startup` logged, which shows whether a resumed session runs in a new CLI process (A14) |
-| `session-start-clear.json` | same, step 4 | **pending** | `SessionStart` after `/clear` in that session, `source: "clear"` (A14) |
-| `session-start-compact.json` | same, step 4 | **pending** | `SessionStart` after `/compact` in that session, `source: "compact"` (A14) |
-| `cli-session-remove.json` | same, step 5 | **pending** | `WorktreeRemove` when a logged-in interactive `claude --worktree` session in a scratch repository ends, or a note here that it never fired (A15) |
-| `cli-session-end.json` | same, step 5 | **pending** | `SessionEnd` when that session ends, or a note here that it never fired (A15) |
+| `session-start-clear.json` | same, step 5 | **pending** | `SessionStart` after `/clear` in the CLI session of step 5, `source: "clear"`; the desktop app's `/clear` sends none, starting a new CLI session whose `SessionStart` says `startup` (desktop app 3.1623.0, 2026-10-20) (A14) |
+| `session-start-compact.json` | same, step 4 | **pending** | `SessionStart` after `/compact` in that desktop session, `source: "compact"` (A14) |
+| `cli-session-remove.json` | same, step 5 | Claude Code 2.1.304 (the desktop app's bundled CLI), 2026-10-20 | `WorktreeRemove` when a logged-in interactive `claude --worktree a15-probe` session in a scratch repository ended with `/exit` and the worktree removed: unlike the desktop app's, its `cwd` is the worktree, not the main checkout, and it carries `prompt_id` and `scratchpad_dir`, so a `prompt_id` marks a subagent only on `WorktreeCreate` (A15) |
+| `cli-session-end.json` | same, step 5 | Claude Code 2.1.304, 2026-10-20 | `SessionEnd` of that session: `reason: "prompt_input_exit"`, `cwd` the main checkout though the session ran in the worktree, with `prompt_id` and `scratchpad_dir`. Quitting the desktop app ended each of its sessions with `reason: "other"` (A15) |
 
 The file names say what kind of request each one is. The test for hook classification
 (docs/contracts.md (a)) runs over every `.json` file here and checks each one against its name;

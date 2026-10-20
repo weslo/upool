@@ -33,9 +33,10 @@ const eventSessionEnd = "SessionEnd"
 // which the classification passes over (testdata/README.md, captures/hooks/).
 var logCaptures = map[string]bool{"desktop-create-timeout.txt": true}
 
-// Every capture's name says what it is, and decoding it says the same: its event, and for a
-// WorktreeCreate or WorktreeRemove who sent it (docs/contracts.md (a), "Telling the kinds apart";
-// testdata/README.md: this test runs over every file but the logs).
+// Every capture's name says what it is, and decoding it says the same: its event; for a
+// WorktreeCreate, who sent it (docs/contracts.md (a), "Telling the kinds apart"); and for a
+// WorktreeRemove, desktop or CLI by its transcript_path. testdata/README.md: this test runs over
+// every file but the logs.
 func TestClassifyEveryCapture(t *testing.T) {
 	entries, err := os.ReadDir(capturesDir)
 	if err != nil {
@@ -95,19 +96,25 @@ func TestClassifyEveryCapture(t *testing.T) {
 		if req.HookEventName != event {
 			t.Errorf("%s: hook_event_name = %q, want %q", entry.Name(), req.HookEventName, event)
 		}
-		got := req.Kind()
-		switch {
-		case (event == EventSessionStart || event == eventSessionEnd) &&
-			(got == Subagent) != (kind == Subagent):
-			// SessionStart and SessionEnd run in the CLI process, so transcript_path is set
-			// whoever the session is ((b)): they say only subagent or not.
-			t.Errorf("%s: kind = %s, want a %s", entry.Name(), got, kind)
-		case event != EventSessionStart && event != eventSessionEnd && got != kind:
-			t.Errorf("%s: kind = %s, want %s", entry.Name(), got, kind)
-		case kind == Subagent && !req.Corroborated():
-			t.Errorf("%s: a subagent's request without scratchpad_dir or an agent-<17 hex> "+
-				"name: %+v", entry.Name(), req)
+		switch event {
+		case EventWorktreeCreate:
+			if got := req.Kind(); got != kind {
+				t.Errorf("%s: kind = %s, want %s", entry.Name(), got, kind)
+			} else if kind == Subagent && !req.Corroborated() {
+				t.Errorf("%s: a subagent's request without scratchpad_dir or an agent-<17 hex> "+
+					"name: %+v", entry.Name(), req)
+			}
+		case EventWorktreeRemove:
+			// A remove comes from a session, never a subagent (spike §9 F.3), and the CLI's
+			// carries a prompt_id, so only transcript_path tells desktop from CLI.
+			if desktop := req.TranscriptPath == ""; desktop != (kind == DesktopSession) {
+				t.Errorf("%s: transcript_path %q, want a %s's", entry.Name(),
+					req.TranscriptPath, kind)
+			}
 		}
+		// SessionStart and SessionEnd run in the CLI process, so transcript_path is set whoever
+		// the session is ((b)), and they carry a prompt_id after a prompt: their names say only
+		// the event.
 	}
 }
 

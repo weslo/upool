@@ -1,0 +1,9 @@
+{
+  "session_id": "974c9e54-9ddf-4760-9a66-4d25ffe4ca13",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-a15-probe/974c9e54-9ddf-4760-9a66-4d25ffe4ca13.jsonl",
+  "cwd": "${repo}/.claude/worktrees/a15-probe",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}/974c9e54-9ddf-4760-9a66-4d25ffe4ca13/scratchpad",
+  "prompt_id": "1cf726a9-54ef-4aa4-ad80-f2cf6da97eec",
+  "hook_event_name": "WorktreeRemove",
+  "worktree_path": "${repo}/.claude/worktrees/a15-probe"
+}

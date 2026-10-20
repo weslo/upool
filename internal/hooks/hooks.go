@@ -72,10 +72,11 @@ const (
 	CLISession     Kind = "CLI session"
 )
 
-// Kind returns who sent a WorktreeCreate or WorktreeRemove request: a subagent if it has a
-// prompt_id, a desktop session if its transcript_path is empty, and otherwise a CLI session
-// (docs/contracts.md (a), "Telling the kinds apart"). A SessionStart request cannot be told apart
-// this way, since its transcript_path is always set ((b)).
+// Kind returns who sent a WorktreeCreate request: a subagent if it has a prompt_id, a desktop
+// session if its transcript_path is empty, and otherwise a CLI session (docs/contracts.md (a),
+// "Telling the kinds apart"). Only WorktreeCreate can be read this way: the CLI's own
+// WorktreeRemove and SessionEnd carry a prompt_id too (testdata/captures/hooks/cli-session-*.json),
+// and SessionStart's transcript_path is always set ((b)).
 func (r Request) Kind() Kind {
 	switch {
 	case r.PromptID != "":
