@@ -1,0 +1,301 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/testenv"
+)
+
+// The tests of `upool doctor`. The harness pool is made by hand rather than by init, so that the
+// tests run everywhere: a testenv repository whose .gitignore ignores .claude/worktrees, two slots
+// made with `git worktree add --detach`, and the pool registered with both ready, as init and a
+// later clone would leave it. The clone-sharing check runs only on macOS.
+
+// doctorPool is a harness pool.
+type doctorPool struct {
+	*testenv.Env
+	key string
+}
+
+// slot returns the path of the harness pool's slot name.
+func (p doctorPool) slot(name string) string {
+	return p.Path(".claude/worktrees/" + name)
+}
+
+// newDoctorPool makes a harness pool with slot-1 and slot-2, both ready and unleased.
+func newDoctorPool(t *testing.T) doctorPool {
+	t.Helper()
+	return doctorPoolIn(t, newInitEnv(t))
+}
+
+// doctorPoolIn makes e's repository a harness pool, as newDoctorPool does.
+func doctorPoolIn(t *testing.T, e *testenv.Env) doctorPool {
+	t.Helper()
+	p := doctorPool{Env: e}
+	p.WriteFile(".gitignore", readFile(t, p.Env, ".gitignore")+worktreesLine+"\n")
+	var slots []pool.Slot
+	for _, name := range []string{"slot-1", "slot-2"} {
+		p.Git("worktree", "add", "-q", "--detach", p.slot(name), testenv.Base)
+		slots = append(slots, pool.Slot{Name: name, Path: p.slot(name), State: pool.StateReady,
+			SeedHead: p.Head, LastUsed: clock})
+	}
+	reg, err := registry.Add(t.Context(), p.Home, p.Repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.key = reg.Key
+	p.update(t, func(pl *pool.Pool) {
+		pl.Repo, pl.Base, pl.Slots = p.Repo, testenv.Base, slots
+	})
+	return p
+}
+
+// update changes the harness pool's state.json with f.
+func (p doctorPool) update(t *testing.T, f func(*pool.Pool)) {
+	t.Helper()
+	err := pool.Update(t.Context(), p.Home, p.key, func(pl *pool.Pool) error {
+		f(pl)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// doctorChecks returns the checks a doctor run reported, from its --json envelope, and fails the
+// test unless the envelope's success matches the exit code.
+func doctorChecks(t *testing.T, r result) []doctorCheck {
+	t.Helper()
+	env := decode(t, r.stdout)
+	if env.Success != (r.code == output.ExitOK) || env.Command != "doctor" {
+		t.Fatalf("envelope = %+v with exit %d, want doctor's, succeeding exactly when it exits 0",
+			env, r.code)
+	}
+	data, _ := json.Marshal(env.Data) // it was decoded from JSON, so it encodes
+	var report doctorReport
+	if err := json.Unmarshal(data, &report); err != nil {
+		t.Fatal(err)
+	}
+	return report.Checks
+}
+
+// wantChecks are the checks a healthy harness pool reports, in order.
+func wantChecks() []string {
+	names := []string{checkGitignore, checkLibrary, "slot-1", "slot-2"}
+	if runtime.GOOS == "darwin" {
+		names = append(names, checkCloneSharing)
+	}
+	return append(names, checkStateVolume, checkLeases)
+}
+
+// checkResults fails the test unless checks are wantChecks, in order, each passing but the one
+// named in odd, which has that result and a reason containing reason.
+func checkResults(t *testing.T, checks []doctorCheck, odd string, result checkResult,
+	reason string) {
+	t.Helper()
+	var names []string
+	for _, c := range checks {
+		names = append(names, c.Name)
+		switch {
+		case c.Name == odd && (c.Result != result || !strings.Contains(c.Reason, reason)):
+			t.Errorf("%s: %s, %q; want %s, with a reason containing %q", c.Name, c.Result,
+				c.Reason, result, reason)
+		case c.Name != odd && c.Result != checkPass:
+			t.Errorf("%s: %s, %q; want pass", c.Name, c.Result, c.Reason)
+		}
+	}
+	if want := wantChecks(); strings.Join(names, " ") != strings.Join(want, " ") {
+		t.Errorf("checks = %v, want %v", names, want)
+	}
+}
+
+func TestDoctorPassesAHealthyPool(t *testing.T) {
+	p := newDoctorPool(t)
+	for _, dir := range []string{p.Repo, p.Path("Assets/Scripts"), p.slot("slot-2")} {
+		r := runIn(t, p.Env, dir, "doctor", "--json")
+		if r.code != output.ExitOK || r.stderr != "" {
+			t.Errorf("from %s: exit = %d, stderr = %q, want 0 and empty", dir, r.code, r.stderr)
+		}
+		checkResults(t, doctorChecks(t, r), "", "", "")
+	}
+
+	r := runIn(t, p.Env, p.Repo, "doctor")
+	lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
+	if lines[0] != p.Repo || len(lines) != 1+len(wantChecks()) {
+		t.Fatalf("stdout =\n%s\nwant the main checkout, then a line per check", r.stdout)
+	}
+	for i, name := range wantChecks() {
+		if f := strings.Fields(lines[i+1]); len(f) < 3 || f[0] != "pass" || f[1] != name {
+			t.Errorf("line %d = %q, want pass, %s and its reason", i+2, lines[i+1], name)
+		}
+	}
+}
+
+// Each precondition the issue names fails its own check, and only that check; doctor then exits
+// 1 and names it.
+func TestDoctorFailsEachBrokenPrecondition(t *testing.T) {
+	tests := []struct {
+		name   string
+		breaks func(t *testing.T, p doctorPool)
+		check  string
+		reason string
+	}{
+		{"a tracked Library", func(_ *testing.T, p doctorPool) {
+			p.Git("add", "-f", "Library/ArtifactDB")
+			p.Git("commit", "-q", "-m", "track the Library")
+		}, checkLibrary, "such as Library/ArtifactDB: untrack Library/"},
+		{"no .gitignore entry", func(t *testing.T, p doctorPool) {
+			p.WriteFile(".gitignore", strings.Replace(readFile(t, p.Env, ".gitignore"),
+				worktreesLine+"\n", "", 1))
+		}, checkGitignore, "git does not ignore .claude/worktrees: add .claude/worktrees/ to " +
+			".gitignore"},
+		{"a slot removed with git worktree remove", func(_ *testing.T, p doctorPool) {
+			p.Git("worktree", "remove", p.slot("slot-2"))
+		}, "slot-2", "is not on disk; git worktree list does not list it"},
+		{"a slot whose directory was deleted", func(t *testing.T, p doctorPool) {
+			if err := os.RemoveAll(p.slot("slot-2")); err != nil {
+				t.Fatal(err)
+			}
+		}, "slot-2", "is not on disk"},
+		{"a slot whose .git points elsewhere", func(_ *testing.T, p doctorPool) {
+			p.WriteFile(".claude/worktrees/slot-2/.git", "gitdir: "+p.Home+"\n")
+		}, "slot-2", "points to " + "HOME, outside"},
+		{"a slot that is a file", func(t *testing.T, p doctorPool) {
+			p.Git("worktree", "remove", p.slot("slot-2"))
+			p.WriteFile(".claude/worktrees/slot-2", "not a slot\n")
+		}, "slot-2", "is not a directory; git worktree list does not list it"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newDoctorPool(t)
+			tt.breaks(t, p)
+			reason := strings.ReplaceAll(tt.reason, "HOME", p.Home)
+			r := runIn(t, p.Env, p.Repo, "doctor", "--json")
+			if r.code != output.ExitFailure {
+				t.Errorf("exit = %d, want %d", r.code, output.ExitFailure)
+			}
+			env := decode(t, r.stdout)
+			want := "1 of " + strconv.Itoa(len(wantChecks())) + " checks failed: " + tt.check
+			if len(env.Errors) != 1 || env.Errors[0].Message != want ||
+				env.Errors[0].Code != string(output.CodeCommandFailed) {
+				t.Errorf("errors = %+v, want one COMMAND_FAILED, %q", env.Errors, want)
+			}
+			checkResults(t, doctorChecks(t, r), tt.check, checkFail, reason)
+
+			r = runIn(t, p.Env, p.Repo, "doctor")
+			if r.code != output.ExitFailure || r.stderr != "upool: "+want+"\n" ||
+				!strings.Contains(r.stdout, "\nfail  ") {
+				t.Errorf("exit = %d, stdout %q, stderr %q; want 1, a fail line, and %q",
+					r.code, r.stdout, r.stderr, want)
+			}
+		})
+	}
+}
+
+// A lease with no holder PID warns once it is older than agent_ttl, from the configuration; one
+// with a holder PID, or a younger one, does not. A warning alone exits 0.
+func TestDoctorWarnsAboutALeaseWithNoHolderPIDOlderThanAgentTTL(t *testing.T) {
+	pid := 4242
+	lease := func(holder string, age time.Duration, holderPID *int) *pool.Lease {
+		return &pool.Lease{LeaseID: "id-" + holder, Holder: holder, HolderPID: holderPID,
+			AcquiredAt: clock.Add(-age), Confirmed: true, Lane: "script"}
+	}
+	tests := []struct {
+		name           string
+		ttl            string
+		lease1, lease2 *pool.Lease
+		result         checkResult
+		reason         string
+	}{
+		{"older than the default 24h", "", lease("alice", 25*time.Hour, nil),
+			lease("bob", 72*time.Hour, &pid), checkWarn,
+			"leased with no holder PID for longer than agent_ttl (1d): slot-1 (alice, 1d1h); " +
+				"release each once its work is done"},
+		{"younger than the default", "", lease("alice", 23*time.Hour, nil), nil, checkPass,
+			"no lease without a holder PID is older than agent_ttl (1d)"},
+		{"older than a configured agent_ttl", "1h", lease("", 90*time.Minute, nil),
+			lease("bob", 2*time.Hour, nil), checkWarn, "agent_ttl (1h): slot-1 (no holder, " +
+				"1h30m), slot-2 (bob, 2h)"},
+		{"younger than a configured agent_ttl", "2d", lease("alice", 25*time.Hour, nil), nil,
+			checkPass, "older than agent_ttl (2d)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newDoctorPool(t)
+			if tt.ttl != "" {
+				p.Setenv(config.EnvName("agent_ttl"), tt.ttl)
+			}
+			p.update(t, func(pl *pool.Pool) {
+				pl.Slots[0].State, pl.Slots[0].Lease = pool.StateLeased, tt.lease1
+				if tt.lease2 != nil {
+					pl.Slots[1].State, pl.Slots[1].Lease = pool.StateLeased, tt.lease2
+				}
+			})
+			r := runIn(t, p.Env, p.Repo, "doctor", "--json")
+			if r.code != output.ExitOK {
+				t.Errorf("exit = %d, want %d", r.code, output.ExitOK)
+			}
+			odd := ""
+			if tt.result != checkPass {
+				odd = checkLeases
+			}
+			checks := doctorChecks(t, r)
+			checkResults(t, checks, odd, tt.result, tt.reason)
+			if c := checks[len(checks)-1]; !strings.Contains(c.Reason, tt.reason) {
+				t.Errorf("leases reason = %q, want it to contain %q", c.Reason, tt.reason)
+			}
+		})
+	}
+}
+
+// ~/.upool inside a cloud-synced folder, here through a symlink, warns: the lock is advisory there.
+func TestDoctorWarnsWhenStateIsInACloudSyncedFolder(t *testing.T) {
+	e := newInitEnv(t)
+	cloud := filepath.Join(e.Home, "Library", "CloudStorage", "Dropbox", "upool")
+	if err := os.MkdirAll(cloud, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(cloud, filepath.Join(e.Home, ".upool")); err != nil {
+		t.Fatal(err)
+	}
+	p := doctorPoolIn(t, e)
+	r := runIn(t, p.Env, p.Repo, "doctor", "--json")
+	if r.code != output.ExitOK {
+		t.Errorf("exit = %d, want %d", r.code, output.ExitOK)
+	}
+	checkResults(t, doctorChecks(t, r), checkStateVolume, checkWarn,
+		"~/.upool resolves to "+cloud+", inside ~/Library/CloudStorage, which a cloud service "+
+			"syncs: flock is advisory there")
+}
+
+func TestDoctorOutsideAPoolFails(t *testing.T) {
+	p := newDoctorPool(t)
+	outside := filepath.Dir(p.Repo)
+	r := runIn(t, p.Env, outside, "doctor")
+	want := "upool: " + outside + " is not inside a registered pool; run upool doctor in a " +
+		"pool's checkout or slot\n"
+	if r.code != output.ExitFailure || r.stdout != "" || r.stderr != want {
+		t.Errorf("exit = %d, stdout %q, stderr %q; want 1, nothing, and %q", r.code, r.stdout,
+			r.stderr, want)
+	}
+}
+
+func TestDoctorRefusesArguments(t *testing.T) {
+	p := newDoctorPool(t)
+	r := runIn(t, p.Env, p.Repo, "doctor", "slot-1")
+	if r.code != output.ExitFailure || !strings.Contains(r.stderr,
+		`unexpected arguments ["slot-1"]; usage: upool doctor [--json]`) {
+		t.Errorf("exit = %d, stderr %q; want 1 and the usage", r.code, r.stderr)
+	}
+}

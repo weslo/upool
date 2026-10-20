@@ -179,3 +179,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `DiffSides`, the index's and the worktree's versions of a file read through one full-context
   `git diff` (so the rule needs nothing but git, as the remove hook will), and `CheckoutPath`.
   Nothing calls them yet; `release` and the remove hook will.
+- `upool doctor [--json]` checks the pool containing the working directory, found as `status`
+  finds it, and prints the main checkout and then one line per check: `pass`, `warn` or `fail`,
+  its name and a one-line reason. Any failure exits 1 with `COMMAND_FAILED` naming the failed
+  checks; a warning alone exits 0. `--json` gives `repo` and `checks`, each with `name`, `result`
+  and `reason`. The checks are:
+  - `gitignore`: git ignores `.claude/worktrees`.
+  - `library`: git tracks nothing under `Library/`.
+  - one per slot: the slot is a directory on disk, `git worktree list` lists it, and its `.git`
+    points back into the main checkout's `.git/worktrees/`. `creating` slots are skipped.
+  - `clone-sharing`, on macOS only: `.claude/worktrees` is on APFS and on the main checkout's
+    device, and a `cp -c` clone of a 128 MB scratch file there costs less than half of it in free
+    space: the median of three clones, so that one disturbed by other disk activity does not
+    decide. Every scratch file is removed afterwards.
+  - `state-volume`: warns when `~/.upool` resolves into `~/Library/CloudStorage` or
+    `~/Library/Mobile Documents`, or, on macOS, sits on a network volume, where `flock` is advisory.
+  - `leases`: warns about a lease with no holder PID older than `agent_ttl`.
+
+  Outside every registered pool, doctor exits 1. `internal/paths` gains `StatVolume` (macOS), and
+  `internal/clone` gains `ProbeSharing` (macOS) and exports `CheckBacklink`. Usage now lists
+  doctor.
