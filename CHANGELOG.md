@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `upool setup` installs the three hook scripts, `worktree-create.sh`, `worktree-remove.sh` and
+  `session-start.sh`, in `~/.upool/hooks` (mode 0700, scripts 0755), and writes
+  `~/.config/upool/config.toml`, a comment naming every key, when there is none. Each script is
+  POSIX sh that execs `upool hook <event>` by the path this binary was found through on `PATH`,
+  symlinks kept, so a Homebrew install's `/opt/homebrew/bin/upool` survives `brew upgrade`. setup
+  refuses when no `upool` on `PATH` is the binary running, and when `HOME` is in a `Documents`,
+  `Desktop` or `Downloads` folder, where the desktop app's hook helper cannot run the scripts. A
+  second run rewrites only what changed and says what it did to each file; `--json` reports the
+  same. Registering the hooks in `~/.claude/settings.json` is still to come (#67), and the hook
+  handlers are still stubs.
+
 ## [0.1.0] - 2026-10-20
 
 ### Added

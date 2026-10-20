@@ -20,6 +20,7 @@ var commandTable = map[string]command{
 	"init":    initCommand,
 	"path":    pathCommand,
 	"release": releaseCommand,
+	"setup":   setupCommand,
 	"status":  statusCommand,
 	"take":    takeCommand,
 	"which":   whichCommand,
@@ -44,20 +45,21 @@ func main() {
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
 // exit code. The rest of the boundary, the clock, the working directory, the environment's full
-// list and the process ID, it takes from the process; a test of a command that reads them builds
-// a dispatcher with its own.
+// list, the process ID and the binary's path, it takes from the process; a test of a command that
+// reads them builds a dispatcher with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
-		commands: commandTable,
-		hooks:    hookTable,
-		stdin:    stdin,
-		stdout:   stdout,
-		stderr:   stderr,
-		getenv:   getenv,
-		environ:  os.Environ,
-		getwd:    os.Getwd,
-		now:      time.Now,
-		pid:      os.Getpid(),
+		commands:   commandTable,
+		hooks:      hookTable,
+		stdin:      stdin,
+		stdout:     stdout,
+		stderr:     stderr,
+		getenv:     getenv,
+		environ:    os.Environ,
+		getwd:      os.Getwd,
+		now:        time.Now,
+		pid:        os.Getpid(),
+		executable: os.Executable,
 	}
 	return d.run(args)
 }

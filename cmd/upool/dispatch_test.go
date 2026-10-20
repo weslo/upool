@@ -68,9 +68,10 @@ func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 			}
 			return entries
 		},
-		getwd: func() (string, error) { return env["PWD"], nil },
-		now:   func() time.Time { return clock },
-		pid:   testPID,
+		getwd:      func() (string, error) { return env["PWD"], nil },
+		now:        func() time.Time { return clock },
+		pid:        testPID,
+		executable: os.Executable,
 	}
 	code := d.run(args)
 	return result{code, out.String(), errOut.String()}

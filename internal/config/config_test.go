@@ -594,3 +594,51 @@ func TestWriteRepoFileRefusesARelativeRepository(t *testing.T) {
 		t.Errorf("WriteRepoFile(project) = %v, %v, want false and an error", written, err)
 	}
 }
+
+// What setup writes sets nothing: Load reads it back with every setting from its default, and it
+// names every key, so that a user reading it learns what can be set.
+func TestWriteUserFileNamesEveryKeyAndSetsNone(t *testing.T) {
+	home := tempDir(t)
+	written, err := WriteUserFile(home)
+	if err != nil || !written {
+		t.Fatalf("WriteUserFile = %v, %v, want true, nil", written, err)
+	}
+	c := load(t, Inputs{Home: home})
+	if c.Ready.Source != Default || c.Base.Source != Unset || c.MaxEditors.Source != Unset {
+		t.Errorf("sources after WriteUserFile = ready %s, base %s, max_editors %s, want default, "+
+			"unset, unset", c.Ready.Source, c.Base.Source, c.MaxEditors.Source)
+	}
+	got, err := os.ReadFile(UserPath(home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(strings.TrimSuffix(string(got), "\n"), "\n") {
+		if line != "#" && !strings.HasPrefix(line, "# ") {
+			t.Errorf("config.toml line %q is not a comment", line)
+		}
+	}
+	for _, key := range keys {
+		if !strings.Contains(string(got), "#   "+key+" ") {
+			t.Errorf("config.toml does not name %s", key)
+		}
+	}
+}
+
+func TestWriteUserFileLeavesAnExistingFileAlone(t *testing.T) {
+	home := tempDir(t)
+	const existing = "max_slots = 5\n"
+	writeUser(t, home, existing)
+	written, err := WriteUserFile(home)
+	if err != nil || written {
+		t.Errorf("WriteUserFile over an existing file = %v, %v, want false, nil", written, err)
+	}
+	if got, err := os.ReadFile(UserPath(home)); err != nil || string(got) != existing {
+		t.Errorf("config.toml = %q, %v, want it unchanged: %q", got, err, existing)
+	}
+}
+
+func TestWriteUserFileRefusesARelativeHome(t *testing.T) {
+	if written, err := WriteUserFile("home"); err == nil || written {
+		t.Errorf("WriteUserFile(home) = %v, %v, want false and an error", written, err)
+	}
+}
