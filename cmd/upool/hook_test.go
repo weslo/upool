@@ -138,3 +138,46 @@ func TestHookWorktreeRemoveMarksTheTakenSlot(t *testing.T) {
 		t.Errorf("slot-1 = %+v, want needs-reset with no lease", s)
 	}
 }
+
+// Through the dispatcher, the create hook's pass-through worktree for a desktop session in a
+// repository upool does not manage is removed again by the remove hook on the session's archive,
+// both exiting 0 (#72, #74).
+func TestHookRemovesThePassThroughWorktreeItMade(t *testing.T) {
+	e := testenv.New(t)
+	hook := func(event, capture, worktree string) (int, string, string) {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "hooks", capture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		stdin, err := pathvars.Fill(string(b), pathvars.Var{Name: "repo", Path: e.Repo})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if worktree != "" {
+			stdin = strings.Replace(stdin, filepath.Join(e.Repo, ".claude", "worktrees", "slot-1"),
+				worktree, 1)
+		}
+		var out, errOut bytes.Buffer
+		d := dispatcher{commands: commandTable, hooks: hookTable, stdin: strings.NewReader(stdin),
+			stdout: &out, stderr: &errOut, getenv: e.Getenv, environ: e.Environ,
+			now: func() time.Time { return clock }, pid: os.Getpid()}
+		return d.run([]string{"hook", event}), out.String(), errOut.String()
+	}
+	code, out, errOut := hook("worktree-create", "desktop-session-create.json", "")
+	path := strings.TrimSuffix(out, "\n")
+	if code != output.ExitOK || errOut != "" {
+		t.Fatalf("create: exit = %d, stderr %q; want %d and nothing", code, errOut, output.ExitOK)
+	}
+	code, out, errOut = hook("worktree-remove", "desktop-session-remove.json", path)
+	if code != output.ExitOK || out != path+"\n" || errOut != "" {
+		t.Errorf("remove: exit = %d, stdout %q, stderr %q; want %d, %q and nothing", code, out,
+			errOut, output.ExitOK, path+"\n")
+	}
+	if _, err := os.Lstat(path); err == nil {
+		t.Errorf("%s is still on disk", path)
+	}
+	if got := e.Git("worktree", "list", "--porcelain"); strings.Contains(got, path) {
+		t.Errorf("git worktree list = %q, want %s gone", got, path)
+	}
+}

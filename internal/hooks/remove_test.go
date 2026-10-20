@@ -205,8 +205,8 @@ func TestRemoveFindsTheSlotByItsLowercasedPath(t *testing.T) {
 	h.checkEnded(t, "slot-1", pool.StateNeedsReset)
 }
 
-// A path that is no pool's slot is left alone, and the hook succeeds, so the app's removal goes on
-// (#74 handles pass-through worktrees); with no registry at all it is the same.
+// A path that is no pool's slot and is already gone leaves nothing to remove, and the hook
+// succeeds, so the app's removal goes on; with no registry at all it is the same.
 func TestRemoveUnknownPathExitsZero(t *testing.T) {
 	for name, register := range map[string]bool{"in a pool": true, "with no pool": false} {
 		t.Run(name, func(t *testing.T) {
@@ -251,4 +251,158 @@ func TestRemoveRefusesWhatItCannotEnd(t *testing.T) {
 	if s := h.slot(t, "slot-1"); s.State != pool.StateReady || !s.LastUsed.Equal(before) {
 		t.Errorf("slot-1 = %s, last_used %s; want it ready and unchanged", s.State, s.LastUsed)
 	}
+}
+
+// probeWorktree makes the spike's probe worktree in h, the sibling worktree a project-scope create
+// hook made for desktop-probe-create.json, on the branch that hook's name gives it, and returns
+// desktop-probe-remove.json filled with h's paths, whose worktree_path it is.
+func (h harness) probeWorktree(t *testing.T) Request {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(capturesDir, "desktop-probe-remove.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := pathvars.Fill(string(b), pathvars.Var{Name: "home", Path: h.e.Home},
+		pathvars.Var{Name: "repo", Path: h.e.Repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := Decode(strings.NewReader(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.e.Git("worktree", "add", "-q", "-b", "shell-command-output-8ff578", req.WorktreePath)
+	return req
+}
+
+// checkGone fails the test unless the worktree at path is neither on disk nor in git's list, and
+// branch, which it was on, is still there.
+func (h harness) checkGone(t *testing.T, path, branch string) {
+	t.Helper()
+	if _, ok := h.worktree(t, path); ok {
+		t.Errorf("git still lists %s", path)
+	}
+	if _, err := os.Lstat(path); err == nil {
+		t.Errorf("%s is still on disk", path)
+	}
+	if got := strings.TrimSpace(h.e.Git("branch", "--list", branch)); got != branch {
+		t.Errorf("git branch --list %s = %q, want the branch kept", branch, got)
+	}
+}
+
+// The acceptance test of #74, a clean worktree: the remove of desktop-probe-remove.json, pointed at
+// a clean pass-through worktree, removes it with `git worktree remove`, and the branch keeps the
+// commit made in it (A22).
+func TestRemovePassThroughRemovesACleanWorktree(t *testing.T) {
+	h := newHarness(t, false)
+	req := h.probeWorktree(t)
+	h.e.Git("-C", req.WorktreePath, "commit", "-q", "--allow-empty", "-m", "Work on the branch")
+	commit := strings.TrimSpace(h.e.Git("-C", req.WorktreePath, "rev-parse", "HEAD"))
+	h.remove(t, req, req.WorktreePath)
+	h.checkGone(t, req.WorktreePath, "shell-command-output-8ff578")
+	branch := strings.TrimSpace(h.e.Git("rev-parse", "shell-command-output-8ff578"))
+	if got := branch; got != commit {
+		t.Errorf("the branch is at %s, want the worktree's commit %s", got, commit)
+	}
+	if h.stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", h.stderr)
+	}
+}
+
+// The acceptance test of #74, a dirty worktree: an untracked file keeps the worktree, file and all,
+// and stderr says why; the hook still succeeds (A22).
+func TestRemovePassThroughKeepsADirtyWorktree(t *testing.T) {
+	h := newHarness(t, false)
+	req := h.probeWorktree(t)
+	notes := filepath.Join(req.WorktreePath, "notes.txt")
+	if err := os.WriteFile(notes, []byte("keep me\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.remove(t, req, req.WorktreePath)
+	if _, ok := h.worktree(t, req.WorktreePath); !ok {
+		t.Errorf("git no longer lists %s", req.WorktreePath)
+	}
+	if _, err := os.Stat(notes); err != nil {
+		t.Errorf("notes.txt: %v, want it kept", err)
+	}
+	want := "upool: kept " + req.WorktreePath + ", which is dirty: ?? notes.txt\n"
+	if h.stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", h.stderr, want)
+	}
+}
+
+// Define-order noise alone counts as clean: it is reverted and the worktree removed. A commit on a
+// detached HEAD is on no branch, so the worktree is kept.
+func TestRemovePassThroughJudgesCleanAsSlotsAre(t *testing.T) {
+	t.Run("define-order noise", func(t *testing.T) {
+		h := newHarness(t, false)
+		req := h.probeWorktree(t)
+		asset := filepath.Join(req.WorktreePath, pool.SettingsAsset)
+		b, err := os.ReadFile(asset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reordered := strings.Replace(string(b), capturedBefore, capturedAfter, 1)
+		if err := os.WriteFile(asset, []byte(reordered), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		h.remove(t, req, req.WorktreePath)
+		h.checkGone(t, req.WorktreePath, "shell-command-output-8ff578")
+	})
+	t.Run("a commit on no branch", func(t *testing.T) {
+		h := newHarness(t, false)
+		req := h.probeWorktree(t)
+		h.e.Git("-C", req.WorktreePath, "checkout", "-q", "--detach")
+		h.e.Git("-C", req.WorktreePath, "commit", "-q", "--allow-empty", "-m", "On no branch")
+		h.remove(t, req, req.WorktreePath)
+		if _, ok := h.worktree(t, req.WorktreePath); !ok {
+			t.Errorf("git no longer lists %s", req.WorktreePath)
+		}
+		if !strings.HasSuffix(h.stderr.String(), "which is dirty: HEAD is on no branch\n") {
+			t.Errorf("stderr = %q, want it to say HEAD is on no branch", h.stderr)
+		}
+	})
+}
+
+// The pass-through branch's own worktree, made for a desktop session in a repository upool does
+// not manage, is removed again on the session's archive: the two branches of the hook undo each
+// other.
+func TestRemovePassThroughUndoesTheCreate(t *testing.T) {
+	h := newHarness(t, false)
+	create := h.capture(t, "desktop-session-create.json")
+	path, err := WorktreeCreate(context.Background(), h.env, create)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remove := h.capture(t, "desktop-session-remove.json")
+	remove.WorktreePath = path
+	h.remove(t, remove, path)
+	h.checkGone(t, path, create.Name)
+}
+
+// git's own refusals stand: a directory that is no worktree, and a locked worktree, are left as
+// they are, and the error is the hook's to put on stderr.
+func TestRemovePassThroughLeavesWhatGitRefuses(t *testing.T) {
+	t.Run("not a worktree", func(t *testing.T) {
+		h := newHarness(t, false)
+		req := h.probeWorktree(t)
+		req.WorktreePath = filepath.Join(h.e.Repo, "Assets")
+		if got, err := WorktreeRemove(context.Background(), h.env, req); err == nil {
+			t.Errorf("WorktreeRemove = %q, want git's refusal", got)
+		}
+		if _, err := os.Stat(filepath.Join(h.e.Repo, "Assets")); err != nil {
+			t.Errorf("Assets: %v, want it left alone", err)
+		}
+	})
+	t.Run("locked", func(t *testing.T) {
+		h := newHarness(t, false)
+		req := h.probeWorktree(t)
+		h.e.Git("worktree", "lock", req.WorktreePath)
+		if got, err := WorktreeRemove(context.Background(), h.env, req); err == nil {
+			t.Errorf("WorktreeRemove = %q, want git's refusal", got)
+		}
+		if _, ok := h.worktree(t, req.WorktreePath); !ok {
+			t.Errorf("git no longer lists %s", req.WorktreePath)
+		}
+	})
 }

@@ -31,8 +31,7 @@ var commandTable = map[string]command{
 
 // hookTable is the events `upool hook <event>` handles, one per hook script that `upool setup`
 // installs; failExit follows docs/contracts.md (d). worktree-create refuses a session in a pool
-// until #78, worktree-remove leaves a path that is no slot alone until #74, and session-start is a
-// stub until its M2 issue.
+// until #78, and session-start is a stub until its M2 issue.
 var hookTable = map[string]hook{
 	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
 	"worktree-remove": {handle: worktreeRemove, failExit: output.ExitOK},
