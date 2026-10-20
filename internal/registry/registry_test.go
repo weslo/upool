@@ -213,6 +213,22 @@ func TestLookupOfMissingRegistryFindsNothing(t *testing.T) {
 	}
 }
 
+func TestListReturnsEveryRepoInTheOrderAdded(t *testing.T) {
+	home := tempDir(t)
+	got, err := List(home)
+	if err != nil || len(got) != 0 {
+		t.Errorf("List of a missing registry = %+v, %v, want no repos and nil", got, err)
+	}
+	if des, err := os.ReadDir(home); err != nil || len(des) != 0 {
+		t.Errorf("home holds %d entries after List (%v), want none", len(des), err)
+	}
+	want := []Repo{add(t, home, checkout(t)), add(t, home, checkout(t))}
+	got, err = List(home)
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("List = %+v, %v, want %+v, nil", got, err, want)
+	}
+}
+
 func TestLookupIsAnExactMatch(t *testing.T) {
 	home, dir := tempDir(t), checkout(t)
 	add(t, home, dir)
@@ -251,6 +267,8 @@ func TestNewerSchemaVersionIsRefused(t *testing.T) {
 	}
 	_, _, err := Lookup(home, dir)
 	check("Lookup", err)
+	_, err = List(home)
+	check("List", err)
 	_, err = Add(context.Background(), home, dir)
 	check("Add", err)
 	if got := readFile(t, home); got != doc {

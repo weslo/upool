@@ -138,3 +138,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   new one; init lists them. init now also refuses, changing nothing, a `base` that names no commit,
   such as origin's default branch with no local branch of that name. Cloning needs macOS: elsewhere
   init fails when it reaches the clone.
+- `upool which [--json]` prints the path of the slot containing the working directory, in any
+  registered pool, comparing canonical paths, so `/var` and `/private/var` spell the same slot.
+  `--json` gives the slot's `name`, `path` and `state`, its `lease` (`holder`, `lease_id`,
+  `confirmed`, `acquired_at`) or `null`, and the pool's `repo`. Anywhere else, including the main
+  checkout and an agent worktree, it exits 1 with `NOT_IN_SLOT`. It reads `registry.json` and
+  `state.json` under `~/.upool/lock` and writes neither; it takes the lock only when a registered
+  main checkout contains the working directory, so it never creates `~/.upool`. It refuses
+  arguments. Usage now lists it. `internal/registry` gains `List`, every registered repository.
