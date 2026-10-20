@@ -1,0 +1,15 @@
+${home}/Documents/down (base main)
+SLOT     STATE               HOLDER     AGE   CONFIRMED
+slot-1   leased              issue-51   1h5m  yes
+slot-2   ready               -          -     -
+slot-3   leased-unconfirmed  session-3  45s   no
+slot-4   parked              -          -     -
+slot-5   needs-reset         -          -     -
+slot-6   creating            -          -     -
+slot-7   warming             -          -     -
+slot-10  leased              run-4242   2d3h  yes
+
+${home}/Documents/castle (base trunk)
+SLOT    STATE   HOLDER   AGE    CONFIRMED
+slot-1  ready   -        -      -
+slot-2  leased  issue-7  3m20s  yes

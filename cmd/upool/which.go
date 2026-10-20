@@ -33,18 +33,27 @@ type whichReport struct {
 	Path  string     `json:"path"`
 	State pool.State `json:"state"`
 	// Lease is the slot's current lease, or nil when it has none.
-	Lease *whichLease `json:"lease"`
+	Lease *leaseReport `json:"lease"`
 	// Repo is the pool's main checkout.
 	Repo string `json:"repo"`
 }
 
-// whichLease is the part of a lease which reports: who holds it, its lease_id for `release
-// --if-lease-id`, whether it is confirmed, and when it was taken.
-type whichLease struct {
+// leaseReport is the part of a lease which and status report: who holds it, its lease_id for
+// `release --if-lease-id`, whether it is confirmed, and when it was taken.
+type leaseReport struct {
 	Holder     string    `json:"holder"`
 	LeaseID    string    `json:"lease_id"`
 	Confirmed  bool      `json:"confirmed"`
 	AcquiredAt time.Time `json:"acquired_at"`
+}
+
+// newLeaseReport is what which and status report for l, or nil when l is.
+func newLeaseReport(l *pool.Lease) *leaseReport {
+	if l == nil {
+		return nil
+	}
+	return &leaseReport{Holder: l.Holder, LeaseID: l.LeaseID, Confirmed: l.Confirmed,
+		AcquiredAt: l.AcquiredAt.UTC()}
 }
 
 // Human returns the slot's path alone, so that `cd "$(upool which)"` works.
@@ -78,23 +87,51 @@ func which(inv *invocation) (any, []string, error) {
 }
 
 // findSlot returns the slot containing the key cwd as which reports it, or nil when no slot does.
-// It reads registry.json and the pools' state.json files under ~/.upool/lock, so that they agree,
-// and writes nothing. Only a pool whose main checkout contains cwd is read, since its slots are
-// all under <repo>/.claude/worktrees (docs/design.md, "One binary, a dozen commands, one JSON file
-// per pool"); the main checkout itself is in none of them.
+// Only a pool whose main checkout contains cwd is read, since its slots are all under
+// <repo>/.claude/worktrees (docs/design.md, "One binary, a dozen commands, one JSON file per
+// pool"); the main checkout itself is in none of them.
+func findSlot(ctx context.Context, home, cwd string) (*whichReport, error) {
+	pools, err := readPools(ctx, home, func(repo registry.Repo) bool {
+		return paths.Within(cwd, repo.Path)
+	})
+	if err != nil {
+		return nil, err
+	}
+	for _, rp := range pools {
+		for _, s := range rp.pool.Slots {
+			key, err := paths.Key(s.Path)
+			if err != nil {
+				return nil, err
+			}
+			if paths.Within(cwd, key) {
+				return newWhichReport(s, rp.pool.Repo), nil
+			}
+		}
+	}
+	return nil, nil
+}
+
+// registeredPool is a registered repository and its pool as state.json records it.
+type registeredPool struct {
+	repo registry.Repo
+	pool pool.Pool
+}
+
+// readPools returns the registered pools that keep accepts, in the order they were registered.
+// It reads registry.json and their state.json files under ~/.upool/lock, so that they agree, and
+// writes nothing.
 //
-// Taking the lock creates ~/.upool and its lock file, so findSlot first reads registry.json alone
-// and takes the lock only when a registered main checkout contains cwd. Otherwise that one file,
-// which every write replaces whole, is the answer, and which leaves a machine with no ~/.upool
-// without one.
-func findSlot(ctx context.Context, home, cwd string) (r *whichReport, err error) {
+// Taking the lock creates ~/.upool and its lock file, so readPools first reads registry.json alone
+// and takes the lock only when keep accepts a registered repository. Otherwise that one file,
+// which every write replaces whole, is the answer, and which and status leave a machine with no
+// ~/.upool without one.
+func readPools(ctx context.Context, home string,
+	keep func(registry.Repo) bool) (found []registeredPool, err error) {
 	repos, err := registry.List(home)
 	if err != nil {
 		return nil, err
 	}
-	if !slices.ContainsFunc(repos, func(repo registry.Repo) bool {
-		return paths.Within(cwd, repo.Path)
-	}) {
+	if !slices.ContainsFunc(repos, keep) {
 		return nil, nil
 	}
 	l, err := statefile.Lock(ctx, home)
@@ -103,39 +140,27 @@ func findSlot(ctx context.Context, home, cwd string) (r *whichReport, err error)
 	}
 	defer func() {
 		if uerr := l.Unlock(); uerr != nil && err == nil {
-			r, err = nil, uerr
+			found, err = nil, uerr
 		}
 	}()
 	if repos, err = registry.List(home); err != nil {
 		return nil, err
 	}
 	for _, repo := range repos {
-		if !paths.Within(cwd, repo.Path) {
+		if !keep(repo) {
 			continue
 		}
 		p, err := pool.Load(home, repo.Key)
 		if err != nil {
 			return nil, err
 		}
-		for _, s := range p.Slots {
-			key, err := paths.Key(s.Path)
-			if err != nil {
-				return nil, err
-			}
-			if paths.Within(cwd, key) {
-				return newWhichReport(s, p.Repo), nil
-			}
-		}
+		found = append(found, registeredPool{repo: repo, pool: p})
 	}
-	return nil, nil
+	return found, nil
 }
 
 // newWhichReport is what which reports for slot s of the pool whose main checkout is repo.
 func newWhichReport(s pool.Slot, repo string) *whichReport {
-	r := &whichReport{Name: s.Name, Path: s.Path, State: s.State, Repo: repo}
-	if l := s.Lease; l != nil {
-		r.Lease = &whichLease{Holder: l.Holder, LeaseID: l.LeaseID, Confirmed: l.Confirmed,
-			AcquiredAt: l.AcquiredAt.UTC()}
-	}
-	return r
+	return &whichReport{Name: s.Name, Path: s.Path, State: s.State, Lease: newLeaseReport(s.Lease),
+		Repo: repo}
 }

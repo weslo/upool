@@ -192,5 +192,6 @@ command and their home-redacted paths fit no variable, and the
 upool's own expected output: `--json` envelopes, human-readable `status`, hook stdout. Unlike a
 capture, a golden file changes whenever upool's output changes on purpose. Each package that
 compares against golden files defines an `-update` flag, so regenerate them with
-`go test ./internal/<package> -update`, read the diff, and commit it with the change that caused
-it. Golden files use the same path variables as captures, which keeps `make check-paths` passing.
+`go test ./<package> -update` (`./cmd/upool` for a command's output), read the diff, and commit it
+with the change that caused it. Golden files use the same path variables as captures, which keeps
+`make check-paths` passing.

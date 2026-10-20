@@ -103,7 +103,7 @@ program under `scripts/`, like `scripts/scrubpaths`.
 - **Every capture earns its place.** A rule that applies to a whole directory of captures, such as
   hook classification over `testdata/captures/hooks/`, is tested against every file in it.
 - **Golden files for upool's own output.** They live in `testdata/golden/` and are regenerated with
-  `go test ./internal/<package> -update` (testdata/README.md).
+  `go test ./<package> -update`, `./cmd/upool` for a command's output (testdata/README.md).
 
 ## Rules
 

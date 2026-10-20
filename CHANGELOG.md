@@ -146,3 +146,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `state.json` under `~/.upool/lock` and writes neither; it takes the lock only when a registered
   main checkout contains the working directory, so it never creates `~/.upool`. It refuses
   arguments. Usage now lists it. `internal/registry` gains `List`, every registered repository.
+- `upool status [--all] [--json]` shows the pool containing the working directory (from its main
+  checkout, anywhere under it, or inside a slot): a line naming the main checkout and its base,
+  then a table of its slots with their state, lease holder, lease age (two units, such as `45s`,
+  `1h5m` or `2d3h`) and whether the lease is confirmed, `-` where a slot has no lease. `--all`
+  shows every registered pool, in the order they were registered, separated by blank lines, and
+  says `no pools are registered` when there are none. `--json` gives `pools`, each with `repo`,
+  `base` and `slots`, each slot with `name`, `path`, `state` and the `lease` `which` reports, or
+  `null`; one pool and `--all` have the same shape. Outside every registered pool, status without
+  `--all` exits 1 with `COMMAND_FAILED`. Like `which`, it compares canonical paths, writes nothing
+  and never creates `~/.upool`. Usage now lists it.
