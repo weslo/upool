@@ -1,0 +1,408 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"reflect"
+	"slices"
+)
+
+// hookEvents are the Claude Code events setup registers each hook script for, in the order it
+// adds them to a settings.json that has none of them (docs/design.md, "Build in four phases, with
+// the clone recipe first", phase 2; #67).
+var hookEvents = []struct{ script, event string }{
+	{"worktree-create.sh", "WorktreeCreate"},
+	{"worktree-remove.sh", "WorktreeRemove"},
+	{"session-start.sh", "SessionStart"},
+}
+
+// settingsMode is the mode of a settings.json that setup creates, private to the user as Claude
+// Code keeps its own; an existing file keeps its mode. claudeDirMode is the mode of ~/.claude when
+// setup has to create it.
+const (
+	settingsMode  fs.FileMode = 0o600
+	claudeDirMode fs.FileMode = 0o700
+)
+
+// backupSuffix names the copy of settings.json that setup keeps before it first changes the file.
+const backupSuffix = ".upool-backup"
+
+// settingsPath returns ~/.claude/settings.json, Claude Code's user settings. The hooks must be
+// registered there: from a project settings file the desktop app skips them as "hook came from a
+// repo-committed settings tier … (provenance not vouched)" (docs/contracts.md (a), "WorktreeCreate
+// output and app behaviour"; spike §8 A.2–A.5). setup never writes a project's settings.
+func settingsPath(home string) string {
+	return filepath.Join(home, ".claude", "settings.json")
+}
+
+// commandHook is a hook handler as setup registers it, in exec form: with args present, Claude Code
+// spawns command itself, with no shell to split or expand the script's path (docs/design.md, the
+// `setup` row; spike §8 A.2–3).
+type commandHook struct {
+	Type    string   `json:"type"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
+// hookGroup is the matcher group setup adds for each event. It has no matcher, so it runs on every
+// occurrence of the event: WorktreeCreate and WorktreeRemove take none, and SessionStart handles
+// every source (docs/contracts.md (b); A14).
+type hookGroup struct {
+	Hooks []commandHook `json:"hooks"`
+}
+
+// registration is setup's change to settings.json, worked out before setup writes anything so that
+// a settings.json it cannot read or parse stops it with the machine as it was.
+type registration struct {
+	// file is ~/.claude/settings.json, as setup reports it, and target the file written: file, or
+	// what it links to, so that a link into a dotfiles repository stays a link.
+	file, target string
+	// exists says whether target exists, and old and mode are its contents and mode bits.
+	exists bool
+	old    []byte
+	mode   fs.FileMode
+	// content is the new settings.json, and changed whether it differs from old as JSON.
+	content []byte
+	changed bool
+}
+
+// planRegistration reads settings.json under home and returns it with the scripts in hooksDir
+// registered.
+func planRegistration(home, hooksDir string) (registration, error) {
+	reg := registration{file: settingsPath(home), mode: settingsMode}
+	reg.target = reg.file
+	if _, err := os.Lstat(reg.file); err == nil {
+		if reg.target, err = filepath.EvalSymlinks(reg.file); err != nil {
+			return registration{}, fmt.Errorf("resolving %s: %w", reg.file, err)
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return registration{}, fmt.Errorf("checking %s: %w", reg.file, err)
+	}
+	settings := &jsonObject{}
+	info, err := os.Stat(reg.target)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return registration{}, fmt.Errorf("checking %s: %w", reg.target, err)
+	case !info.Mode().IsRegular():
+		return registration{}, fmt.Errorf("%s is not a regular file", reg.target)
+	default:
+		reg.exists, reg.mode = true, info.Mode().Perm()
+		if reg.old, err = os.ReadFile(reg.target); err != nil {
+			return registration{}, fmt.Errorf("reading %s: %w", reg.target, err)
+		}
+		if len(bytes.TrimSpace(reg.old)) > 0 {
+			if err := json.Unmarshal(reg.old, settings); err != nil {
+				return registration{}, fmt.Errorf("reading %s: %w", reg.file, err)
+			}
+		}
+	}
+	if err := registerHooks(settings, hooksDir); err != nil {
+		return registration{}, fmt.Errorf("registering the hooks in %s: %w", reg.file, err)
+	}
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(settings); err != nil {
+		return registration{}, fmt.Errorf("encoding %s: %w", reg.file, err)
+	}
+	reg.content = b.Bytes()
+	reg.changed = !reg.exists || !sameJSON(reg.old, reg.content)
+	return reg, nil
+}
+
+// apply writes the registration, unless settings.json already held it. Before its first change to
+// an existing settings.json it keeps a copy beside it, settings.json.upool-backup, which no later
+// run replaces; backup is that copy's path when this run made it.
+func (reg registration) apply() (installed, string, error) {
+	if !reg.changed {
+		return installed{Path: reg.file, Change: unchanged}, "", nil
+	}
+	backup := ""
+	if reg.exists {
+		made, err := keepBackup(reg.file+backupSuffix, reg.old, reg.mode)
+		if err != nil {
+			return installed{}, "", err
+		}
+		if made {
+			backup = reg.file + backupSuffix
+		}
+	} else if err := os.MkdirAll(filepath.Dir(reg.target), claudeDirMode); err != nil {
+		return installed{}, "", fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
+	}
+	if err := writeAtomic(reg.target, reg.content, reg.mode); err != nil {
+		return installed{}, "", err
+	}
+	if reg.exists {
+		return installed{Path: reg.file, Change: updated}, backup, nil
+	}
+	return installed{Path: reg.file, Change: created}, "", nil
+}
+
+// keepBackup writes data to backup with mode unless backup exists, and says whether it did. The
+// copy is linked into place, so it appears whole or not at all, and never over another.
+func keepBackup(backup string, data []byte, mode fs.FileMode) (bool, error) {
+	if _, err := os.Lstat(backup); err == nil {
+		return false, nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return false, fmt.Errorf("checking %s: %w", backup, err)
+	}
+	tmp, err := writeTemp(backup, data, mode)
+	if err != nil {
+		return false, err
+	}
+	// The link holds the data once it exists, so a temporary file left behind is only clutter.
+	defer func() { _ = os.Remove(tmp) }()
+	if err := os.Link(tmp, backup); errors.Is(err, fs.ErrExist) {
+		return false, nil
+	} else if err != nil {
+		return false, fmt.Errorf("keeping a copy of the old settings as %s: %w", backup, err)
+	}
+	return true, nil
+}
+
+// registerHooks registers, in settings, each script in hookEvents for its event. A handler whose
+// command is a file in hooksDir is upool's, from this run or an earlier one, wherever it sits: each
+// is removed, a matcher group left with no handlers goes with it, and the event's own group takes
+// the place of the first group it was removed from, or goes last. A second run therefore leaves the
+// file as it was. Every other key, group and handler is kept as written.
+func registerHooks(settings *jsonObject, hooksDir string) error {
+	hooks := &jsonObject{}
+	if raw, ok := settings.get("hooks"); ok {
+		if err := json.Unmarshal(raw, hooks); err != nil {
+			return fmt.Errorf("hooks: %w", err)
+		}
+	}
+	managed := map[string]bool{}
+	for _, h := range hookEvents {
+		managed[h.event] = true
+	}
+	at := map[string]int{}
+	for _, event := range slices.Clone(hooks.keys) {
+		raw, _ := hooks.get(event)
+		var groups []json.RawMessage
+		if err := json.Unmarshal(raw, &groups); err != nil {
+			if managed[event] {
+				return fmt.Errorf("hooks.%s is not an array: %w", event, err)
+			}
+			continue
+		}
+		kept, first, err := removeUpoolHooks(groups, hooksDir)
+		if err != nil {
+			return fmt.Errorf("hooks.%s: %w", event, err)
+		}
+		if first < 0 {
+			continue
+		}
+		at[event] = first
+		if len(kept) == 0 && !managed[event] {
+			hooks.remove(event)
+			continue
+		}
+		if err := hooks.setValue(event, kept); err != nil {
+			return err
+		}
+	}
+	for _, h := range hookEvents {
+		group, err := marshalJSON(hookGroup{Hooks: []commandHook{{
+			Type: "command", Command: filepath.Join(hooksDir, h.script), Args: []string{},
+		}}})
+		if err != nil {
+			return err
+		}
+		var groups []json.RawMessage
+		if raw, ok := hooks.get(h.event); ok {
+			if err := json.Unmarshal(raw, &groups); err != nil {
+				return fmt.Errorf("hooks.%s is not an array: %w", h.event, err)
+			}
+		}
+		i, ok := at[h.event]
+		if !ok {
+			i = len(groups)
+		}
+		groups = slices.Insert(groups, i, json.RawMessage(group))
+		if err := hooks.setValue(h.event, groups); err != nil {
+			return err
+		}
+	}
+	return settings.setValue("hooks", hooks)
+}
+
+// removeUpoolHooks returns groups without upool's handlers, and the index in the result where the
+// first group that held one was, or -1 if none did. A group or handler of a shape it does not
+// recognise is not upool's, and is kept as it is.
+func removeUpoolHooks(groups []json.RawMessage, hooksDir string) (kept []json.RawMessage,
+	first int, err error) {
+	first = -1
+	kept = []json.RawMessage{}
+	for _, raw := range groups {
+		group := &jsonObject{}
+		var handlers []json.RawMessage
+		if json.Unmarshal(raw, group) != nil {
+			kept = append(kept, raw)
+			continue
+		}
+		if h, ok := group.get("hooks"); !ok || json.Unmarshal(h, &handlers) != nil {
+			kept = append(kept, raw)
+			continue
+		}
+		others := []json.RawMessage{}
+		for _, h := range handlers {
+			var handler struct {
+				Command string `json:"command"`
+			}
+			if json.Unmarshal(h, &handler) == nil && isUpoolHook(handler.Command, hooksDir) {
+				continue
+			}
+			others = append(others, h)
+		}
+		if len(others) == len(handlers) {
+			kept = append(kept, raw)
+			continue
+		}
+		if first < 0 {
+			first = len(kept)
+		}
+		if len(others) == 0 {
+			continue
+		}
+		if err := group.setValue("hooks", others); err != nil {
+			return nil, 0, err
+		}
+		b, err := marshalJSON(group)
+		if err != nil {
+			return nil, 0, err
+		}
+		kept = append(kept, b)
+	}
+	return kept, first, nil
+}
+
+// isUpoolHook says whether command, a handler's command, runs a file in hooksDir, where only
+// upool's scripts live.
+func isUpoolHook(command, hooksDir string) bool {
+	return filepath.IsAbs(command) && filepath.Dir(filepath.Clean(command)) == hooksDir
+}
+
+// sameJSON says whether a and b, both valid JSON, hold the same value, whatever their layout.
+func sameJSON(a, b []byte) bool {
+	var va, vb any
+	return decodeNumbers(a, &va) == nil && decodeNumbers(b, &vb) == nil &&
+		reflect.DeepEqual(va, vb)
+}
+
+// decodeNumbers decodes b into v, keeping numbers as written.
+func decodeNumbers(b []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	return dec.Decode(v)
+}
+
+// marshalJSON encodes v as compact JSON without escaping <, > and &, which settings.json has no
+// reason to.
+func marshalJSON(v any) ([]byte, error) {
+	var b bytes.Buffer
+	enc := json.NewEncoder(&b)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("encoding JSON: %w", err)
+	}
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n")), nil
+}
+
+// jsonObject is a JSON object that keeps its keys in the order written and its values as written,
+// so that a rewrite of settings.json changes only what setup registers. JSON null decodes as an
+// empty object.
+type jsonObject struct {
+	keys   []string
+	values map[string]json.RawMessage
+}
+
+// get returns key's value, and whether the object has key.
+func (o *jsonObject) get(key string) (json.RawMessage, bool) {
+	v, ok := o.values[key]
+	return v, ok
+}
+
+// set sets key to value, appending key if the object lacks it.
+func (o *jsonObject) set(key string, value json.RawMessage) {
+	if o.values == nil {
+		o.values = map[string]json.RawMessage{}
+	}
+	if _, ok := o.values[key]; !ok {
+		o.keys = append(o.keys, key)
+	}
+	o.values[key] = value
+}
+
+// setValue sets key to v encoded.
+func (o *jsonObject) setValue(key string, v any) error {
+	b, err := marshalJSON(v)
+	if err != nil {
+		return err
+	}
+	o.set(key, b)
+	return nil
+}
+
+// remove removes key.
+func (o *jsonObject) remove(key string) {
+	delete(o.values, key)
+	o.keys = slices.DeleteFunc(o.keys, func(k string) bool { return k == key })
+}
+
+// UnmarshalJSON decodes b, a JSON object or null. A key written twice keeps its first place and
+// its last value, the value encoding/json would keep.
+func (o *jsonObject) UnmarshalJSON(b []byte) error {
+	*o = jsonObject{}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if tok == nil {
+		return nil
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return errors.New("not a JSON object")
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return fmt.Errorf("object key %v is not a string", tok)
+		}
+		var value json.RawMessage
+		if err := dec.Decode(&value); err != nil {
+			return err
+		}
+		o.set(key, value)
+	}
+	_, err = dec.Token()
+	return err
+}
+
+// MarshalJSON encodes the object with its keys in order.
+func (o jsonObject) MarshalJSON() ([]byte, error) {
+	b := []byte{'{'}
+	for i, key := range o.keys {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		k, err := marshalJSON(key)
+		if err != nil {
+			return nil, err
+		}
+		b = append(append(append(b, k...), ':'), o.values[key]...)
+	}
+	return append(b, '}'), nil
+}

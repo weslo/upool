@@ -92,7 +92,8 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	for _, event := range events() {
 		want = append(want, "created "+e.script(event))
 	}
-	want = append(want, "the hook scripts run "+e.upool, "created "+config.UserPath(e.home))
+	want = append(want, "the hook scripts run "+e.upool, "created "+settingsPath(e.home),
+		"created "+config.UserPath(e.home))
 	if got := strings.Join(want, "\n") + "\n"; r.stdout != got {
 		t.Errorf("stdout = %q, want %q", r.stdout, got)
 	}
@@ -137,6 +138,11 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 		}
 		before[file] = info
 	}
+	info, err := os.Stat(settingsPath(e.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	before[settingsPath(e.home)] = info
 	userFile, err := os.ReadFile(config.UserPath(e.home))
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +156,7 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	for _, event := range events() {
 		want = append(want, e.script(event)+" is up to date")
 	}
-	want = append(want, "the hook scripts run "+e.upool,
+	want = append(want, "the hook scripts run "+e.upool, settingsPath(e.home)+" is up to date",
 		"kept the existing "+config.UserPath(e.home))
 	if got := strings.Join(want, "\n") + "\n"; r.stdout != got {
 		t.Errorf("second run: stdout = %q, want %q", r.stdout, got)
@@ -211,7 +217,8 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 			{e.script("worktree-create"), unchanged},
 			{e.script("worktree-remove"), updated},
 		},
-		Config: installed{config.UserPath(e.home), unchanged},
+		Settings: installed{settingsPath(e.home), unchanged},
+		Config:   installed{config.UserPath(e.home), unchanged},
 	}
 	if string(mustJSON(t, got)) != string(mustJSON(t, want)) {
 		t.Errorf("data = %s, want %s", mustJSON(t, got), mustJSON(t, want))
@@ -331,7 +338,7 @@ func TestSetupRefusesAHomeInAProtectedFolder(t *testing.T) {
 }
 
 // checkSetupRefused fails the test unless r is a refusal whose message contains want, and setup
-// wrote nothing under e's home.
+// wrote nothing under e's home, ~/.claude included.
 func checkSetupRefused(t *testing.T, e setupEnv, r result, want string) {
 	t.Helper()
 	if r.code != output.ExitFailure {
@@ -340,7 +347,8 @@ func checkSetupRefused(t *testing.T, e setupEnv, r result, want string) {
 	if !strings.Contains(r.stderr, want) {
 		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
 	}
-	for _, path := range []string{filepath.Join(e.home, ".upool"), config.UserPath(e.home)} {
+	for _, path := range []string{filepath.Join(e.home, ".upool"), config.UserPath(e.home),
+		filepath.Join(e.home, ".claude")} {
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s exists after a refusal", path)
 		}
