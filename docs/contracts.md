@@ -769,7 +769,8 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
 
 ### Decided for M3
 
-Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once M3's capture (#86) had recorded what they needed.
+Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once M3's capture
+(#86) had recorded what they needed, and 36 to 39 when `upool open`'s build (#89) raised them.
 
 - **1. Unity CLI exit 7** ([#11](https://github.com/weslo/upool/issues/11)). No capture shows it,
   and nothing known produces it. What should upool do when a wrapped call returns it?
@@ -878,6 +879,37 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   **A35.** None. `init` runs none of the three, and leaves the repository's VCS set-up to its
   owner. `doctor` reports what `unity vcs doctor` finds, `merge-setup`'s state included, and the
   commands that would fix it (maintainer decision, 2026-10-21; D-lanes; D-commands).
+
+- **36. `upool open`'s mode with neither flag** ([#89](https://github.com/weslo/upool/issues/89)).
+  design.md gives `upool open [--headless|--gui]` and names no default.
+
+  **A36.** Headless. It is the agent case, and a GUI Editor that loses focus throttles until
+  `set_autotick` is enabled (D-editors); `--gui` is for a person who wants the window
+  (maintainer decision, 2026-10-21; D-commands).
+
+- **37. The readiness timeout** ([#89](https://github.com/weslo/upool/issues/89)). `upool open`
+  waits with `unity status --until-ready --timeout N`, and nothing gave N. GUI Editors were ready in
+  11 to 21 s and headless ones within 57 s, on warm Libraries; a cold import took 235 s alone and
+  258 to 259 s beside another (S§8 C.1, B.1; S§2 T5.5).
+
+  **A37.** Fixed, with no flag: 300 s for an open charged as a cold import, 120 s for any other
+  (maintainer decision, 2026-10-21; D-editors).
+
+- **38. A refused admission** ([#89](https://github.com/weslo/upool/issues/89)). (h) says when the
+  ledger admits an open, not what a refused one does.
+
+  **A38.** It depends on the limit. A refusal by `max_editors` or `editor_ram_budget_gb` fails at
+  once, exit 1, naming the limit. A refusal by `max_cold_imports` waits for the running import to
+  end, retrying once a second with progress on stderr, for at most A37's cold-import timeout, then
+  fails naming the limit: cold imports are serialized, not refused (maintainer decision,
+  2026-10-21; D-editors; (h)).
+
+- **39. When a cold import ends** ([#89](https://github.com/weslo/upool/issues/89)). The ledger
+  charges 4.5 GB "while the import runs" (A9), and nothing said what ends it.
+
+  **A39.** The Editor reporting ready: an Editor is not ready until its import has finished. `upool
+  open` then ends the cold import, so the Editor's charge drops to `editor_ram_gb`, and clears the
+  slot's `reimport_pending` (maintainer decision, 2026-10-21; (e); A9; A20).
 
 ### Decided for M4
 

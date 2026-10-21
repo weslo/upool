@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 // exitBroken is the exit code when the fake cannot answer: it found no script, or the call is
@@ -37,6 +38,7 @@ func serve() int {
 		_, _ = fmt.Fprintf(os.Stderr, "fake %s: %v\n", filepath.Base(os.Args[0]), err)
 		return exitBroken
 	}
+	time.Sleep(a.Hold)
 	// A failed write is the caller's to notice, through the output it did not get.
 	_, _ = os.Stdout.Write(a.Stdout)
 	_, _ = os.Stderr.Write(a.Stderr)

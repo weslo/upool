@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weslo/upool/internal/pathvars"
 )
@@ -56,6 +57,10 @@ type Reply struct {
 	Exit int
 	// Stderr, when not empty, is written to stderr.
 	Stderr string
+	// Hold, when not zero, is how long the fake waits before it answers, as a call the CLI is
+	// still working on, such as `status --until-ready`: a test that kills it meanwhile, as a
+	// context does, gets no answer.
+	Hold time.Duration
 }
 
 // Call is one recorded call of the fake.
@@ -88,6 +93,7 @@ type answer struct {
 	Stdout []byte
 	Stderr []byte
 	Exit   int
+	Hold   time.Duration
 }
 
 // Install makes a fake `unity` that answers its calls with replies, in order: a temporary
@@ -130,7 +136,7 @@ func install(t testing.TB, name string, replies []Reply) *Unity {
 		if len(r.Replace) > 0 {
 			filled = strings.NewReplacer(r.Replace...).Replace(filled)
 		}
-		a := answer{Stdout: []byte(filled), Stderr: []byte(r.Stderr), Exit: r.Exit}
+		a := answer{Stdout: []byte(filled), Stderr: []byte(r.Stderr), Exit: r.Exit, Hold: r.Hold}
 		script = append(script, a)
 	}
 	data, err := json.Marshal(script)
