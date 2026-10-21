@@ -78,6 +78,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Without `unity` on `PATH`, release verifies nothing and says nothing, as the cache key
     comparison does.
   - The verb table and docs/contracts.md (c) gain `projects verify`, with the slot positional.
+- `upool doctor` reports the repository's VCS set-up as `unity vcs doctor <repo>` sees it,
+  check-only and never with `--fix` (A35).
+  - Each finding is a `warn` line named `vcs`, with its code, severity and message.
+  - A last `vcs` line names `unity vcs doctor --fix` and `unity vcs merge-setup` as the commands
+    that would act on them; upool runs neither.
+  - Without `unity` on `PATH`, or when the call fails, the `vcs` line warns and says why. None of it
+    fails `doctor`.
+  - `upool init` runs none of Unity's VCS set-up. The verb table and docs/contracts.md (c) gain
+    `vcs doctor`, with the repository positional.
 
 ## [0.2.0] - 2026-10-21
 

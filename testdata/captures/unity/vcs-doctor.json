@@ -1,0 +1,89 @@
+{
+  "success": false,
+  "command": "vcs doctor",
+  "data": {
+    "project": "${cwd}",
+    "repository": "${cwd}",
+    "ok": false,
+    "fixed": false,
+    "checks": [
+      "SERIALIZATION_NOT_FORCE_TEXT",
+      "META_FILES_HIDDEN",
+      "GITIGNORE_MISSING",
+      "GITIGNORE_STALE",
+      "GITIGNORE_RULES_NEGATED",
+      "GENERATED_DIR_TRACKED",
+      "META_FILES_IGNORED",
+      "LFS_NOT_INSTALLED",
+      "LFS_HOOKS_MISSING",
+      "LFS_PATTERNS_INCOMPLETE",
+      "LFS_PATTERNS_OVERRIDDEN",
+      "EOL_POLICY_MISSING",
+      "UPM_GIT_REF_FLOATING",
+      "UPM_GIT_REF_UNVERIFIED",
+      "UPM_LOCK_UNTRACKED",
+      "UPM_LOCK_DRIFT",
+      "UPM_SUBMODULE_UNINITIALIZED",
+      "UPM_SUBMODULE_DRIFTED",
+      "UPM_SUBMODULE_LFS_UNFETCHED"
+    ],
+    "findings": [
+      {
+        "code": "GITIGNORE_STALE",
+        "severity": "warning",
+        "path": ".gitignore",
+        "message": "45 rule(s) from the current Unity ignore template are missing: .utmp/, *.log, *.blend1.meta, /[Mm]emoryCaptures/, /[Rr]ecordings/, …",
+        "hint": "The template is written once at link time and never revisited. The repair appends what is missing in a managed block.",
+        "fixable": true
+      },
+      {
+        "code": "LFS_HOOKS_MISSING",
+        "severity": "error",
+        "path": "",
+        "message": "This repository has no LFS hooks, so LFS-tracked files are not uploaded on push.",
+        "hint": "Without the pre-push hook, a push sends pointer files whose contents were never uploaded.",
+        "fixable": true
+      },
+      {
+        "code": "LFS_PATTERNS_INCOMPLETE",
+        "severity": "warning",
+        "path": ".gitattributes",
+        "message": "12 binary file type(s) in this project are not tracked by LFS: .FBX, .blend, .exr, .fbx, .mp3, .pdf, .png, .psd, …",
+        "hint": "Future commits of these types go to LFS. Copies already committed stay in history until migrated.",
+        "fixable": true
+      },
+      {
+        "code": "UPM_GIT_REF_FLOATING",
+        "severity": "warning",
+        "path": "Packages/manifest.json",
+        "message": "1 git package dependency(s) track a branch instead of a tag or commit: com.annulusgames.lit-motion",
+        "hint": "The same Packages/manifest.json resolves to different code on different machines and in CI. Pin each one to a tag or a full commit hash.",
+        "fixable": false
+      },
+      {
+        "code": "UPM_GIT_REF_UNVERIFIED",
+        "severity": "notice",
+        "path": "Packages/manifest.json",
+        "message": "2 git package dependency(s) name a revision that is either a tag or a branch: com.rlabrecque.steamworks.net, dev.purrnet.purrnet",
+        "hint": "Telling the two apart needs a request to each dependency's host, which this audit never makes. Check them with git ls-remote --heads <url> <revision>, then pin anything that turns out to be a branch.",
+        "fixable": false
+      }
+    ],
+    "repairs": [],
+    "summary": {
+      "errors": 1,
+      "warnings": 3,
+      "notices": 1,
+      "found": 5,
+      "fixable": 3,
+      "repaired": 0
+    }
+  },
+  "errors": [
+    {
+      "code": "VCS_DOCTOR_FAILED",
+      "message": "4 problem(s) need attention."
+    }
+  ],
+  "warnings": []
+}
