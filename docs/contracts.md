@@ -212,8 +212,8 @@ defines exactly these:
 | Code | Constant | Meaning | Source |
 |---|---|---|---|
 | 0 | `ExitOK` | success | D-commands |
-| 1 | `ExitFailure` | the command did not succeed; `upool which` returns it when cwd is not inside a slot | D-commands, command table |
-| 6 | `ExitNoTarget` | mirrors the Unity CLI's exit 6: no Editor instance, or no Unity project, at the resolved target | D-commands; S§2 T6.5, T6.6 |
+| 1 | `ExitFailure` | the command did not succeed, for every command; `upool which` returns it when cwd is not inside a slot; a wrapped Unity CLI call's exit maps to it unless it is 6 (A1; A3) | D-commands, command table; A1; A3 |
+| 6 | `ExitNoTarget` | mirrors the Unity CLI's exit 6: no Editor instance, or no Unity project, at the resolved target, including a wrapped call that exits 6 (A3) | D-commands; S§2 T6.5, T6.6; A3 |
 
 The hook subcommands follow the app's contract rather than this table: `worktree-remove` always
 exits 0, and `worktree-create` exits non-zero only to abort the session (D-route).
@@ -423,7 +423,7 @@ recompiled on first open; the 21 relative symlinks under `.claude/skills` resolv
 | `editor_ram_budget_gb` | physical RAM / 4 (16 at 64 GB) | D-commands; D-editors |
 | `editor_ram_gb` | 2.5, per long-lived Editor | D-commands; D-editors |
 | `helper_ram_gb` | 2, once any Editor is up | D-commands; D-editors |
-| cold-import charge | 4.5 GB while a cold import runs (no setting named) | D-editors |
+| cold-import charge | 4.5 GB, instead of `editor_ram_gb`, while the Editor's cold import runs; a constant, not a setting (A9) | D-editors; A9 |
 | `max_cold_imports` | 1 | D-commands; D-editors |
 | `max_editors` | derived unless set; 3 at 64 GB | D-commands; D-editors |
 
@@ -439,7 +439,7 @@ max_editors (when unset) = floor((editor_ram_budget_gb − helper_ram_gb − 4.5
                          = floor((16 − 2 − 4.5) / 2.5) = 3 at 64 GB
 ```
 
-The `max_editors` formula is derived, not quoted[^4]. The gate is this ledger count, never `memory_pressure`, which read 92 to 93 % free under 12.5 GB of
+The `max_editors` formula is derived, not quoted[^4], and A9 keeps it. The gate is this ledger count, never `memory_pressure`, which read 92 to 93 % free under 12.5 GB of
 Editor RSS (D-editors; S§6). Measured basis: warm batch Editors 1.43 GB each; idle GUI Editors 1.8
 to 1.9 GB after 3 minutes; idle headless Editors 1.9 to 2.3 GB after 19.5 hours; a cold import peaks
 at 4.2 to 4.5 GB; two concurrent cold imports, 12.5 GB total and 10 % slower, both exited 0 (S§2 T5,
@@ -765,30 +765,101 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   session is resumed and archived clean. The M2 gate archives with the Archive button (maintainer
   decision, 2026-10-21; (a)).
 
+### Decided for M3
+
+Answered on 2026-10-21, before M3's build began. Questions 2 and 12 wait on M3's capture (#86).
+
+- **1. Unity CLI exit 7** ([#11](https://github.com/weslo/upool/issues/11)). No capture shows it,
+  and nothing known produces it. What should upool do when a wrapped call returns it?
+
+  **A1.** Treat it as a failure. Exit 7, like any Unity CLI exit that (d) has no row for, makes
+  upool exit 1 (`ExitFailure`) with the CLI's `errors[]` passed through. `internal/output` gains no
+  constant for 7 unless a capture shows it means something upool should act on (maintainer
+  decision, 2026-10-21; (d)).
+
+- **3. upool's exit 1 and 6** ([#13](https://github.com/weslo/upool/issues/13)). Is 1 the generic
+  failure for every command, or only `which`'s "not in a slot"? Does upool pass the Unity CLI's
+  exit 6 through from its wrappers?
+
+  **A3.** 1 is every command's failure, as the M1 commands already use it. 6 means upool's resolved
+  target is missing: no Unity project, or no Editor, at the slot. A wrapped call that exits 6 makes
+  upool exit 6 for that reason, and every other Unity CLI exit maps to 1 (A1) (maintainer decision,
+  2026-10-21; (d)).
+
+- **8. Saved scene list** ([#14](https://github.com/weslo/upool/issues/14)). A headless Editor
+  closed gracefully empties `Library/LastSceneManagerSetup.txt` (S§9 G.3), so `upool close` saves
+  the file before a headless session and restores it after. Where is the copy kept in between?
+
+  **A8.** In upool's state directory: a file under `~/.upool/pools/<repo-key>/` named after the
+  slot. It sits outside the slot, so neither a reset nor `git clean` touches it, and the state
+  schema does not change (maintainer decision, 2026-10-21; D-lifecycle).
+
+- **9. Cold-import charge** ([#15](https://github.com/weslo/upool/issues/15)). Is a cold-importing
+  Editor charged 4.5 GB instead of its 2.5 GB or on top of it, is 4.5 GB a setting, and is the
+  `max_editors` formula in (h) the intended one?
+
+  **A9.** Instead of, as a constant. An Editor's charge is 4.5 GB while its cold import runs and
+  `editor_ram_gb` (2.5 GB) after. The spike measured the cold-importing Editor's whole process at
+  4.2 to 4.5 GB (S§2 T5), so charging both would count it twice. (h)'s formula stands: 3 Editors at
+  64 GB (maintainer decision, 2026-10-21; (h)).
+
+- **29. The re-query after a first-call timeout**
+  ([#28](https://github.com/weslo/upool/issues/28)). The first `eval` on a freshly opened GUI
+  Editor timed out at 5,000 ms yet ran (S§8 C.3), and the design has the wrapper re-query for side
+  effects rather than retry blindly. What is the re-query for `save_all` before `close`, the call
+  upool makes most?
+
+  **A29.** `save_all` once more. Saving scenes that are already saved changes nothing, so the second
+  call is the re-query, and it needs no new capture (maintainer decision, 2026-10-21; D-editors).
+
+- **30. Lane folder lists** ([#31](https://github.com/weslo/upool/issues/31)). design.md gave
+  `.upool.toml` "lane folder lists" but named no keys and gave them no job; the lane hook decides by
+  file extension.
+
+  **A30.** Dropped. Lanes go by file extension alone, and `.upool.toml` keeps `ready`, `max_slots`
+  and `base` (maintainer decision, 2026-10-21; D-lanes; D-commands).
+
+### Decided for M4
+
+- **16. GoReleaser `brews`** ([#21](https://github.com/weslo/upool/issues/21)). The design asks
+  for a `brews` section that writes `Formula/upool.rb`, and GoReleaser 2.10 and later deprecate it
+  in favour of `homebrew_casks`. A cask installs the binary quarantined, and the binary is not
+  signed, so a cask would likely fail every worktree session's create hook.
+
+  **A16.** Keep the formula. `brews` stays, and release.yml pins GoReleaser to a version that still
+  supports it; #104 makes the pin. Signing and notarizing, which a cask would need, wait until a
+  reason to move appears (maintainer decision, 2026-10-21; design.md, "Repository, CI and Homebrew
+  distribution").
+
+- **31. `prune --include-*` overrides** ([#32](https://github.com/weslo/upool/issues/32)). design.md
+  gives `prune` "narrow `--include-*` overrides instead of a single `--force`" but names none.
+
+  **A31.** None in v0.4.0. `prune` removes only idle, merged, clean slots and collectable agent
+  worktrees; parked and unmerged slots are left to a person. #103 closes unbuilt (maintainer
+  decision, 2026-10-21; D-disk).
+
+- **32. How `status --du` measures a slot** ([#33](https://github.com/weslo/upool/issues/33)). On
+  APFS, `du` counts a cloned file's allocated blocks in full even where they are shared with the
+  source, so it overstates a slot's cost; the spike measured cost by free-space deltas (S§4).
+
+  **A32.** By private size: the sum over the slot's files of `getattrlist`'s
+  `ATTR_CMNEXT_PRIVATESIZE`, the bytes no other clone shares, which is what deleting the slot
+  frees. `max_disk` compares the same sum. A probe on 2026-10-21 (macOS 15.7.3, APFS): a 20 MB file
+  and its `cp -c` clone each reported 0 private bytes against `du`'s 20 MB each; after 2 MB of the
+  clone was rewritten, each reported 2 MB (`evidence/apfs-private-size/probe.txt`). It needs one
+  call per file and no new dependency, so #99 times it on a real slot's `Library` (maintainer
+  decision, 2026-10-21; D-disk).
+
 ### Other open questions
 
-- **1. Unity CLI exit 7.** No capture shows it. What produces it, and what should upool do with it?
-  `internal/output` defines no constant for 7 until this is answered.
 - **2. Unrecorded exit codes.** The exits for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the
   first-eval `COMMAND_FAILED` timeout, `build`'s "Not a Unity project" and `status` filtered to a
   project with no Editor (without `--until-ready`) were not recorded, and `AMBIGUOUS_EDITOR` exists
   only as a jq projection. The fake `unity` needs all of them; a new capture with
   `scripts/capture-unity.sh`, which records exit codes, should supply them.
-- **3. upool's exit 1 and 6.** Is 1 the generic failure for every command or only `which`'s "not in
-  a slot"? Does upool pass the Unity CLI's exit 6 through unchanged from its wrappers?
-- **8. Saved scene list.** Where does `upool close` keep `Library/LastSceneManagerSetup.txt` between
-  a headless open and its close?
-- **9. Cold-import charge.** Is a cold-importing Editor charged 4.5 GB instead of its 2.5 GB or on
-  top of it, is 4.5 GB a setting, and is the `max_editors` formula in (h) the intended one?
 - **12. `unity open` warning line.** Was the `Warning: …` line before the JSON on stdout or stderr? A
   parser that expects bare JSON on stdout breaks if it was stdout. `scripts/capture-unity.sh` keeps
   stdout and stderr apart, so a new capture answers this.
-- **16. GoReleaser `brews`.** The design and the bootstrap ask for a `brews` section that writes
-  `Formula/upool.rb`; GoReleaser 2.10 and later deprecate `brews` in favour of `homebrew_casks`.
-  Keep the formula or move to a cask before the first release in M4? A cask is quarantined by
-  macOS on install, and the binary is not signed. A quarantined binary in the create hook would
-  likely fail every worktree session with `worktree_hook_failed`, so keeping the formula avoids
-  this unless the binary is signed and notarized.
 
 [^1]: The design (D-route) calls the desktop `session_id` "the app's own id" and the spike (S§2 TB)
     writes it as `local_<id>`. The captured stdin carries the bare UUID (`e8c6f3e6-…`); only
@@ -803,4 +874,4 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
 [^4]: The design gives the defaults and the result ("at 64 GB that admits three Editors with headroom
     for one cold import", D-editors) but not a formula; this is the closed form that reproduces it.
     The spike's figure is "3 at 64 GB is comfortable, 4 is plausible" (S§8 "What this changes
-    (updated)"), which the formula respects. See Open question 9.
+    (updated)"), which the formula respects. A9 keeps it.
