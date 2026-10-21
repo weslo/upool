@@ -1,0 +1,64 @@
+== ~/.upool-scope-probe/session-start.sh, the project's SessionStart hook
+#!/bin/sh
+# Scope probe: logs each SessionStart stdin with the hook's parent PID, and exports a marker.
+here="$HOME/.upool-scope-probe"
+{ printf '%s ppid=%s ' "$(date '+%Y-%m-%d %H:%M:%S')" "$PPID"; cat; echo; } >>"$here/session-start.log"
+if [ -n "${CLAUDE_ENV_FILE:-}" ]; then echo 'export UPOOL_PROBE=project-scope' >>"$CLAUDE_ENV_FILE"; fi
+exit 0
+
+== .claude/settings.local.json of the scratch repository
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/Documents/Personal/upool/bin/upool",
+            "args": [
+              "hook",
+              "worktree-create"
+            ]
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/Documents/Personal/upool/bin/upool",
+            "args": [
+              "hook",
+              "worktree-remove"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/.upool-scope-probe/session-start.sh",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}
+
+== session-start.log
+2026-10-20 20:35:30 ppid=63739 {"session_id":"a4cf0dce-8dbc-4501-89dd-4c67ac88df4a","transcript_path":"${home}/.claude/projects/${home_key}-Documents-upool-scope-probe--claude-worktrees-upool-probe-env-check-78fde4/a4cf0dce-8dbc-4501-89dd-4c67ac88df4a.jsonl","cwd":"${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4","scratchpad_dir":"${claude_tmp}/${home_key}-Documents-upool-scope-probe--claude-worktrees-upool-probe-env-check-78fde4/a4cf0dce-8dbc-4501-89dd-4c67ac88df4a/scratchpad","hook_event_name":"SessionStart","source":"startup"}
+
+== the session's reply, from its transcript
+`pwd` printed `${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4`.
+
+`echo "$UPOOL_PROBE"` printed `project-scope`.
+== git -C <scratch> worktree list; branch, after the archive
+${home}/Documents/upool-scope-probe 693fac6 [main]
+* main
+  upool-probe-env-check-78fde4

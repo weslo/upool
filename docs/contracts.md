@@ -5,7 +5,7 @@ The external behaviour `upool` depends on, extracted from [design.md](design.md)
 the spike report wins and a footnote says so. Fixture names refer to files under
 [`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
 [`docs/evidence/`](evidence/README.md). Nothing here is new design except the maintainer's answers
-to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A25: they settle what both
+to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A26: they settle what both
 documents leave open, and the tables follow them. Every other gap is listed under
 [Open questions](#open-questions), not filled.
 
@@ -76,10 +76,10 @@ by `session_id` (S§7 item 3; D-route).
 | A path held by a live session is refused: `WorktreeCreate hook failed: hook printed "<path>", which is already in use by worktree "<name>"`, then `worktree_hook_failed`; no `WorktreeRemove` follows a refusal | S§8 A.7; S§9 E.7; `evidence/logs/sibling-slot-main.log`, `evidence/logs/managed-slot-main.log` |
 | Only a path inside `<repo>/.claude/worktrees` gets the config overlay and auto-trust ("Auto-trusted worktree … (inherited from <repo>)"); elsewhere the log says "hook returned a path outside the managed worktree directory" | S§8 A.5; S§9 E.5; `evidence/logs/managed-slot-main.log`, `evidence/logs/sibling-slot-main.log` |
 | The overlay copies only files the slot lacks ("Skipped 3 gitignored .claude files already present") and skips links to directories (21 under `.claude/skills`) | S§9 E.5; S§10 |
-| The hook must be registered at user scope (`~/.claude/settings.json`, exec form); from a project settings file the app logs "hook came from a repo-committed settings tier … (provenance not vouched)" | S§2 TB; S§8 A.2–3, A.5; `evidence/logs/desktop-probe-main.log` |
+| The hooks are registered per project, in its `.claude/settings.local.json` (exec form), by `init` (A26). The app runs a project-scope create hook and uses the path it prints, but skips the per-machine config overlay and auto-trust for the worktree: "hook came from a repo-committed settings tier … (provenance not vouched)". A user-scope hook clears that check, but runs in every repository | S§2 TB; S§8 A.2–3, A.5; A26; `evidence/logs/desktop-probe-main.log`; `evidence/logs/desktop-project-scope-main.log` |
 | A hook script must live outside `~/Documents`: under it, `getcwd` and `bash` failed with `Operation not permitted`. A binary under it runs as the hook command, so upool registers itself, with no script (A24) | S§2 T7.6; S§7; A24; `evidence/exec-probe/helper.txt`; `evidence/logs/desktop-exec-probe-main.log` |
 | Handing out a pre-made slot took `worktree=36ms` to `112ms`, against `4634ms` for a `git worktree add` inside the hook | S§8 A.5; S§9 E.5; `evidence/logs/sibling-slot-main.log`; `evidence/logs/desktop-probe-main.log` |
-| A user-scope create hook runs for every repository and every subagent; there is no matcher | S§9 "What this changes (updated)", blast radius row; D-route |
+| A create hook runs for every repository whose settings register it, and every subagent there; there is no matcher. Registered per project, upool's run only in the projects `init` registers (A26) | S§9 "What this changes (updated)", blast radius row; D-route; A26 |
 | The desktop app waited the whole 30 s for a create hook that slept that long, and used the path it printed (`worktree=30210ms`): its limit is above 30 s, so the pooled branch's wait, the smaller of 20 s and that limit less 5 s, is 20 s | A11; `hooks/desktop-create-timeout.txt` (desktop app 3.1623.0; #148) |
 
 ### WorktreeRemove fields
@@ -664,7 +664,8 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   upool is its own hook command. `setup` registers `upool hook <event>` in exec form, by the path
   `PATH` finds upool at, and installs no scripts. A handler that runs `upool hook`, by any path, is
   upool's, so a later `setup` replaces it. What the hooks read still lives outside the protected
-  folders, under `~/.upool/` (maintainer decision, 2026-10-20; (a); (e)).
+  folders, under `~/.upool/` (maintainer decision, 2026-10-20; (a); (e)). A26 moves the
+  registration from `setup` to `init`, per project; the exec form and the path stay.
 
 - **25. Whether `SessionEnd` releases a lease**
   ([#80](https://github.com/weslo/upool/issues/80)). A15 said to build `SessionEnd`'s best-effort
@@ -681,6 +682,33 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   `doctor --fix`, since its confirmed lease records the CLI's PID (A6; (f) transitions 13 and 14)
   (maintainer decision, 2026-10-20; (b); `hooks/cli-session-end.json`;
   `hooks/session-start-clear.json`).
+
+- **26. Where upool's hooks are registered** ([#171](https://github.com/weslo/upool/issues/171)).
+  The design registered them once per machine, in `~/.claude/settings.json`, because the spike saw a
+  project-scope hook get "provenance not vouched" from the desktop app (S§8 A.2–A.5). The spike's
+  own log shows the hook **ran**: the app skipped only the per-machine config overlay and auto-trust
+  (`evidence/logs/desktop-probe-main.log`). A user-scope hook, with no matcher, runs for every
+  repository on the machine. A probe on 2026-10-20 (desktop app 3.1623.0) registered `upool hook
+  worktree-create` and `worktree-remove` and a `SessionStart` probe in a scratch repository's own
+  `.claude/settings.local.json`, with no user-scope hooks. The create hook ran and upool made the
+  worktree, inside `.claude/worktrees`; the app skipped the overlay and auto-trust; the project's
+  `SessionStart` ran in the worktree session and its `CLAUDE_ENV_FILE` export reached it; the app
+  passed `--project-config-root <main checkout>`; and on archive the remove hook removed the
+  worktree (`evidence/logs/desktop-project-scope-main.log`,
+  `evidence/project-scope-probe/probe.txt`).
+
+  **A26.** upool's hooks, skill and instruction blocks are per project. `upool init` registers
+  `upool hook <event>` for `WorktreeCreate`, `WorktreeRemove` and `SessionStart` in the project's
+  `.claude/settings.local.json`, in exec form by the path `PATH` finds upool at, as `setup` did at
+  user scope (A24). It installs the skill in the project's `.claude/skills/upool/` and
+  `.agents/skills/upool/`, and upserts the block into its `CLAUDE.md` and `AGENTS.md`. `upool setup`
+  goes, and upool never writes the user's own Claude Code settings. The skipped overlay costs
+  nothing: the session-start confirm re-copies the agent files. Two things are still to be measured
+  before `init` registers anything (#172): the probe's create logged `worktree=232804ms`, nearly 4
+  minutes with nothing logged in between, and what the skipped auto-trust does to a session. #172
+  also settles `settings.local.json` against `settings.json`, a slot's own copy of the settings, and
+  the CLI. The work is #173 (`init` registers the hooks), #174 (`setup` removed, the skill and
+  blocks per project) and #175 (`doctor`) (maintainer decision, 2026-10-20; (a)).
 
 ### Other open questions
 
