@@ -6,7 +6,8 @@ import (
 )
 
 // Code is an upool error code, an Envelope's errors[].code. Codes are UPPER_SNAKE, as the Unity
-// CLI's are (docs/contracts.md (d)), and every code upool reports is a constant here.
+// CLI's are (docs/contracts.md (d)). Every code upool reports of its own is a constant here; a
+// Unity CLI failure keeps the CLI's code, which upool passes through (A1).
 type Code string
 
 const (

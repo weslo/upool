@@ -3,6 +3,7 @@ package unity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/unity/fake"
 )
@@ -191,8 +193,8 @@ func captured(t *testing.T, name string) []byte {
 	return raw
 }
 
-// A failed reply decodes, with its exit code, for the caller to map (#83); the call itself is not
-// an error.
+// A failed reply decodes, with its exit code, for the caller to map with Reply.Err; the call itself
+// is not an error.
 func TestCallReturnsAFailedReply(t *testing.T) {
 	r := &fakeRunner{res: Result{Stdout: captured(t, "test-not-a-unity-project.json"),
 		ExitCode: 6}}
@@ -206,14 +208,36 @@ func TestCallReturnsAFailedReply(t *testing.T) {
 	}
 }
 
-// A reply that is not JSON is an error that carries the CLI's stderr and exit code.
-func TestCallRefusesAReplyThatIsNotJSON(t *testing.T) {
-	r := &fakeRunner{res: Result{Stdout: []byte("Warning: something\n"),
-		Stderr: []byte("unity: crashed\n"), ExitCode: 2}}
-	_, err := Client{Runner: r}.Call(context.Background(), VerbStatus, "/work/slot")
-	if err == nil || !strings.Contains(err.Error(), "exited 2") ||
-		!strings.Contains(err.Error(), "unity: crashed") {
-		t.Errorf("err = %v, want one naming exit 2 and the stderr", err)
+// A reply that is not JSON is a failure carrying the raw stdout, whatever the exit: `unity
+// --version`'s text, replayed through the fake as an answer to `status`, exiting 0, fails with
+// COMMAND_FAILED and ExitFailure.
+func TestCallFailsAReplyThatIsNotJSON(t *testing.T) {
+	slot := slotDir(t)
+	u := fake.Install(t, fake.Reply{Capture: "version.raw.txt"})
+	env := []string{"PATH=" + u.Dir(), "HOME=" + u.Dir()}
+	_, err := Client{Runner: Exec{}, Env: env}.Call(context.Background(), VerbStatus, slot)
+	var f *output.Failure
+	if !errors.As(err, &f) || f.Exit() != output.ExitFailure ||
+		f.Code() != output.CodeCommandFailed || !strings.Contains(err.Error(), "exited 0") ||
+		!strings.Contains(err.Error(), `stdout "1.0.0-beta.13\n"`) {
+		t.Errorf("error %v, want COMMAND_FAILED exiting 1 with the version on stdout", err)
+	}
+}
+
+// A reply that is not JSON exits as a failure (d) does not list: ExitNoTarget when the CLI exited
+// 6, ExitFailure otherwise (A1; A3); its stderr comes with its stdout.
+func TestCallFailsAReplyThatIsNotJSONByItsExit(t *testing.T) {
+	for _, tt := range []struct{ exit, want int }{{2, output.ExitFailure},
+		{cliExitNoTarget, output.ExitNoTarget}} {
+		r := &fakeRunner{res: Result{Stdout: []byte("Warning: something\n"),
+			Stderr: []byte("unity: crashed\n"), ExitCode: tt.exit}}
+		_, err := Client{Runner: r}.Call(context.Background(), VerbStatus, "/work/slot")
+		var f *output.Failure
+		if !errors.As(err, &f) || f.Exit() != tt.want || !strings.Contains(err.Error(),
+			fmt.Sprintf("unity status /work/slot exited %d with a reply that is not JSON: "+
+				`stdout "Warning: something\n", stderr "unity: crashed\n"`, tt.exit)) {
+			t.Errorf("exit %d: error %v, want both streams and exit %d", tt.exit, err, tt.want)
+		}
 	}
 }
 
