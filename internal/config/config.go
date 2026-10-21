@@ -33,7 +33,8 @@ type Source string
 
 const (
 	// Unset means nothing set the setting and it has no default: base until init writes it into
-	// .upool.toml (A17), and max_editors until open question 9 (#15) settles its derivation.
+	// .upool.toml (A17), and max_editors, which internal/ledger then derives from the RAM settings
+	// (A9).
 	Unset Source = "unset"
 	// Default means no layer set the setting, so it has its default.
 	Default Source = "default"
@@ -79,7 +80,7 @@ type Config struct {
 	// HelperRAMGB is the charge, in GB, once any Editor is up; default 2.
 	HelperRAMGB Setting[float64]
 	// MaxEditors caps the Editors running at once. It is optional and unset unless a layer sets
-	// it: deriving it from the budget waits for open question 9 (#15).
+	// it; unset, internal/ledger derives it from the budget (docs/contracts.md (h); A9).
 	MaxEditors Setting[int]
 	// ShrinkAfter is how long a slot beyond ready stays idle before prune may remove it;
 	// default 14d.

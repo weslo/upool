@@ -23,6 +23,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - The table is tested against (c) as `docs/contracts.md` writes it, one subtest per row.
   - `CacheKey` now runs through the table, so `unity cache key` runs in the slot with
     `UNITY_PROJECT_PATH` set.
+- `internal/ledger`: admission against the RAM budget (docs/contracts.md (h); A9).
+  - `NewBudget` reads the budget from the config. When `max_editors` is unset, it is derived as
+    floor((`editor_ram_budget_gb` − `helper_ram_gb` − 4.5 × `max_cold_imports`) / `editor_ram_gb`),
+    3 at 64 GB.
+  - `Admit` charges an Editor 4.5 GB while it cold-imports, instead of `editor_ram_gb`, and adds
+    the helper charge once while any Editor is up. It refuses an Editor that would go past
+    `max_cold_imports`, `max_editors` or `editor_ram_budget_gb`, with a `Refusal` naming the
+    limit.
+  - `Remove` and `EndColdImport` take an Editor out, and end its cold import, giving back its
+    place and charging `editor_ram_gb` from then on.
+  - Each runs under `~/.upool/lock`, after dropping the Editors whose process is gone, and their
+    charge with them.
 
 ## [0.2.0] - 2026-10-21
 
