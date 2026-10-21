@@ -1,0 +1,11 @@
+2026-10-20 20:31:36 [info] Creating worktree for session local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0 from ${home}/Documents/upool-scope-probe
+2026-10-20 20:35:29 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4
+2026-10-20 20:35:29 [info] Skipped per-machine config overlay for hook-based worktree "upool-probe-env-check-78fde4" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-20 20:35:29 [info] Created hook-based worktree "upool-probe-env-check-78fde4" at ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4
+2026-10-20 20:35:29 [info] Using worktree "upool-probe-env-check-78fde4" at ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4 for session local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0
+2026-10-20 20:35:29 [info] Skipped auto-trust for hook-based worktree at ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-20 20:35:29 [info] Starting local session local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0 in ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4
+2026-10-20 20:35:29 [info] [CCD] passing --project-config-root ${home}/Documents/upool-scope-probe for session local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0
+2026-10-20 20:35:36 [info] [CCD start-timing] local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0 preflight=14ms worktree=232804ms mcp=34ms query=3ms enqueue=10ms init=1000ms first_assistant=6125ms | …
+2026-10-20 20:47:27 [info] Removing worktree "upool-probe-env-check-78fde4" (leased by local_996b7008-d2e6-488c-9a0f-d6e5852f7dc0): ${home}/Documents/upool-scope-probe/.claude/worktrees/upool-probe-env-check-78fde4
+2026-10-20 20:47:28 [info] Removed hook-based worktree "upool-probe-env-check-78fde4"

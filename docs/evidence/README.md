@@ -20,6 +20,7 @@ look for.
 | `sibling-slot-main.log` | `test-a/main-log-excerpt.txt` | §8 A.5–A.8 | user-scope hook outside the managed directory: overlay and auto-trust skipped for location; four "already in use" refusals; archive and reuse sequences; `worktree=36ms`–`56ms` timings |
 | `managed-slot-main.log` | `test-e/main-log-excerpt.txt` | §9 E.5–E.7 | slot in `.claude/worktrees`: overlay lines, "Auto-trusted worktree … (inherited from …)", one refusal, archive and reuse |
 | `subagent-session-main.log` | `test-f/main-log-excerpt.txt` | §9 F.3 | the subagent test's session: no worktree lines at all, because subagent worktrees never reach the app |
+| `desktop-project-scope-main.log` | none: #171 | contracts.md A26 | a create hook registered in a scratch repository's own `.claude/settings.local.json`: "Created hook-based worktree", the overlay and auto-trust skipped as "provenance not vouched", `--project-config-root` the main checkout, `worktree=232804ms`, and the remove on archive (desktop app 3.1623.0) |
 | `desktop-exec-probe-main.log` | none: #163 | contracts.md A24 | a create hook running a upool built under `~/Documents`: "Created hook-based worktree" and the session started (desktop app 3.1623.0) |
 
 ## exec-probe/
@@ -52,3 +53,14 @@ each is still wanted (contracts.md, open question 2).
 | `status-until-ready-closed-project.json` | `t6-targeting.txt`, J2 | §2 T6.5 | `--until-ready --timeout 15` on an existing project with no Editor: 15.12 s |
 | `build-not-a-unity-project.json` | `b-targeting.txt`, B3c | §8 B.3 | `unity build --list-profiles` from `/tmp` with the variable |
 | `cache-key-data.json` | `d1-cache-key.txt`, run1 | §8 D.1 | the key object of `unity cache key`; run2, after a `.cs` edit, after revert and on main were byte-identical |
+
+## project-scope-probe/
+
+The probe behind [contracts.md](../contracts.md) A26
+([#171](https://github.com/weslo/upool/issues/171), 2026-10-20; desktop app 3.1623.0, Claude Code
+2.1.304, macOS 15.7.3), recorded as it ran, with paths as variables. Its `main.log` lines are
+`logs/desktop-project-scope-main.log`.
+
+| File | What it shows |
+|---|---|
+| `probe.txt` | the scratch repository's `.claude/settings.local.json`, registering upool for `WorktreeCreate` and `WorktreeRemove` and a probe for `SessionStart`; the probe's log of the `SessionStart` stdin, `cwd` the worktree; the session's reply, `UPOOL_PROBE` exported by the probe; and the worktree gone after the archive, its branch kept |
