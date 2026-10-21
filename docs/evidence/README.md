@@ -78,3 +78,13 @@ The capture behind [contracts.md](../contracts.md) A26's measurements
 | File | What it shows |
 |---|---|
 | `capture.txt` | the logger every hook ran through and the two settings files; its log of each hook's start and end to the millisecond, its source (`local` or `shared`) and its parent process, for three desktop sessions, a second prompt after a hook was written into a worktree's own settings, a `claude -p --worktree` run and two archives; and the CLI run's output |
+
+## apfs-private-size/
+
+The probe behind [contracts.md](../contracts.md) A32
+([#33](https://github.com/weslo/upool/issues/33), 2026-10-21; macOS 15.7.3, APFS), recorded as it
+ran.
+
+| File | What it shows |
+|---|---|
+| `probe.txt` | a small C program that prints `getattrlist`'s `ATTR_CMNEXT_PRIVATESIZE` for each path, and its run: a 20 MB file and its `cp -c` clone at 0 private bytes each while `du` reports 20 MB each; both at 2 MB after 2 MB of the clone was rewritten; and the original at 20 MB again once the clone is deleted |
