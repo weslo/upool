@@ -819,6 +819,18 @@ Answered on 2026-10-21, before M3's build began. Questions 2 and 12 wait on M3's
   **A30.** Dropped. Lanes go by file extension alone, and `.upool.toml` keeps `ready`, `max_slots`
   and `base` (maintainer decision, 2026-10-21; D-lanes; D-commands).
 
+- **33. How upool opens a headless Editor** ([#86](https://github.com/weslo/upool/issues/86)). The
+  design gives `upool open` a `--headless` mode, and M3's capture asked for "the flag the CLI's help
+  gives". `unity open --help` (CLI 1.0.0-beta.13) lists no headless flag: its options are the
+  Editor's version, path and architecture, a build target, `--args` and `--wait`. Neither the spike
+  report nor the design records how the spike launched its headless Editors (S§8 B.1, B.5).
+
+  **A33.** `unity open <slot> --args "-batchmode"`: the Editor in batch mode without `-quit`, which
+  keeps running, as the spike's headless Editors did (S§9 G). It stays a `unity open` call, so the
+  CLI picks the project's Editor version and the verb table's targeting rules hold (#82).
+  `-nographics` is not passed: it would make the Editor behave unlike the GUI one a person
+  develops in (maintainer decision, 2026-10-21; D-editors; (c)).
+
 ### Decided for M4
 
 - **16. GoReleaser `brews`** ([#21](https://github.com/weslo/upool/issues/21)). The design asks

@@ -117,10 +117,15 @@ hook that never fired gets no file, and its row says so.
 | `session-start-compact.json` | same, step 4 | desktop app 3.1623.0, Claude Code 2.1.304, 2026-10-20 | `SessionStart` after `/compact` in that desktop worktree session, `source: "compact"`: the same parent PID as its `startup`, and it carries `prompt_id`, `model` and `session_title` (A14) |
 | `cli-session-remove.json` | same, step 5 | Claude Code 2.1.304 (the desktop app's bundled CLI), 2026-10-20 | `WorktreeRemove` when a logged-in interactive `claude --worktree a15-probe` session in a scratch repository ended with `/exit` and the worktree removed: unlike the desktop app's, its `cwd` is the worktree, not the main checkout, and it carries `prompt_id` and `scratchpad_dir`, so a `prompt_id` marks a subagent only on `WorktreeCreate` (A15) |
 | `cli-session-end.json` | same, step 5 | Claude Code 2.1.304, 2026-10-20 | `SessionEnd` of that session: `reason: "prompt_input_exit"`, `cwd` the main checkout though the session ran in the worktree, with `prompt_id` and `scratchpad_dir`. Quitting the desktop app ended each of its sessions with `reason: "other"` (A15) |
+| `pretooluse-edit.json` | [M3 gate](../docs/manual-gates/M3.md), "Capture the M3 replies", step 6 | **pending** | `PreToolUse` for `Edit` in a desktop worktree session in a slot, the hook registered in the project's `.claude/settings.local.json` beside upool's: the stdin the lane hook reads (#95) |
+| `pretooluse-write.json` | same, step 6 | **pending** | `PreToolUse` for `Write` in the same session |
+| `pretooluse-notebookedit.json` | same, step 6 | **pending** | `PreToolUse` for `NotebookEdit` in the same session |
 
 The file names say what kind of request each one is. The test for hook classification
 (docs/contracts.md (a)) runs over every `.json` file here and checks each one against its name;
-`desktop-create-timeout.txt`, a log rather than stdin, is the one file it passes over.
+`desktop-create-timeout.txt`, a log rather than stdin, is the one file it passes over. A
+`pretooluse-<tool>.json` name says its event and its tool, which the test checks; `PreToolUse`
+runs in the session's CLI process, as `SessionStart` does, so its name says no kind of request.
 
 ### captures/unity/
 
@@ -163,6 +168,18 @@ replaces **pending** with the version and the date.
 |---|---|---|---|
 | `version.raw.txt`, `version.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | 1.0.0-beta.13, 2026-10-19 | `unity --version`: the version `doctor` checks against 1.0.0-beta.13 |
 | `cache-key.json`, `cache-key.exit` | [M0 gate](../docs/manual-gates/M0.md), "Capture the M1 replies" | 1.0.0-beta.13, 2026-10-19 | `unity cache key <project> --format json` from inside the project, the path positional, so it is `${cwd}`: the key the staleness checks compare across checkouts (contracts (g) step 7, A20) |
+| `license-status.*` | [M3 gate](../docs/manual-gates/M3.md), "Capture the M3 replies", step 2 | **pending** | `unity license status`: what `doctor` reports (#93) |
+| `projects-verify-pass.*` | same, step 2 | **pending** | `unity projects verify --strict <slot>` on a clean slot (#87; #29) |
+| `projects-verify-fail.*` | same, step 2 | **pending** | the same on a slot with one `.meta` file moved out (#87; #29) |
+| `cache-key-project-path-rejected.*` | same, step 2 | **pending** | `unity cache key --project-path <repo>`: `INVALID_COMMAND_ARGS`, with the exit code `cache-key-project-path-invalid.json` lacks (#12) |
+| `build-not-a-unity-project.*` | same, step 2 | **pending** | `unity build --list-profiles` from `/tmp`: "Not a Unity project", with its exit code (#12) |
+| `status-no-instances.*` | same, step 2 | **pending** | `unity status` with `UNITY_PROJECT_PATH` naming a project with no Editor, without `--until-ready`, with its exit code (#12) |
+| `vcs-doctor-fix.*` | same, step 3 | **pending** | `unity vcs doctor --fix` on a throwaway clone of the project, and what it changed there (#88; #30) |
+| `vcs-merge-setup.*` | same, step 3 | **pending** | `unity vcs merge-setup` on the same clone (#88; #30) |
+| `open-headless.*` | same, step 4 | **pending** | `unity open <slot> --args "-batchmode"`, a headless Editor as A33 opens one (#89) |
+| `open-gui-streams.*` | same, step 4 | **pending** | `unity open <slot>` for a GUI Editor on a path the Hub does not know, stdout and stderr apart: which stream the registry warning is on (#17) |
+| `command-eval-first-call.*` | same, step 4 | **pending** | the first `eval` on that fresh GUI Editor, with its exit code: the first-call `COMMAND_FAILED` timeout if it recurred, else the reply (#12) |
+| `command-eval-ambiguous-editor.*` | same, step 4 | **pending** | `eval` from `/tmp` with two Editors up and no `UNITY_PROJECT_PATH`: `AMBIGUOUS_EDITOR`, with its exit code (#12) |
 
 ### captures/claude/
 

@@ -3,6 +3,7 @@ package hooks
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +30,10 @@ const parentPID = 4242
 // eventSessionEnd is SessionEnd's hook_event_name, whose captures #148 adds and for which upool
 // registers no hook (docs/contracts.md A25).
 const eventSessionEnd = "SessionEnd"
+
+// eventPreToolUse is PreToolUse's hook_event_name, whose captures M3 adds (#86) for the lane hook
+// (#95).
+const eventPreToolUse = "PreToolUse"
 
 // logCaptures are the files in capturesDir that are not hook stdin, by name: a hook's own log,
 // which the classification passes over (testdata/README.md, captures/hooks/).
@@ -63,6 +68,11 @@ func TestClassifyEveryCapture(t *testing.T) {
 		_ = f.Close() // read-only
 		if err != nil {
 			t.Errorf("%s: %v", entry.Name(), err)
+			continue
+		}
+
+		if tool, ok := strings.CutPrefix(name, "pretooluse-"); ok {
+			checkPreToolUse(t, entry.Name(), req, tool)
 			continue
 		}
 
@@ -116,6 +126,29 @@ func TestClassifyEveryCapture(t *testing.T) {
 		// SessionStart and SessionEnd run in the CLI process, so transcript_path is set whoever
 		// the session is ((b)), and they carry a prompt_id after a prompt: their names say only
 		// the event.
+	}
+}
+
+// checkPreToolUse fails the test unless the PreToolUse capture file, whose name is
+// pretooluse-<tool>, decoded as req is that event for that tool. Like SessionStart, it runs in the
+// session's CLI process, so its name says no kind of request.
+func checkPreToolUse(t *testing.T, file string, req Request, tool string) {
+	t.Helper()
+	if req.HookEventName != eventPreToolUse {
+		t.Errorf("%s: hook_event_name = %q, want %q", file, req.HookEventName, eventPreToolUse)
+	}
+	raw, err := os.ReadFile(filepath.Join(capturesDir, file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdin struct {
+		ToolName string `json:"tool_name"`
+	}
+	if err := json.Unmarshal(raw, &stdin); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	if !strings.EqualFold(stdin.ToolName, tool) {
+		t.Errorf("%s: tool_name = %q, want %s", file, stdin.ToolName, tool)
 	}
 }
 
