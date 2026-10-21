@@ -36,12 +36,12 @@ const otherSettings = `{
 `
 
 // upoolEntries replaces each "@<event>@" in doc, a JSON document, with upool's matcher group for
-// that event in e: one handler, in exec form, running `upool hook <event>`.
-func upoolEntries(t *testing.T, e setupEnv, doc string) string {
+// that event: one handler, in exec form, running `upool hook <event>` by the path upool.
+func upoolEntries(t *testing.T, upool, doc string) string {
 	t.Helper()
 	for _, event := range events() {
 		group := mustJSON(t, map[string]any{"hooks": []any{map[string]any{
-			"type": "command", "command": e.upool, "args": []string{"hook", event},
+			"type": "command", "command": upool, "args": []string{"hook", event},
 		}}})
 		doc = strings.ReplaceAll(doc, `"@`+event+`@"`, string(group))
 	}
@@ -83,7 +83,7 @@ func TestSetupRegistersHooks(t *testing.T) {
 		t.Errorf("second run: settings = %+v, want %+v", got.Settings, want)
 	}
 
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e, `{
+	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "model": "opus",
   "cleanupPeriodDays": 30,
@@ -162,7 +162,7 @@ func TestSetupCreatesSettings(t *testing.T) {
 		got.Backup != "" {
 		t.Errorf("settings = %+v, backup %q, want %+v and none", got.Settings, got.Backup, want)
 	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e, `{"hooks": {
+	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"hooks": {
   "WorktreeCreate": ["@worktree-create@"],
   "WorktreeRemove": ["@worktree-remove@"],
   "SessionStart": ["@session-start@"]
@@ -229,7 +229,7 @@ func TestSetupKeepsOneBackup(t *testing.T) {
 	if b, err := os.ReadFile(backup); err != nil || string(b) != otherSettings {
 		t.Errorf("second run: %s = %q, %v, want the first copy", backup, b, err)
 	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e, `{"model": "sonnet", "hooks": {
+	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"model": "sonnet", "hooks": {
   "WorktreeCreate": ["@worktree-create@"],
   "WorktreeRemove": ["@worktree-remove@"],
   "SessionStart": ["@session-start@"]
@@ -241,7 +241,7 @@ func TestSetupKeepsOneBackup(t *testing.T) {
 // runs another program, or upool but not `upool hook`, is not upool's.
 func TestSetupReplacesItsEarlierEntries(t *testing.T) {
 	e := newSetupEnv(t)
-	writeSettings(t, e, upoolEntries(t, e, `{"hooks": {
+	writeSettings(t, e, upoolEntries(t, e.upool, `{"hooks": {
   "WorktreeCreate": [
     {"hooks": [{"type": "command", "command": "first"}]},
     {"hooks": [{"type": "command", "command": "/old/bin/upool", "args": ["hook", "worktree-create"]}]},
@@ -265,7 +265,7 @@ func TestSetupReplacesItsEarlierEntries(t *testing.T) {
 	if got.Settings.Change != updated {
 		t.Errorf("settings change = %q, want %q", got.Settings.Change, updated)
 	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e, `{"hooks": {
+	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"hooks": {
   "WorktreeCreate": [
     {"hooks": [{"type": "command", "command": "first"}]},
     "@worktree-create@",

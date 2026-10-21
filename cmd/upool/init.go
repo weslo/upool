@@ -54,6 +54,10 @@ const (
 	// claudeMD is the instruction file, at the repository's root, that init upserts upool's block
 	// into (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row).
 	claudeMD = "CLAUDE.md"
+	// projectSettings is the project's own Claude Code settings file, relative to the repository,
+	// where init registers upool's hooks: it holds this machine's path to upool and stays out of
+	// git, and the desktop app runs the hooks a project registers there (A26; #172).
+	projectSettings = ".claude/settings.local.json"
 )
 
 // editorFiles are the files an open Editor holds in its Library. Both are absent after a clean
@@ -94,6 +98,10 @@ type initReport struct {
 	// ExistingSlots are the slots the pool already had, from an earlier init whose registry entry
 	// was lost or which failed part-way; init keeps them and clones none.
 	ExistingSlots []existingSlot `json:"existing_slots,omitempty"`
+	// Upool is the path the hooks run upool by, the one init found this binary through on PATH,
+	// and Hooks the project's .claude/settings.local.json, where init registers them (A26).
+	Upool string    `json:"upool"`
+	Hooks installed `json:"hooks"`
 
 	// repoFile is what init wrote to .upool.toml, for the human form.
 	repoFile config.RepoFile
@@ -120,8 +128,10 @@ type existingSlot struct {
 
 // Human returns one line per step init took.
 func (r initReport) Human() string {
+	hooks := []string{"the hooks run " + r.Upool, describeChange(r.Hooks)}
 	if r.AlreadyRegistered {
-		return fmt.Sprintf("%s is already registered as pool %s", r.Repo, r.Key)
+		return strings.Join(append([]string{fmt.Sprintf("%s is already registered as pool %s",
+			r.Repo, r.Key)}, hooks...), "\n")
 	}
 	var lines []string
 	if r.GitignoreUpdated {
@@ -157,7 +167,7 @@ func (r initReport) Human() string {
 		lines = append(lines, "kept the pool's existing slots: "+strings.Join(slots, ", "))
 	}
 	lines = append(lines, fmt.Sprintf("registered %s as pool %s", r.Repo, r.Key))
-	return strings.Join(lines, "\n")
+	return strings.Join(append(lines, hooks...), "\n")
 }
 
 // describeBlock says what upserting upool's block into file did.
@@ -194,12 +204,14 @@ func describeBase(source string) string {
 	return "from " + source
 }
 
-// initRepo is init's handler, cloning n slots into a new pool. It checks the repository before it changes anything, then upserts
-// upool's block into CLAUDE.md, first so that a CLAUDE.md whose markers do not pair is refused
-// with nothing written; adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates the
-// pool's state.json, clones the first slot into a pool that has none and, last, adds the
-// repository to registry.json, so that a run that fails part-way is finished by the next rather
-// than reported as already registered.
+// initRepo is init's handler, cloning n slots into a new pool. It finds upool on PATH, reads the
+// project's .claude/settings.local.json and checks the repository before it changes anything. Then
+// it upserts upool's block into CLAUDE.md, first so that a CLAUDE.md whose markers do not pair is
+// refused with nothing written; adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates
+// the pool's state.json, clones the first slot into a pool that has none, adds the repository to
+// registry.json and, last, registers upool's hooks in .claude/settings.local.json (A26), so that a
+// run that fails part-way is finished by the next. On a registered repository it registers the
+// hooks again and does nothing else.
 func initRepo(inv *invocation, n int) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -215,10 +227,26 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkProject(ctx, g, repo); err != nil {
 		return nil, nil, err
 	}
+	exe, err := inv.executable()
+	if err != nil {
+		return nil, nil, fmt.Errorf("finding upool's own binary: %w", err)
+	}
+	upool, err := findOnPath(inv.getenv("PATH"), exe)
+	if err != nil {
+		return nil, nil, err
+	}
+	hooks, err := planRegistration(filepath.Join(repo, projectSettings), upool, false)
+	if err != nil {
+		return nil, nil, err
+	}
 	if reg, ok, err := registry.Lookup(inv.home, repo); err != nil {
 		return nil, nil, err
 	} else if ok {
-		return initReport{Repo: repo, Key: reg.Key, AlreadyRegistered: true}, nil, nil
+		r := initReport{Repo: repo, Key: reg.Key, AlreadyRegistered: true, Upool: upool}
+		if r.Hooks, _, err = hooks.apply(); err != nil {
+			return nil, nil, err
+		}
+		return r, nil, nil
 	}
 	if err := checkLibraryUntracked(ctx, g, repo); err != nil {
 		return nil, nil, err
@@ -271,7 +299,10 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	r.Key = reg.Key
+	r.Key, r.Upool = reg.Key, upool
+	if r.Hooks, _, err = hooks.apply(); err != nil {
+		return nil, warnings, err
+	}
 	return r, warnings, nil
 }
 

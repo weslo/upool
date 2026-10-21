@@ -14,6 +14,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `Documents`, `Desktop` or `Downloads` folder, where the desktop app's hook helper could not read
   the state the hooks need under `~/.upool`. A second run rewrites only what changed and says what
   it did to each file; `--json` reports the same. The hook handlers are still stubs.
+- `upool init` registers upool's hooks in the project's own `.claude/settings.local.json`, for
+  `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: `upool hook <event>` in exec form, by the
+  path this binary was found through on `PATH`, as `setup` writes them, keeping the file's other
+  keys and hooks and replacing upool's earlier handlers in place. It reads the file before writing
+  anything, refusing one it cannot parse, and refuses when no `upool` on `PATH` is the binary
+  running. It registers them last, after the registry, and on an already registered repository it
+  registers them again and does nothing else. It never writes `~/.claude/settings.json`. The desktop
+  app runs hooks a project registers, skipping only its config overlay and auto-trust
+  (docs/contracts.md A26; #172). `doctor`'s `hook-provenance` passes over that file and warns only
+  about a committed `.claude/settings*.json` that registers upool's hooks.
 - `upool setup` registers upool itself at user scope in `~/.claude/settings.json`, for
   `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: one matcher group each, with no matcher,
   whose handler runs `upool hook <event>` in exec form (`"args": ["hook", "<event>"]`, so no shell

@@ -110,14 +110,12 @@ func TestDoctorHooks(t *testing.T) {
 			reason: "settings.json does not exist, so no hook is registered",
 		},
 		{
-			name: "project settings register upool",
+			name: "the project's settings.local.json registers upool",
 			breakIt: func(t *testing.T, p harnessPool) {
 				p.WriteFile(".claude/settings.local.json", `{"hooks": {"WorktreeCreate": [`+
 					`{"hooks": [{"type": "command", "command": "/opt/homebrew/bin/upool", `+
 					`"args": ["hook", "worktree-create"]}]}]}}`)
 			},
-			check: checkHookProvenance, result: checkWarn,
-			reason: "settings.local.json registers upool's hooks",
 		},
 		{
 			name: "project settings run upool hook",
@@ -126,8 +124,8 @@ func TestDoctorHooks(t *testing.T) {
 					`{"hooks": [{"type": "command", "command": "upool hook session-start"}]}]}}`)
 			},
 			check: checkHookProvenance, result: checkWarn,
-			reason: "settings.json registers upool's hooks, which ~/.claude/settings.json " +
-				"already registers for every repository",
+			reason: "settings.json registers upool's hooks, which init registers in the " +
+				"project's .claude/settings.local.json: remove them there",
 		},
 	}
 	for _, tt := range tests {

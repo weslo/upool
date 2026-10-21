@@ -104,7 +104,9 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 		"wrote .upool.toml: ready = 1, max_slots = 3, base = \"main\"\n" +
 		"added upool's block to CLAUDE.md\n" +
 		"cloned slot-1 into " + slotPath(e) + "\n" +
-		"registered " + e.Repo + " as pool " + key + "\n"
+		"registered " + e.Repo + " as pool " + key + "\n" +
+		"the hooks run " + pathUpool(e) + "\n" +
+		"updated " + e.Path(projectSettings) + "\n"
 	if r.stdout != want {
 		t.Errorf("stdout =\n%s\nwant\n%s", r.stdout, want)
 	}
@@ -224,7 +226,9 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	gitignore, repoFile := readFile(t, e, ".gitignore"), readFile(t, e, ".upool.toml")
 	claude := readFile(t, e, "CLAUDE.md")
 	r := mustInit(t, e)
-	if want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n"; r.stdout != want {
+	want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n" +
+		"the hooks run " + pathUpool(e) + "\n" + e.Path(projectSettings) + " is up to date\n"
+	if r.stdout != want {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
 	}
 	if got := readFile(t, e, ".gitignore"); got != gitignore {
@@ -413,6 +417,8 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 		"gitignore_updated":  true,
 		"repo_file_written":  true,
 		"claude_md_block":    "inserted",
+		"upool":              pathUpool(e),
+		"hooks":              map[string]any{"path": e.Path(projectSettings), "change": "updated"},
 		"slots": []any{map[string]any{
 			"name":       "slot-1",
 			"path":       slotPath(e),
@@ -429,7 +435,8 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 	env = decode(t, r.stdout)
 	data, _ = json.Marshal(env.Data) // as above
 	want = map[string]any{"repo": e.Repo, "key": repoKey(t, e), "already_registered": true,
-		"gitignore_updated": false, "repo_file_written": false}
+		"gitignore_updated": false, "repo_file_written": false, "upool": pathUpool(e),
+		"hooks": map[string]any{"path": e.Path(projectSettings), "change": "unchanged"}}
 	if string(data) != string(mustJSON(t, want)) {
 		t.Errorf("data when already registered = %s, want %s", data, mustJSON(t, want))
 	}
@@ -450,7 +457,8 @@ func TestInitKeepsTheStateOfAPoolWhoseRegistryWasLost(t *testing.T) {
 	}
 	r := mustInit(t, e)
 	want := "kept the pool's existing slots: slot-1 (ready)\n" +
-		"registered " + e.Repo + " as pool " + key + "\n"
+		"registered " + e.Repo + " as pool " + key + "\n" +
+		"the hooks run " + pathUpool(e) + "\n" + e.Path(projectSettings) + " is up to date\n"
 	if !strings.HasSuffix(r.stdout, want) {
 		t.Errorf("stdout = %q, want it to end with %q", r.stdout, want)
 	}
@@ -511,5 +519,51 @@ func TestInitSlotsClonesTwoReadySlots(t *testing.T) {
 	if want := "cloned slot-2 into " + q.Path(".claude/worktrees/slot-2") +
 		", seeded from slot-1\n"; !strings.Contains(r.stdout, want) {
 		t.Errorf("stdout = %q, want the line %q", r.stdout, want)
+	}
+}
+
+// The acceptance test of #173: init registers upool's hooks in the project's
+// .claude/settings.local.json, keeping its other keys and another tool's hooks, compared as JSON;
+// upool's three handlers appear once after two runs; no copy of the file is kept beside it; and
+// ~/.claude/settings.json is neither created nor changed (A26).
+func TestInitRegistersHooks(t *testing.T) {
+	e := newInitEnv(t)
+	e.WriteFile(projectSettings, otherSettings)
+	mustInit(t, e)
+	mustInit(t, e)
+	b, err := os.ReadFile(e.Path(projectSettings))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := upoolEntries(t, pathUpool(e), `{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "model": "opus",
+  "cleanupPeriodDays": 30,
+  "permissions": {"allow": ["Bash(git status)"], "deny": []},
+  "env": {"OTHER_TOOL": "<on> & off"},
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "other-tool guard"}]}
+    ],
+    "SessionStart": [
+      {"matcher": "startup", "hooks": [{"type": "command", "command": "other-tool start", "timeout": 30}]},
+      "@session-start@"
+    ],
+    "WorktreeCreate": [
+      {"hooks": [{"type": "command", "command": "/opt/other/worktree.sh"}]},
+      "@worktree-create@"
+    ],
+    "WorktreeRemove": ["@worktree-remove@"]
+  },
+  "statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}
+}`)
+	if !sameJSON(b, []byte(want)) {
+		t.Errorf("%s =\n%s\nwant, as JSON,\n%s", projectSettings, b, want)
+	}
+	for _, path := range []string{e.Path(projectSettings + backupSuffix),
+		filepath.Join(e.Home, ".claude", "settings.json")} {
+		if _, err := os.Lstat(path); err == nil {
+			t.Errorf("%s exists, want init to leave it unmade", path)
+		}
 	}
 }
