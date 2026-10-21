@@ -99,6 +99,7 @@ by `session_id` (S§7 item 3; D-route).
 |---|---|
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
+| The app's Archive button runs the remove hook for a dirty slot too. Archiving through the app's session tool does not: for a dirty worktree it logs `Archived session` and nothing more, runs no `WorktreeRemove` and keeps its record of the worktree, which refuses the path to later sessions ("already in use"), even after the session is deleted, until the session is resumed and archived clean (A28) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
@@ -742,6 +743,27 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   locked, which frees a slot an earlier upool locked. The insurance is not replaced: `git worktree
   remove` without `--force` already refuses a dirty tree, and upool checks a slot's `.git` backlink
   before it trusts the slot. The work is #182 (maintainer decision, 2026-10-21; (a); (e)).
+
+- **28. What a desktop archive does with a dirty slot**
+  ([#185](https://github.com/weslo/upool/issues/185)). The remove hook parks a dirty slot
+  (transition 9), as the spike saw an archive with an untracked file fire it (S§8 A.8). The second
+  M2 gate run (2026-10-21, desktop app 3.1623.0) archived its sessions through the app's session
+  tool. For a slot holding an untracked file, the app logged `Archived session` and nothing more:
+  no cleanup, no `WorktreeRemove`, and its record of the worktree kept. The slot stayed `leased` to
+  a dead holder. Gate run 1 had shown what such a record does: the app refused the path to later
+  sessions ("already in use by worktree …"), and deleting the session did not clear the record;
+  resuming the session and archiving it with its slot clean did. The same dirty archive from the
+  app's Archive button logged `LocalSessions.archive`, `Cleaning up worktree`, `Removing worktree`
+  and `Removed hook-based worktree`: the hook parked the slot with the file kept, and the app
+  dropped its record (`evidence/logs/desktop-dirty-archive-main.log`). Clean archives ran the hook
+  both ways.
+
+  **A28.** No code change. The Archive button runs the remove hook for a dirty slot, so a desktop
+  session archived the usual way parks its slot (transition 9). A dirty archive through the app's
+  session tool is outside what upool can see: its slot is left to the dead-PID reclaim of `take`
+  and `doctor --fix` (transitions 13 and 14), and its path stays blocked in the app until the
+  session is resumed and archived clean. The M2 gate archives with the Archive button (maintainer
+  decision, 2026-10-21; (a)).
 
 ### Other open questions
 
