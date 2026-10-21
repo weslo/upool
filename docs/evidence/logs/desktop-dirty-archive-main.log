@@ -1,0 +1,14 @@
+2026-10-21 07:55:12 [error] WorktreeCreate hook failed: hook printed "${repo}/.claude/worktrees/slot-1", which is already in use by worktree "intelligent-bartik-58f881"
+2026-10-21 08:17:20 [info] Created hook-based worktree "elastic-matsumoto-70c8d0" at ${repo}/.claude/worktrees/slot-3
+2026-10-21 08:17:39 [info] Archived session local_eadd7caf-1326-4602-88b1-f14d9d5e23c8
+2026-10-21 08:28:04 [info] Resuming session local_eadd7caf-1326-4602-88b1-f14d9d5e23c8 in ${repo}/.claude/worktrees/slot-3
+2026-10-21 08:28:19 [info] Archived session local_eadd7caf-1326-4602-88b1-f14d9d5e23c8
+2026-10-21 08:28:19 [info] Cleaning up worktree elastic-matsumoto-70c8d0 for session local_eadd7caf-1326-4602-88b1-f14d9d5e23c8
+2026-10-21 08:28:19 [info] Removing worktree "elastic-matsumoto-70c8d0" (leased by local_eadd7caf-1326-4602-88b1-f14d9d5e23c8): ${repo}/.claude/worktrees/slot-3
+2026-10-21 08:28:19 [info] Removed hook-based worktree "elastic-matsumoto-70c8d0"
+2026-10-21 08:42:29 [info] Created hook-based worktree "busy-taussig-56f48f" at ${repo}/.claude/worktrees/slot-1
+2026-10-21 09:02:49 [info] LocalSessions.archive: sessionId=local_59a95e9d-5922-451c-9d97-b91b812e8b6a
+2026-10-21 09:02:49 [info] Archived session local_59a95e9d-5922-451c-9d97-b91b812e8b6a
+2026-10-21 09:02:49 [info] Cleaning up worktree busy-taussig-56f48f for session local_59a95e9d-5922-451c-9d97-b91b812e8b6a
+2026-10-21 09:02:49 [info] Removing worktree "busy-taussig-56f48f" (leased by local_59a95e9d-5922-451c-9d97-b91b812e8b6a): ${repo}/.claude/worktrees/slot-1
+2026-10-21 09:02:49 [info] Removed hook-based worktree "busy-taussig-56f48f"
