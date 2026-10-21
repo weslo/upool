@@ -3,7 +3,7 @@
 // by a later version, and with every byte outside the markers left as it was (docs/design.md, "One
 // binary, a dozen commands, one JSON file per pool", the `init` row; "Hooks route, skills teach,
 // leases and lanes keep agents from colliding": a marked, idempotent block). `init` upserts it
-// into a project's CLAUDE.md, and `setup` into the user-scope instruction files.
+// into a project's CLAUDE.md and AGENTS.md (A26).
 //
 // A marker is a line of its own, an HTML comment so that it does not show when the Markdown is
 // rendered: `<!-- upool:begin v1 -->` and `<!-- upool:end v1 -->`. A file holds at most one block;

@@ -54,6 +54,9 @@ const (
 	// claudeMD is the instruction file, at the repository's root, that init upserts upool's block
 	// into (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row).
 	claudeMD = "CLAUDE.md"
+	// agentsMD is the instruction file other agents read, Codex's among them, at the repository's
+	// root, which init upserts the same block into (A26).
+	agentsMD = "AGENTS.md"
 	// projectSettings is the project's own Claude Code settings file, relative to the repository,
 	// where init registers upool's hooks: it holds this machine's path to upool and stays out of
 	// git, and the desktop app runs the hooks a project registers there (A26; #172).
@@ -90,8 +93,11 @@ type initReport struct {
 	GitignoreUpdated bool `json:"gitignore_updated"`
 	// RepoFileWritten is true when init wrote .upool.toml, and false when the file was there.
 	RepoFileWritten bool `json:"repo_file_written"`
-	// ClaudeMDBlock is what upserting upool's block into CLAUDE.md did.
+	// ClaudeMDBlock and AgentsMDBlock are what upserting upool's block into CLAUDE.md and AGENTS.md
+	// did, and Skills the copies of the upool skill, in skillFiles' order (A26).
 	ClaudeMDBlock block.Action `json:"claude_md_block,omitempty"`
+	AgentsMDBlock block.Action `json:"agents_md_block,omitempty"`
+	Skills        []installed  `json:"skills,omitempty"`
 	// Slots are the slots init cloned, slot-1 first, from the main checkout; none when the pool
 	// already had slots.
 	Slots []clonedSlot `json:"slots,omitempty"`
@@ -128,10 +134,15 @@ type existingSlot struct {
 
 // Human returns one line per step init took.
 func (r initReport) Human() string {
+	installs := []string{describeBlock(claudeMD, r.ClaudeMDBlock),
+		describeBlock(agentsMD, r.AgentsMDBlock)}
+	for _, s := range r.Skills {
+		installs = append(installs, describeChange(s))
+	}
 	hooks := []string{"the hooks run " + r.Upool, describeChange(r.Hooks)}
 	if r.AlreadyRegistered {
-		return strings.Join(append([]string{fmt.Sprintf("%s is already registered as pool %s",
-			r.Repo, r.Key)}, hooks...), "\n")
+		return strings.Join(append(append([]string{fmt.Sprintf(
+			"%s is already registered as pool %s", r.Repo, r.Key)}, installs...), hooks...), "\n")
 	}
 	var lines []string
 	if r.GitignoreUpdated {
@@ -147,7 +158,7 @@ func (r initReport) Human() string {
 	} else {
 		lines = append(lines, "kept the existing .upool.toml")
 	}
-	lines = append(lines, describeBlock(claudeMD, r.ClaudeMDBlock))
+	lines = append(lines, installs...)
 	for i, s := range r.Slots {
 		line := fmt.Sprintf("cloned %s into %s", s.Name, s.Path)
 		if i > 0 {
@@ -204,14 +215,15 @@ func describeBase(source string) string {
 	return "from " + source
 }
 
-// initRepo is init's handler, cloning n slots into a new pool. It finds upool on PATH, reads the
-// project's .claude/settings.local.json and checks the repository before it changes anything. Then
-// it upserts upool's block into CLAUDE.md, first so that a CLAUDE.md whose markers do not pair is
-// refused with nothing written; adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates
-// the pool's state.json, clones the first slot into a pool that has none, adds the repository to
-// registry.json and, last, registers upool's hooks in .claude/settings.local.json (A26), so that a
-// run that fails part-way is finished by the next. On a registered repository it registers the
-// hooks again and does nothing else.
+// initRepo is init's handler, cloning n slots into a new pool. It checks the home directory, finds
+// upool on PATH, reads the project's .claude/settings.local.json and checks its CLAUDE.md,
+// AGENTS.md and the repository before it changes anything. Then it upserts upool's block into
+// CLAUDE.md and AGENTS.md and installs the upool skill in the project; adds .claude/worktrees/ to
+// .gitignore, writes .upool.toml, creates the pool's state.json, clones the first slot into a pool
+// that has none, adds the repository to registry.json and, last, registers upool's hooks in
+// .claude/settings.local.json (A26), so that a run that fails part-way is finished by the next. On
+// a registered repository it installs the blocks, the skill and the hooks again, so that an
+// upgraded upool refreshes them, and does nothing else.
 func initRepo(inv *invocation, n int) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -227,6 +239,9 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkProject(ctx, g, repo); err != nil {
 		return nil, nil, err
 	}
+	if err := checkHomeReachable(inv.home); err != nil {
+		return nil, nil, err
+	}
 	exe, err := inv.executable()
 	if err != nil {
 		return nil, nil, fmt.Errorf("finding upool's own binary: %w", err)
@@ -235,15 +250,24 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	hooks, err := planRegistration(filepath.Join(repo, projectSettings), upool, false)
+	hooks, err := planRegistration(filepath.Join(repo, projectSettings), upool)
 	if err != nil {
 		return nil, nil, err
+	}
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	for _, name := range []string{claudeMD, agentsMD} {
+		if err := checkBlock(filepath.Join(repo, name), b); err != nil {
+			return nil, nil, err
+		}
 	}
 	if reg, ok, err := registry.Lookup(inv.home, repo); err != nil {
 		return nil, nil, err
 	} else if ok {
 		r := initReport{Repo: repo, Key: reg.Key, AlreadyRegistered: true, Upool: upool}
-		if r.Hooks, _, err = hooks.apply(); err != nil {
+		if err := r.installAgentFiles(repo, b); err != nil {
+			return nil, nil, err
+		}
+		if r.Hooks, err = hooks.apply(); err != nil {
 			return nil, nil, err
 		}
 		return r, nil, nil
@@ -273,8 +297,7 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkBaseCommit(ctx, g, repo, r.Base, r.BaseSource); err != nil {
 		return nil, nil, err
 	}
-	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
-	if r.ClaudeMDBlock, err = block.Upsert(filepath.Join(repo, claudeMD), b); err != nil {
+	if err := r.installAgentFiles(repo, b); err != nil {
 		return nil, nil, err
 	}
 	if r.GitignoreUpdated, err = ignoreWorktrees(ctx, g, repo); err != nil {
@@ -300,10 +323,35 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 		return nil, nil, err
 	}
 	r.Key, r.Upool = reg.Key, upool
-	if r.Hooks, _, err = hooks.apply(); err != nil {
+	if r.Hooks, err = hooks.apply(); err != nil {
 		return nil, warnings, err
 	}
 	return r, warnings, nil
+}
+
+// installAgentFiles upserts upool's block b into the project's CLAUDE.md and AGENTS.md and
+// installs the upool skill at each of skillFiles under repo, recording what each did in r (A26).
+// Each file is rewritten only when it differs, so a second init leaves them as they were.
+func (r *initReport) installAgentFiles(repo string, b block.Block) error {
+	var err error
+	if r.ClaudeMDBlock, err = block.Upsert(filepath.Join(repo, claudeMD), b); err != nil {
+		return err
+	}
+	if r.AgentsMDBlock, err = block.Upsert(filepath.Join(repo, agentsMD), b); err != nil {
+		return err
+	}
+	for _, name := range skillFiles {
+		file := filepath.Join(repo, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
+			return fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
+		}
+		s, err := installFile(file, assets.Skill, skillMode)
+		if err != nil {
+			return err
+		}
+		r.Skills = append(r.Skills, s)
+	}
+	return nil
 }
 
 // checkProject refuses repo unless it is a Unity project at its root. A project in a subdirectory

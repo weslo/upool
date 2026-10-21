@@ -140,7 +140,7 @@ upool/
   internal/proc/                    process liveness by PID plus start time, for leases and the ledger
   internal/statefile/               the one ~/.upool/lock, atomic write-temp-and-rename for every state file
   internal/pathvars/                fills and scrubs the path variables in testdata/captures (tests, capture scripts)
-  assets/skill/upool/SKILL.md       installed to ~/.claude/skills/upool (go:embed)
+  assets/skill/upool/SKILL.md       init installs it in each project's .claude/skills (go:embed)
   assets/claude-md-block.md         marked block `init` upserts into CLAUDE.md (go:embed)
   scripts/capture-unity.sh          records a Unity CLI reply, its stderr and exit code as a new capture
   scripts/capture-hook.sh           records hook stdin during a manual gate, then runs the hook it wraps

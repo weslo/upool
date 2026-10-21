@@ -15,7 +15,7 @@ import (
 // The harness pool that doctor's and take's tests run against, made by hand rather than by init so
 // that the tests run everywhere: a testenv repository whose .gitignore ignores .claude/worktrees,
 // two slots made with `git worktree add --detach` at base, and the pool registered with both
-// ready, as init and a later clone would leave it, on a machine where `upool setup` has run.
+// ready, as init and a later clone would leave it, with upool's hooks registered in the project.
 
 // harnessPool is a harness pool.
 type harnessPool struct {
@@ -88,11 +88,11 @@ func registerProjectHooks(t *testing.T, e *testenv.Env) {
 		t.Fatal(err)
 	}
 	e.Setenv("PATH", e.Getenv("PATH")+string(os.PathListSeparator)+bin)
-	reg, err := planRegistration(e.Path(projectSettings), upool, false)
+	reg, err := planRegistration(e.Path(projectSettings), upool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := reg.apply(); err != nil {
+	if _, err := reg.apply(); err != nil {
 		t.Fatal(err)
 	}
 }

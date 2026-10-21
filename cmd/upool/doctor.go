@@ -31,7 +31,7 @@ const doctorUsage = "doctor [--fix] [--json]"
 // the scratch files the clone-sharing check writes and removes and, as take and status do, the
 // end of unconfirmed leases that outlived confirm_timeout (#75); with --fix it also repairs what
 // is safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks
-// the hook installation `upool setup` makes, which is the machine's rather than the pool's (#69).
+// the hook registration `upool init` makes in the project (#69; A26).
 // It exits 1 if any check fails. The Editor checks arrive in M3.
 var doctorCommand = command{
 	usage: doctorUsage,

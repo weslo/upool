@@ -41,6 +41,6 @@ Each is in CONTRIBUTING.md; these are the ones an agent is likeliest to break wi
 ## This repository's agent files are not upool's
 
 This file and CLAUDE.md are for agents building upool. The instruction block that `upool init`
-writes into a Unity project's CLAUDE.md and the skill that `upool setup` installs are part of the
+writes into a Unity project's CLAUDE.md and AGENTS.md, and the skill it installs, are part of the
 product: they will live under `assets/` (the layout in docs/design.md) and change only through an
 issue.

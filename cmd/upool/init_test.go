@@ -331,3 +331,57 @@ func TestInitRefusesWhenThisBinaryIsNotOnPath(t *testing.T) {
 	r := runIn(t, e, e.Repo, "init")
 	checkRefused(t, e, r, readFile(t, e, ".gitignore"), "no upool on PATH is this binary")
 }
+
+// An AGENTS.md whose upool markers do not pair is refused before anything is written, as a
+// CLAUDE.md's is.
+func TestInitRefusesAnAGENTSMDWhoseMarkersDoNotPair(t *testing.T) {
+	e := newInitEnv(t)
+	const doc = "Use tabs.\n<!-- upool:begin v1 -->\nno end marker\n"
+	e.WriteFile("AGENTS.md", doc)
+	r := runIn(t, e, e.Repo, "init")
+	checkRefused(t, e, r, readFile(t, e, ".gitignore"),
+		"line 2 begins a upool block that no line after it ends")
+	if got := readFile(t, e, "AGENTS.md"); got != doc {
+		t.Errorf("AGENTS.md = %q, want it unchanged", got)
+	}
+}
+
+// A home directory in a folder the desktop app's helper cannot read from, by name in any case or
+// through a link, is refused before anything is written: the hooks read upool's state under
+// ~/.upool (#66).
+func TestInitRefusesAHomeInAProtectedFolder(t *testing.T) {
+	for _, home := range []string{"Documents/home", "Desktop/home", "Downloads/home",
+		"documents/home", "Documents", "link"} {
+		t.Run(home, func(t *testing.T) {
+			e := newInitEnv(t)
+			root := tempDir(t)
+			dir := filepath.Join(root, filepath.FromSlash(home))
+			if home == "link" {
+				target := filepath.Join(root, "Documents", "home")
+				if err := os.MkdirAll(target, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, dir); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			e.Home = dir
+			e.Setenv("HOME", dir)
+			r := runIn(t, e, e.Repo, "init")
+			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
+				"which the desktop app's hook helper cannot read from")
+		})
+	}
+}
+
+// upool setup is gone: init registers the hooks and installs the rest per project (A26).
+func TestSetupIsGone(t *testing.T) {
+	e := newInitEnv(t)
+	r := runIn(t, e, e.Repo, "setup")
+	if r.code != output.ExitFailure || !strings.Contains(r.stderr, "usage: upool") ||
+		strings.Contains(r.stderr, "upool setup") {
+		t.Errorf("exit %d, stderr %q; want usage, without setup, and a failure", r.code, r.stderr)
+	}
+}

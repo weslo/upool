@@ -110,6 +110,9 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 		"base is main, the current branch: origin has no default branch\n" +
 		"wrote .upool.toml: ready = 1, max_slots = 3, base = \"main\"\n" +
 		"added upool's block to CLAUDE.md\n" +
+		"added upool's block to AGENTS.md\n" +
+		"created " + e.Path(skillFiles[0]) + "\n" +
+		"created " + e.Path(skillFiles[1]) + "\n" +
 		"cloned slot-1 into " + slotPath(e) + "\n" +
 		"registered " + e.Repo + " as pool " + key + "\n" +
 		"the hooks run " + pathUpool(e) + "\n" +
@@ -234,6 +237,8 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	claude := readFile(t, e, "CLAUDE.md")
 	r := mustInit(t, e)
 	want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n" +
+		"CLAUDE.md already has upool's block\n" + "AGENTS.md already has upool's block\n" +
+		e.Path(skillFiles[0]) + " is up to date\n" + e.Path(skillFiles[1]) + " is up to date\n" +
 		"the hooks run " + pathUpool(e) + "\n" + e.Path(projectSettings) + " is up to date\n"
 	if r.stdout != want {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
@@ -424,8 +429,11 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 		"gitignore_updated":  true,
 		"repo_file_written":  true,
 		"claude_md_block":    "inserted",
-		"upool":              pathUpool(e),
-		"hooks":              map[string]any{"path": e.Path(projectSettings), "change": "updated"},
+		"agents_md_block":    "inserted",
+		"skills": []any{map[string]any{"path": e.Path(skillFiles[0]), "change": "created"},
+			map[string]any{"path": e.Path(skillFiles[1]), "change": "created"}},
+		"upool": pathUpool(e),
+		"hooks": map[string]any{"path": e.Path(projectSettings), "change": "updated"},
 		"slots": []any{map[string]any{
 			"name":       "slot-1",
 			"path":       slotPath(e),
@@ -443,7 +451,10 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 	data, _ = json.Marshal(env.Data) // as above
 	want = map[string]any{"repo": e.Repo, "key": repoKey(t, e), "already_registered": true,
 		"gitignore_updated": false, "repo_file_written": false, "upool": pathUpool(e),
-		"hooks": map[string]any{"path": e.Path(projectSettings), "change": "unchanged"}}
+		"hooks":           map[string]any{"path": e.Path(projectSettings), "change": "unchanged"},
+		"claude_md_block": "unchanged", "agents_md_block": "unchanged",
+		"skills": []any{map[string]any{"path": e.Path(skillFiles[0]), "change": "unchanged"},
+			map[string]any{"path": e.Path(skillFiles[1]), "change": "unchanged"}}}
 	if string(data) != string(mustJSON(t, want)) {
 		t.Errorf("data when already registered = %s, want %s", data, mustJSON(t, want))
 	}
@@ -567,10 +578,48 @@ func TestInitRegistersHooks(t *testing.T) {
 	if !sameJSON(b, []byte(want)) {
 		t.Errorf("%s =\n%s\nwant, as JSON,\n%s", projectSettings, b, want)
 	}
-	for _, path := range []string{e.Path(projectSettings + backupSuffix),
+	for _, path := range []string{e.Path(projectSettings + ".upool-backup"),
 		filepath.Join(e.Home, ".claude", "settings.json")} {
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s exists, want init to leave it unmade", path)
+		}
+	}
+}
+
+// The acceptance test of #174: init installs both copies of the skill in the project and one
+// block in each of its CLAUDE.md and AGENTS.md, keeping their own text, and a later init rewrites
+// a copy of the skill that differs, as an upgraded upool's would; nothing is written under
+// ~/.claude, ~/.agents or ~/.codex (A26).
+func TestInitInstallsSkillAndBlocks(t *testing.T) {
+	e := newInitEnv(t)
+	originals := map[string]string{"CLAUDE.md": readFile(t, e, "CLAUDE.md"),
+		"AGENTS.md": readFile(t, e, "AGENTS.md")}
+	mustInit(t, e)
+	e.WriteFile(skillFiles[1], "an older skill\n")
+	r := mustInit(t, e)
+	if want := "updated " + e.Path(skillFiles[1]) + "\n"; !strings.Contains(r.stdout, want) {
+		t.Errorf("second init: stdout = %q, want a line %q", r.stdout, want)
+	}
+	for _, name := range skillFiles {
+		if got := readFile(t, e, name); got != assets.Skill {
+			t.Errorf("%s = %q, want the skill", name, got)
+		}
+		checkMode(t, e.Path(name), skillMode)
+	}
+	rendered := string(block.Block{Version: assets.ClaudeMDBlockVersion,
+		Body: assets.ClaudeMDBlock}.Render())
+	for name, original := range originals {
+		got := readFile(t, e, name)
+		if n := strings.Count(got, block.Begin(assets.ClaudeMDBlockVersion)); n != 1 {
+			t.Errorf("%s has %d upool blocks, want 1", name, n)
+		}
+		if !strings.HasPrefix(got, original) || !strings.Contains(got, rendered) {
+			t.Errorf("%s = %q, want its own text and then the block", name, got)
+		}
+	}
+	for _, dir := range []string{".claude", ".agents", ".codex"} {
+		if _, err := os.Lstat(filepath.Join(e.Home, dir)); err == nil {
+			t.Errorf("~/%s exists, want init to write nothing under the home directory's", dir)
 		}
 	}
 }

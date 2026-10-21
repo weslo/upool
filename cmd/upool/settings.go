@@ -13,38 +13,34 @@ import (
 	"strings"
 )
 
-// hookEvents are the Claude Code events setup registers upool for, each with the `upool hook`
-// subcommand that handles it, in the order setup adds them to a settings.json that has none of
-// them (docs/design.md, "Build in four phases, with the clone recipe first", phase 2; #67).
+// hookEvents are the Claude Code events init registers upool for, each with the `upool hook`
+// subcommand that handles it, in the order init adds them to a settings file that has none of them
+// (docs/design.md, "Build in four phases, with the clone recipe first", phase 2; A26).
 var hookEvents = []struct{ hook, event string }{
 	{"worktree-create", "WorktreeCreate"},
 	{"worktree-remove", "WorktreeRemove"},
 	{"session-start", "SessionStart"},
 }
 
-// settingsMode is the mode of a settings.json that setup creates, private to the user as Claude
-// Code keeps its own; an existing file keeps its mode. agentDirMode is the mode of a directory
-// setup creates for an agent's files, such as ~/.claude, ~/.codex or a skill's directory.
+// settingsMode is the mode of a settings.local.json that init creates, private to the user as
+// Claude Code keeps its own; an existing file keeps its mode. agentDirMode is the mode of a
+// directory init creates in the project for an agent's files, such as .claude or a skill's.
 const (
 	settingsMode fs.FileMode = 0o600
-	agentDirMode fs.FileMode = 0o700
+	agentDirMode fs.FileMode = 0o755
 )
 
-// backupSuffix names the copy of settings.json that setup keeps before it first changes the file.
-const backupSuffix = ".upool-backup"
-
-// settingsPath returns ~/.claude/settings.json, Claude Code's user settings. The hooks must be
-// registered there: from a project settings file the desktop app skips them as "hook came from a
-// repo-committed settings tier … (provenance not vouched)" (docs/contracts.md (a), "WorktreeCreate
-// output and app behaviour"; spike §8 A.2–A.5). setup never writes a project's settings.
+// settingsPath returns ~/.claude/settings.json, Claude Code's user settings, which upool never
+// writes: registered there its hooks would run for every repository on the machine (A26), so
+// doctor warns when they are.
 func settingsPath(home string) string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// commandHook is a hook handler, as setup registers it and the hook checks read it. setup writes
-// it in exec form, upool's path as command and `hook <event>` as args: with args present, Claude
-// Code spawns command itself, with no shell to split or expand the path (docs/design.md, the
-// `setup` row; spike §8 A.2–3). The desktop app's helper can run upool from anywhere, ~/Documents
+// commandHook is a hook handler, as init registers it and the hook checks read it. init writes it
+// in exec form, upool's path as command and `hook <event>` as args: with args present, Claude Code
+// spawns command itself, with no shell to split or expand the path (docs/design.md, the `init`
+// row; spike §8 A.2–3). The desktop app's helper can run upool from anywhere, ~/Documents
 // included, though it cannot read a file there (docs/contracts.md (a); #163).
 type commandHook struct {
 	Type    string   `json:"type"`
@@ -52,23 +48,20 @@ type commandHook struct {
 	Args    []string `json:"args"`
 }
 
-// hookGroup is the matcher group setup adds for each event. It has no matcher, so it runs on every
+// hookGroup is the matcher group init adds for each event. It has no matcher, so it runs on every
 // occurrence of the event: WorktreeCreate and WorktreeRemove take none, and SessionStart handles
 // every source (docs/contracts.md (b); A14).
 type hookGroup struct {
 	Hooks []commandHook `json:"hooks"`
 }
 
-// registration is a change to a Claude Code settings file that registers upool's hooks, worked out
-// before anything is written so that a file that cannot be read or parsed stops the command with
-// nothing changed: setup's to ~/.claude/settings.json, and init's to a project's
-// .claude/settings.local.json (A26).
+// registration is init's change to a project's .claude/settings.local.json, which registers upool's
+// hooks (A26), worked out before anything is written so that a file that cannot be read or parsed
+// stops init with nothing changed.
 type registration struct {
 	// file is the settings file, as the command reports it, and target the file written: file, or
 	// what it links to, so that a link into a dotfiles repository stays a link.
 	file, target string
-	// backup says whether apply keeps a copy of an existing file before its first change to it.
-	backup bool
 	// exists says whether target exists, and old and mode are its contents and mode bits.
 	exists bool
 	old    []byte
@@ -79,9 +72,9 @@ type registration struct {
 }
 
 // planRegistration reads the settings file and returns it with upool's hooks registered, each
-// running upool, an absolute path. With backup, apply keeps a copy of the file as it was.
-func planRegistration(file, upool string, backup bool) (registration, error) {
-	reg := registration{file: file, backup: backup, mode: settingsMode}
+// running upool, an absolute path.
+func planRegistration(file, upool string) (registration, error) {
+	reg := registration{file: file, mode: settingsMode}
 	reg.target = reg.file
 	if _, err := os.Lstat(reg.file); err == nil {
 		if reg.target, err = filepath.EvalSymlinks(reg.file); err != nil {
@@ -124,57 +117,23 @@ func planRegistration(file, upool string, backup bool) (registration, error) {
 	return reg, nil
 }
 
-// apply writes the registration, unless the file already held it. With reg.backup, before its
-// first change to an existing file it keeps a copy beside it, <file>.upool-backup, which no later
-// run replaces; backup is that copy's path when this run made it.
-func (reg registration) apply() (installed, string, error) {
+// apply writes the registration, unless the file already held it.
+func (reg registration) apply() (installed, error) {
 	if !reg.changed {
-		return installed{Path: reg.file, Change: unchanged}, "", nil
+		return installed{Path: reg.file, Change: unchanged}, nil
 	}
-	backup := ""
-	switch {
-	case !reg.exists:
+	if !reg.exists {
 		if err := os.MkdirAll(filepath.Dir(reg.target), agentDirMode); err != nil {
-			return installed{}, "", fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
-		}
-	case reg.backup:
-		made, err := keepBackup(reg.file+backupSuffix, reg.old, reg.mode)
-		if err != nil {
-			return installed{}, "", err
-		}
-		if made {
-			backup = reg.file + backupSuffix
+			return installed{}, fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
 		}
 	}
 	if err := writeAtomic(reg.target, reg.content, reg.mode); err != nil {
-		return installed{}, "", err
+		return installed{}, err
 	}
 	if reg.exists {
-		return installed{Path: reg.file, Change: updated}, backup, nil
+		return installed{Path: reg.file, Change: updated}, nil
 	}
-	return installed{Path: reg.file, Change: created}, "", nil
-}
-
-// keepBackup writes data to backup with mode unless backup exists, and says whether it did. The
-// copy is linked into place, so it appears whole or not at all, and never over another.
-func keepBackup(backup string, data []byte, mode fs.FileMode) (bool, error) {
-	if _, err := os.Lstat(backup); err == nil {
-		return false, nil
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return false, fmt.Errorf("checking %s: %w", backup, err)
-	}
-	tmp, err := writeTemp(backup, data, mode)
-	if err != nil {
-		return false, err
-	}
-	// The link holds the data once it exists, so a temporary file left behind is only clutter.
-	defer func() { _ = os.Remove(tmp) }()
-	if err := os.Link(tmp, backup); errors.Is(err, fs.ErrExist) {
-		return false, nil
-	} else if err != nil {
-		return false, fmt.Errorf("keeping a copy of the old settings as %s: %w", backup, err)
-	}
-	return true, nil
+	return installed{Path: reg.file, Change: created}, nil
 }
 
 // registerHooks registers, in settings, upool for each event in hookEvents. A handler that runs
@@ -333,7 +292,7 @@ func marshalJSON(v any) ([]byte, error) {
 }
 
 // jsonObject is a JSON object that keeps its keys in the order written and its values as written,
-// so that a rewrite of settings.json changes only what setup registers. JSON null decodes as an
+// so that a rewrite of a settings file changes only what init registers. JSON null decodes as an
 // empty object.
 type jsonObject struct {
 	keys   []string

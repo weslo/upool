@@ -13,7 +13,7 @@ import (
 	"github.com/weslo/upool/internal/registry"
 )
 
-// The names of the checks of what `upool setup` installs for the hooks (#69).
+// The names of the checks of the hooks `upool init` registers (#69; A26).
 const (
 	checkHookSettings   = "hook-settings"
 	checkHookProvenance = "hook-provenance"
