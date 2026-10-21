@@ -1,0 +1,27 @@
+2026-10-20 21:16:21 [info] Starting local session local_026ef8b6-f7f7-4acc-adae-83a25d6e4567 in ${home}/Documents/upool-scope-capture
+2026-10-20 21:17:52 [info] Creating worktree for session local_9a447e1d-9f8f-419f-aa93-f24c640bf7bf from ${home}/Documents/upool-scope-capture
+2026-10-20 21:17:54 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/pwd-de047c
+2026-10-20 21:17:54 [info] Created hook-based worktree "pwd-de047c" at ${home}/Documents/upool-scope-capture/.claude/worktrees/pwd-de047c
+2026-10-20 21:17:54 [info] Using worktree "pwd-de047c" at ${home}/Documents/upool-scope-capture/.claude/worktrees/pwd-de047c for session local_9a447e1d-9f8f-419f-aa93-f24c640bf7bf
+2026-10-20 21:17:54 [info] Skipped auto-trust for hook-based worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/pwd-de047c — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-20 21:17:54 [info] Starting local session local_9a447e1d-9f8f-419f-aa93-f24c640bf7bf in ${home}/Documents/upool-scope-capture/.claude/worktrees/pwd-de047c
+2026-10-20 21:17:54 [info] [CCD] passing --project-config-root ${home}/Documents/upool-scope-capture for session local_9a447e1d-9f8f-419f-aa93-f24c640bf7bf
+2026-10-20 21:18:00 [info] [CCD start-timing] local_9a447e1d-9f8f-419f-aa93-f24c640bf7bf preflight=14ms worktree=1940ms mcp=24ms query=3ms enqueue=7ms init=738ms first_assistant=5296ms | …
+2026-10-20 21:18:27 [info] Creating worktree for session local_fb25b525-33b2-4088-b9d9-b92b8cccb49e from ${home}/Documents/upool-scope-capture
+2026-10-20 21:18:27 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b
+2026-10-20 21:18:27 [info] Created hook-based worktree "quirky-heisenberg-04bf9b" at ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b
+2026-10-20 21:18:27 [info] Using worktree "quirky-heisenberg-04bf9b" at ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b for session local_fb25b525-33b2-4088-b9d9-b92b8cccb49e
+2026-10-20 21:18:27 [info] Skipped auto-trust for hook-based worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-20 21:18:27 [info] Starting local session local_fb25b525-33b2-4088-b9d9-b92b8cccb49e in ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b
+2026-10-20 21:18:27 [info] [CCD] passing --project-config-root ${home}/Documents/upool-scope-capture for session local_fb25b525-33b2-4088-b9d9-b92b8cccb49e
+2026-10-20 21:18:33 [info] [CCD start-timing] local_fb25b525-33b2-4088-b9d9-b92b8cccb49e preflight=5ms worktree=129ms mcp=22ms query=4ms enqueue=4ms init=760ms first_assistant=5091ms | …
+2026-10-20 21:22:44 [info] Creating worktree for session local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502 from ${home}/Documents/upool-scope-capture
+2026-10-20 21:22:44 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823
+2026-10-20 21:22:44 [info] Created hook-based worktree "pensive-blackwell-1a8823" at ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823
+2026-10-20 21:22:44 [info] Using worktree "pensive-blackwell-1a8823" at ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823 for session local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502
+2026-10-20 21:22:44 [info] Skipped auto-trust for hook-based worktree at ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-20 21:22:44 [info] Starting local session local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502 in ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823
+2026-10-20 21:22:44 [info] [CCD] passing --project-config-root ${home}/Documents/upool-scope-capture for session local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502
+2026-10-20 21:22:53 [info] [CCD start-timing] local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502 preflight=5ms worktree=154ms mcp=24ms query=6ms enqueue=2ms init=701ms first_assistant=8322ms | …
+2026-10-20 21:23:43 [info] Removing worktree "quirky-heisenberg-04bf9b" (leased by local_fb25b525-33b2-4088-b9d9-b92b8cccb49e): ${home}/Documents/upool-scope-capture/.claude/worktrees/quirky-heisenberg-04bf9b
+2026-10-20 21:23:45 [info] Removing worktree "pensive-blackwell-1a8823" (leased by local_2d0f0ea9-71d2-4328-ab86-9c0bbb354502): ${home}/Documents/upool-scope-capture/.claude/worktrees/pensive-blackwell-1a8823
