@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
@@ -64,28 +63,7 @@ func expireLeases(ctx context.Context, inv *invocation, keep func(registry.Repo)
 			return nil, err
 		}
 		g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
-		notes = append(notes, endExpired(ctx, g, checkout, expired, timeout)...)
+		notes = append(notes, pool.EndExpired(ctx, g, checkout, expired, timeout)...)
 	}
 	return notes, nil
-}
-
-// endExpired finishes the unconfirmed leases an expiry ended in the pool whose main checkout is
-// repo, once state.json no longer holds them: it releases each slot's git worktree lock, if the
-// take that handed the slot out held one, and returns a line saying what became of each slot.
-func endExpired(ctx context.Context, g git.Client, repo string, expired []pool.Slot,
-	timeout time.Duration) []string {
-	var lines []string
-	for _, s := range expired {
-		state := pool.StateReady
-		if s.Lease.ResetPending {
-			state = pool.StateNeedsReset
-		}
-		line := fmt.Sprintf("ended the unconfirmed lease on %s, which no session confirmed "+
-			"within %s: %s is %s again", s.Name, timeout, s.Name, state)
-		if err := pool.Unlock(ctx, g, repo, s.Path); err != nil {
-			line += fmt.Sprintf(", but its git worktree lock stays: %v", err)
-		}
-		lines = append(lines, line)
-	}
-	return lines
 }

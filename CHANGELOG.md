@@ -27,9 +27,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   atomic, keeps the file's mode (0600 for a new one) and goes through a link to the file it links
   to. Before its first change to an existing file, setup keeps a copy, `settings.json.upool-backup`,
   which no later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object
-  of arrays, is refused before setup writes anything. Project settings are never written. Until the
-  create hook's pooled branch lands, the registered hook fails every Claude Code worktree session in
-  a pooled repository.
+  of arrays, is refused before setup writes anything. Project settings are never written.
 - `upool setup` installs the upool skill, `assets/skill/upool/SKILL.md`, at
   `~/.claude/skills/upool/SKILL.md` and `~/.agents/skills/upool/SKILL.md`, and upserts upool's
   marked block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, creating each file and its
@@ -69,7 +67,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   pass-through worktree, `git -C <cwd> worktree add <cwd>/.claude/worktrees/<name>` on a branch
   named `<name>`, as Claude Code would have made it, and the hook prints its path; it opens no
   file in the repository, since the desktop app's hook helper could run only git and stat paths
-  under `~/Documents`. A session in a pool is refused until the pooled branch arrives (#78).
+  under `~/Documents`.
+- `upool hook worktree-create` gives a session in a pool one of its slots: the first ready slot, or
+  else a `needs-reset` one (A5), that is still on disk and in `git worktree list`, leased
+  unconfirmed with the stdin `session_id` as holder (any `local_` prefix stripped) and its `name` as
+  `name_hint`. It locks the slot's worktree for the lease, prints only the slot's path, and first
+  ends the pool's unconfirmed leases older than `confirm_timeout`, releasing their locks. With no
+  slot free it tries again once a second for 20 s (A11), then exits 1, which aborts the session,
+  with a message naming `upool refresh`. It opens no file under the repository: slots are checked by
+  a stat and git alone, and `confirm_timeout` comes from the user file, the environment or the
+  default, never from `.upool.toml`. A lock git refuses is said on stderr, and `take --confirm`
+  takes it instead.
 - `upool hook worktree-remove` ends a slot's lease when the desktop app archives its session: it
   finds the slot by its canonical path, which the app may hand back lowercased, judges it with git
   reads alone (`git status --porcelain`, and `git for-each-ref --contains HEAD`, so a commit on no

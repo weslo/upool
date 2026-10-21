@@ -43,5 +43,5 @@ func sessionStart(inv *invocation) (string, error) {
 func hooksEnv(inv *invocation) hooks.Env {
 	return hooks.Env{Git: git.Client{Runner: git.Exec{}, Env: inv.environ()}, Home: inv.home,
 		ParentPID: inv.ppid, Now: inv.now, Stderr: inv.stderr,
-		EnvFile: inv.getenv("CLAUDE_ENV_FILE")}
+		EnvFile: inv.getenv("CLAUDE_ENV_FILE"), Getenv: inv.getenv}
 }

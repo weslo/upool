@@ -110,6 +110,8 @@ type Env struct {
 	// EnvFile is CLAUDE_ENV_FILE, set for SessionStart hooks: the file whose export lines reach
 	// the session's Bash tool (docs/contracts.md (b), `CLAUDE_ENV_FILE`).
 	EnvFile string
+	// Getenv looks up an environment variable, for the configuration the pooled branch loads.
+	Getenv func(string) string
 }
 
 // worktreesDir is Claude Code's managed worktree directory, relative to a repository.
@@ -121,7 +123,7 @@ const worktreesDir = ".claude/worktrees"
 // repository and every kind of request, and branches three ways on stdin alone: a subagent gets an
 // ordinary worktree, a session in a pool one of its slots, and any other session the pass-through
 // worktree (docs/design.md, "Route Claude Code's worktrees through the pool: three branches in
-// one hook"). The pooled branch is refused until it is built (#78).
+// one hook").
 func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventWorktreeCreate {
 		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
@@ -138,8 +140,7 @@ func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
 		return "", err
 	}
 	if pooled {
-		return "", fmt.Errorf("%s is in pool %s, and handing a session one of its slots is not "+
-			"built yet", req.Cwd, repo.Key)
+		return pooledWorktree(ctx, env, req, repo)
 	}
 	return passThroughWorktree(ctx, env, req)
 }

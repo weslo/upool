@@ -234,7 +234,7 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 			sayReclaimed(inv, rc, failed)
 		}
 		s, leaseID, skipped, expired, err := l.lease(ctx)
-		for _, line := range endExpired(ctx, l.g, l.repo, expired, l.confirmTimeout) {
+		for _, line := range pool.EndExpired(ctx, l.g, l.repo, expired, l.confirmTimeout) {
 			_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
 		}
 		if err != nil || leaseID != "" {
