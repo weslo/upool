@@ -1,0 +1,27 @@
+{
+  "success": true,
+  "command": "license",
+  "data": {
+    "active": true,
+    "signedIn": true,
+    "authMode": "oauth",
+    "licenses": [
+      {
+        "product": "Unity Personal",
+        "type": "Assigned",
+        "organization": "",
+        "expires": ""
+      },
+      {
+        "product": "Asset Store",
+        "type": "Assigned",
+        "organization": "",
+        "expires": ""
+      }
+    ],
+    "floatingServer": null,
+    "machineId": "<machine-id>"
+  },
+  "errors": [],
+  "warnings": []
+}

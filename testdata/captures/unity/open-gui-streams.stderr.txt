@@ -1,0 +1,1 @@
+Warning: "${repo}/.claude/worktrees/slot-2" was not found in the Hub project registry, opening as a file path.

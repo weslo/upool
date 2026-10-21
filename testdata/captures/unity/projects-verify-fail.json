@@ -1,0 +1,38 @@
+{
+  "success": false,
+  "command": "projects",
+  "data": {
+    "project": "${repo}/.claude/worktrees/slot-2",
+    "ok": false,
+    "checks": [
+      "META_MISSING",
+      "META_ORPHAN",
+      "GUID_DUPLICATE",
+      "CONFLICT_MARKERS",
+      "MANIFEST_INVALID"
+    ],
+    "findings": [
+      {
+        "code": "META_MISSING",
+        "severity": "error",
+        "path": "Assets/AddressableAssetsData",
+        "line": null,
+        "message": "This asset has no .meta file next to it, so Unity assigns a new guid and every existing reference to it breaks.",
+        "hint": "Commit the .meta file next to the asset, or open the project in the Editor to regenerate it and commit the result."
+      }
+    ],
+    "summary": {
+      "errors": 1,
+      "warnings": 0,
+      "filesScanned": 12586,
+      "unverifiable": 0
+    }
+  },
+  "errors": [
+    {
+      "code": "PROJECTS_VERIFY_FAILED",
+      "message": "Project verification failed. Errors: 1"
+    }
+  ],
+  "warnings": []
+}

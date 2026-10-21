@@ -1,0 +1,18 @@
+{
+  "session_id": "f8b70dac-feab-4e7b-a80e-a77ff830d39a",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-slot-1/f8b70dac-feab-4e7b-a80e-a77ff830d39a.jsonl",
+  "cwd": "${repo}/.claude/worktrees/slot-1",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-slot-1/f8b70dac-feab-4e7b-a80e-a77ff830d39a/scratchpad",
+  "prompt_id": "24e31b0a-1a6b-4398-a067-d636aec20135",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "xhigh"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Write",
+  "tool_input": {
+    "file_path": "${repo}/.claude/worktrees/slot-1/upool-capture.txt",
+    "content": "one\n"
+  },
+  "tool_use_id": "toolu_01C6XpXwJWG5g6owWGq3FQMR"
+}

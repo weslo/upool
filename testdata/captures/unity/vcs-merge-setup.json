@@ -1,0 +1,51 @@
+{
+  "success": true,
+  "command": "vcs merge-setup",
+  "data": {
+    "project": "${cwd}",
+    "repository": "${cwd}",
+    "editorVersion": "6000.4.11f1",
+    "editor": "/Applications/Unity/Hub/Editor/6000.4.11f1/Unity.app",
+    "tool": "/Applications/Unity/Hub/Editor/6000.4.11f1/Unity.app/Contents/Helpers/UnityYAMLMerge",
+    "checkOnly": false,
+    "driver": {
+      "state": "absent",
+      "previousPath": null,
+      "changed": true
+    },
+    "attributes": {
+      "changed": true,
+      "malformed": false,
+      "managed": [
+        ".anim",
+        ".asset",
+        ".controller",
+        ".mat",
+        ".physicMaterial",
+        ".prefab",
+        ".unity"
+      ],
+      "alreadyCovered": [],
+      "conflicting": []
+    },
+    "routed": [
+      ".anim",
+      ".asset",
+      ".controller",
+      ".mat",
+      ".physicMaterial",
+      ".prefab",
+      ".unity"
+    ],
+    "notRouted": [],
+    "probe": {
+      "ran": true,
+      "ok": true,
+      "failure": null,
+      "detail": null
+    },
+    "uvcs": null
+  },
+  "errors": [],
+  "warnings": []
+}

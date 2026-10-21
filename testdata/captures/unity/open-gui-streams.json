@@ -1,0 +1,14 @@
+{
+  "success": true,
+  "command": "open",
+  "data": {
+    "projectPath": "${repo}/.claude/worktrees/slot-2",
+    "editorVersion": "6000.4.11f1",
+    "editorPath": "/Applications/Unity/Hub/Editor/6000.4.11f1/Unity.app",
+    "launchedPid": 25428
+  },
+  "errors": [],
+  "warnings": [
+    "Warning: \"${repo}/.claude/worktrees/slot-2\" was not found in the Hub project registry, opening as a file path."
+  ]
+}
