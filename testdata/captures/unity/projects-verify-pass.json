@@ -1,0 +1,24 @@
+{
+  "success": true,
+  "command": "projects",
+  "data": {
+    "project": "${repo}/.claude/worktrees/slot-1",
+    "ok": true,
+    "checks": [
+      "META_MISSING",
+      "META_ORPHAN",
+      "GUID_DUPLICATE",
+      "CONFLICT_MARKERS",
+      "MANIFEST_INVALID"
+    ],
+    "findings": [],
+    "summary": {
+      "errors": 0,
+      "warnings": 0,
+      "filesScanned": 12587,
+      "unverifiable": 0
+    }
+  },
+  "errors": [],
+  "warnings": []
+}

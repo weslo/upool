@@ -1,0 +1,27 @@
+{
+  "success": false,
+  "command": "unity command eval",
+  "data": {
+    "candidates": [
+      {
+        "project": "slot-1",
+        "projectPath": "${repo}/.claude/worktrees/slot-1",
+        "port": 7800,
+        "pid": 25147
+      },
+      {
+        "project": "slot-2",
+        "projectPath": "${repo}/.claude/worktrees/slot-2",
+        "port": 7801,
+        "pid": 25428
+      }
+    ]
+  },
+  "errors": [
+    {
+      "code": "AMBIGUOUS_EDITOR",
+      "message": "Multiple Unity Editors are running with Pipeline servers:\n\n  1. slot-1 (localhost:7800) - ${repo}/.claude/worktrees/slot-1\n  2. slot-2 (localhost:7801) - ${repo}/.claude/worktrees/slot-2\n\nPass --project-path <path> with one of the project paths listed above to choose one, or run the command from inside one of those project directories."
+    }
+  ],
+  "warnings": []
+}

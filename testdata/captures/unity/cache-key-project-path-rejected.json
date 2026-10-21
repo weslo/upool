@@ -1,0 +1,12 @@
+{
+  "success": false,
+  "command": "cache",
+  "data": null,
+  "errors": [
+    {
+      "code": "INVALID_COMMAND_ARGS",
+      "message": "error: unknown option '--project-path'"
+    }
+  ],
+  "warnings": []
+}

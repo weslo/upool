@@ -35,6 +35,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     place and charging `editor_ram_gb` from then on.
   - Each runs under `~/.upool/lock`, after dropping the Editors whose process is gone, and their
     charge with them.
+- `docs/manual-gates/M3.md`, with its first check, "Capture the M3 replies" (#86). It records:
+  - the `PreToolUse` stdin the lane hook reads;
+  - a headless `unity open <slot> --args "-batchmode"` (A33: the CLI has no headless flag of its
+    own);
+  - `license status`, `projects verify --strict`, and `vcs doctor --fix` and `merge-setup`;
+  - which stream `unity open`'s registry warning is on;
+  - the exit codes the spike did not record.
+
+  The hook classification test now checks a `pretooluse-<tool>` capture's event and tool.
 
 ## [0.2.0] - 2026-10-21
 
