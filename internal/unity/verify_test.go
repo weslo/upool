@@ -72,3 +72,31 @@ func TestVerifyFailureWithNoFindings(t *testing.T) {
 			err)
 	}
 }
+
+// VCSDoctor runs `unity vcs doctor <repo>` check-only, never with --fix, and returns the findings
+// of testdata/captures/unity/vcs-doctor.json, a VCS_DOCTOR_FAILED reply exiting 4 (A35).
+func TestVCSDoctorChecksOnly(t *testing.T) {
+	repo := slotDir(t)
+	u := fake.Install(t, fake.Reply{Capture: "vcs-doctor.json", Exit: 4,
+		Vars: []pathvars.Var{{Name: "cwd", Path: repo}}})
+	env := []string{"PATH=" + u.Dir(), "HOME=" + u.Dir()}
+	findings, err := Client{Runner: Exec{}, Env: env}.VCSDoctor(context.Background(), repo)
+	var codes []string
+	for _, f := range findings {
+		codes = append(codes, f.Code)
+	}
+	want := []string{"GITIGNORE_STALE", "LFS_HOOKS_MISSING", "LFS_PATTERNS_INCOMPLETE",
+		"UPM_GIT_REF_FLOATING", "UPM_GIT_REF_UNVERIFIED"}
+	if !slices.Equal(codes, want) {
+		t.Errorf("findings %v, want %v", codes, want)
+	}
+	var f *output.Failure
+	if !errors.As(err, &f) || f.Code() != "VCS_DOCTOR_FAILED" || f.Exit() != output.ExitFailure {
+		t.Errorf("error %v, want VCS_DOCTOR_FAILED exiting 1", err)
+	}
+	calls := u.Calls()
+	wantArgs := []string{"vcs", "doctor", repo, "--format", "json"}
+	if len(calls) != 1 || !slices.Equal(calls[0].Args, wantArgs) || calls[0].Dir != repo {
+		t.Errorf("calls = %+v, want one unity %v in the repository", calls, wantArgs)
+	}
+}

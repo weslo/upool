@@ -13,6 +13,7 @@ import (
 
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
 	"github.com/weslo/upool/internal/unity/fake"
@@ -40,11 +41,39 @@ func capturedVersion(t *testing.T, tool, file string) fake.Reply {
 	return fake.Reply{Capture: file, Exit: exit}
 }
 
-// fakeTools installs a fake unity and a fake claude first on e's PATH, each answering doctorRuns
-// calls with its reply, so that doctor never runs this machine's own.
+// vcsDoctorReply is the fake unity's reply to `unity vcs doctor` on e's repository: the check-only
+// capture, exiting 4 as it did (testdata/captures/unity/vcs-doctor.json).
+func vcsDoctorReply(e *testenv.Env) fake.Reply {
+	return fake.Reply{Capture: "vcs-doctor.json", Exit: 4,
+		Vars: []pathvars.Var{{Name: "cwd", Path: e.Repo}}}
+}
+
+// vcsLines is how many vcs lines doctor reports for vcsDoctorReply: a line per finding of the
+// capture, then the line naming the commands that would act on them.
+func vcsLines(t *testing.T) int {
+	t.Helper()
+	var reply struct {
+		Data struct {
+			Findings []json.RawMessage `json:"findings"`
+		} `json:"data"`
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "unity",
+		"vcs-doctor.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &reply); err != nil {
+		t.Fatal(err)
+	}
+	return len(reply.Data.Findings) + 1
+}
+
+// fakeTools installs a fake unity and a fake claude first on e's PATH, so that doctor never runs
+// this machine's own. Each answers doctorRuns doctor runs: claude its reply, and unity its reply,
+// to `--version`, then vcsDoctorReply, to `vcs doctor`.
 func fakeTools(t *testing.T, e *testenv.Env, unity, claude fake.Reply) (u, c *fake.Unity) {
 	t.Helper()
-	u = fake.Install(t, slices.Repeat([]fake.Reply{unity}, doctorRuns)...)
+	u = fake.Install(t, slices.Repeat([]fake.Reply{unity, vcsDoctorReply(e)}, doctorRuns)...)
 	c = fake.InstallClaude(t, slices.Repeat([]fake.Reply{claude}, doctorRuns)...)
 	e.Setenv("PATH", c.Dir()+string(os.PathListSeparator)+u.PATH)
 	return u, c
@@ -80,19 +109,21 @@ func doctorChecks(t *testing.T, r result) []doctorCheck {
 	return report.Checks
 }
 
-// wantChecks are the checks a healthy harness pool reports, in order.
+// wantChecks are the checks a healthy harness pool reports, in order, with no unity on PATH: one
+// vcs line then.
 func wantChecks() []string {
 	names := []string{checkGitignore, checkLibrary, "slot-1", "slot-2"}
 	if runtime.GOOS == "darwin" {
 		names = append(names, checkCloneSharing)
 	}
 	return append(names, checkStateVolume, checkLeases, checkHookSettings,
-		checkHookProvenance, "unity-cli", "claude-code")
+		checkHookProvenance, "unity-cli", "claude-code", checkVCS)
 }
 
 // checkResults fails the test unless checks are wantChecks, in order, each passing but the one
 // named in odd, which has that result and a reason containing reason. Without p's tools on PATH
-// the version checks warn instead.
+// the version checks warn instead, and the vcs check always warns: unity is not on PATH, or the
+// capture fakeTools replays has findings.
 func (p harnessPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
 	result checkResult, reason string) {
 	t.Helper()
@@ -100,7 +131,8 @@ func (p harnessPool) checkResults(t *testing.T, checks []doctorCheck, odd string
 	for _, c := range checks {
 		names = append(names, c.Name)
 		want := checkPass
-		if !p.tools && (c.Name == "unity-cli" || c.Name == "claude-code") {
+		if !p.tools && (c.Name == "unity-cli" || c.Name == "claude-code") ||
+			c.Name == checkVCS {
 			want = checkWarn
 		}
 		switch {
@@ -133,12 +165,20 @@ func TestDoctorPassesAHealthyPool(t *testing.T) {
 	p.installTools(t, unity, claude)
 	r := runIn(t, p.Env, p.Repo, "doctor")
 	lines := strings.Split(strings.TrimSuffix(r.stdout, "\n"), "\n")
-	if lines[0] != p.Repo || len(lines) != 1+len(wantChecks()) {
-		t.Fatalf("stdout =\n%s\nwant the main checkout, then a line per check", r.stdout)
+	names := wantChecks()
+	names = append(names, slices.Repeat([]string{checkVCS}, vcsLines(t)-1)...)
+	if r.code != output.ExitOK || lines[0] != p.Repo || len(lines) != 1+len(names) {
+		t.Fatalf("exit %d, stdout =\n%s\nwant 0, the main checkout, then a line per check",
+			r.code, r.stdout)
 	}
-	for i, name := range wantChecks() {
-		if f := strings.Fields(lines[i+1]); len(f) < 3 || f[0] != "pass" || f[1] != name {
-			t.Errorf("line %d = %q, want pass, %s and its reason", i+2, lines[i+1], name)
+	for i, name := range names {
+		want := checkPass
+		if name == checkVCS {
+			want = checkWarn // the capture's findings, then the commands that would fix them
+		}
+		if f := strings.Fields(lines[i+1]); len(f) < 3 || f[0] != string(want) ||
+			f[1] != name {
+			t.Errorf("line %d = %q, want %s, %s and its reason", i+2, lines[i+1], want, name)
 		}
 	}
 }

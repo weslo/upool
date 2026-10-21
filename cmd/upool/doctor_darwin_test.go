@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -9,7 +10,8 @@ import (
 )
 
 // After a real init, which clones slot-1 with cp -cR and registers the hooks in the project,
-// every check passes, the clone-sharing check among them, and its scratch files are gone.
+// every check passes, the clone-sharing check among them, and its scratch files are gone; only the
+// vcs lines warn, reporting the findings of the capture the fake unity replays.
 func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 	e := newInitEnv(t)
 	mustInit(t, e)
@@ -22,17 +24,21 @@ func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 	var names []string
 	for _, c := range doctorChecks(t, r) {
 		names = append(names, c.Name)
-		if c.Result != checkPass {
-			t.Errorf("%s: %s, %q; want pass", c.Name, c.Result, c.Reason)
+		want := checkPass
+		if c.Name == checkVCS {
+			want = checkWarn
+		}
+		if c.Result != want {
+			t.Errorf("%s: %s, %q; want %s", c.Name, c.Result, c.Reason, want)
 		}
 		if c.Name == checkCloneSharing && !strings.HasPrefix(c.Reason,
 			"APFS, one device, and a clone of a 128 MB file cost ") {
 			t.Errorf("clone-sharing reason = %q, want what the clone cost", c.Reason)
 		}
 	}
-	want := []string{checkGitignore, checkLibrary, "slot-1", checkCloneSharing, checkStateVolume,
-		checkLeases, checkHookSettings, checkHookProvenance, "unity-cli",
-		"claude-code"}
+	want := append([]string{checkGitignore, checkLibrary, "slot-1", checkCloneSharing,
+		checkStateVolume, checkLeases, checkHookSettings, checkHookProvenance, "unity-cli",
+		"claude-code"}, slices.Repeat([]string{checkVCS}, vcsLines(t))...)
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("checks = %v, want %v", names, want)
 	}

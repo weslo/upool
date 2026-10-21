@@ -161,6 +161,7 @@ desktop worktree session's `/clear` does the same was not tried.
 | `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors | S§8 B.5, C.6; D-editors; `unity/close-gui.json` |
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
 | `projects verify` | not tested with the variable | positional: `unity projects verify --strict <slot>` reported that slot as its `project` | #86; `unity/projects-verify-pass.json`, `unity/projects-verify-fail.json` |
+| `vcs doctor` | not tested with the variable | positional `[path]`, defaults to cwd: `unity vcs doctor <repo>` reported that repository; upool never passes `--fix`, which repairs (A35) | #88; `unity/vcs-doctor.json`, `unity/vcs-doctor-fix.json` |
 
 Resolution without the variable:
 

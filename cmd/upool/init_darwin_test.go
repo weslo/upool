@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // The tests of an init that succeeds, and so clones the first slot with `cp -cR`: macOS only, as
@@ -620,6 +622,24 @@ func TestInitInstallsSkillAndBlocks(t *testing.T) {
 	for _, dir := range []string{".claude", ".agents", ".codex"} {
 		if _, err := os.Lstat(filepath.Join(e.Home, dir)); err == nil {
 			t.Errorf("~/%s exists, want init to write nothing under the home directory's", dir)
+		}
+	}
+}
+
+// The acceptance test of #88: init runs none of Unity's VCS set-up (A35). With a fake unity on
+// PATH, init's calls, the cache key comparison around its slot's checkout, hold no vcs call.
+func TestInitRunsNoVCSSetUp(t *testing.T) {
+	e := newInitEnv(t)
+	u := fake.Install(t, slices.Repeat([]fake.Reply{{Capture: "cache-key.json"}}, 4)...)
+	e.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+e.Getenv("PATH"))
+	mustInit(t, e)
+	calls := u.Calls()
+	if len(calls) == 0 {
+		t.Fatal("init made no unity call, so the fake shows nothing")
+	}
+	for _, c := range calls {
+		if len(c.Args) > 0 && c.Args[0] == "vcs" {
+			t.Errorf("init ran unity %v", c.Args)
 		}
 	}
 }

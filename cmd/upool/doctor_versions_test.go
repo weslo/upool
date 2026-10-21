@@ -67,14 +67,18 @@ func TestDoctorVersions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := newHarnessPool(t)
 			dirs := []string{p.Getenv("PATH")} // git alone
-			var fakes []*fake.Unity
+			// Each fake's calls: --version, then for unity the vcs check's.
+			calls := map[*fake.Unity][][]string{}
 			if tt.unity != nil {
-				u := fake.Install(t, *tt.unity(t))
-				dirs, fakes = append([]string{u.Dir()}, dirs...), append(fakes, u)
+				u := fake.Install(t, *tt.unity(t), vcsDoctorReply(p.Env))
+				dirs = append([]string{u.Dir()}, dirs...)
+				calls[u] = [][]string{{"--version"},
+					{"vcs", "doctor", p.Repo, "--format", "json"}}
 			}
 			if tt.claude != nil {
 				c := fake.InstallClaude(t, *tt.claude(t))
-				dirs, fakes = append([]string{c.Dir()}, dirs...), append(fakes, c)
+				dirs = append([]string{c.Dir()}, dirs...)
+				calls[c] = [][]string{{"--version"}}
 			}
 			p.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
 
@@ -96,10 +100,12 @@ func TestDoctorVersions(t *testing.T) {
 						w.reason)
 				}
 			}
-			for _, f := range fakes {
-				if calls := f.Calls(); len(calls) != 1 ||
-					!slices.Equal(calls[0].Args, []string{"--version"}) {
-					t.Errorf("calls = %+v, want one of --version", calls)
+			for f, want := range calls {
+				got := f.Calls()
+				if !slices.EqualFunc(got, want, func(c fake.Call, args []string) bool {
+					return slices.Equal(c.Args, args)
+				}) {
+					t.Errorf("calls = %+v, want %q", got, want)
 				}
 			}
 		})
