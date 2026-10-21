@@ -1,6 +1,9 @@
-// Package unity talks to the Unity CLI. For now it holds Response, the CLI's --format json reply
-// as upool reads it (docs/contracts.md, section d), and CacheKey, the one verb upool runs before
-// M3's verb table (#82).
+// Package unity is the only way upool runs the Unity CLI. Every call goes through Client.Call with a
+// Verb from the table in verbs.go, which sets UNITY_PROJECT_PATH to the slot and passes the slot
+// positionally where docs/contracts.md (c) says (docs/design.md, "Editors: budget by RAM,
+// serialize cold imports as a courtesy, target by variable and by path"; "Repository, CI and
+// Homebrew distribution": one table, tested row by row against (c)). Response is the CLI's
+// --format json reply as upool reads it ((d)).
 package unity
 
 import "encoding/json"

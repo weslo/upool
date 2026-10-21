@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `internal/unity`: the verb table every Unity CLI call goes through (docs/contracts.md (c)). Each
+  of the twelve verbs (`command`, `status`, `recompile`, `list`, `job`, `mcp`, `open`, `test`,
+  `run`, `build`, `close` and `cache key`) runs through `Client.Call`, which:
+  - sets `UNITY_PROJECT_PATH` to the slot, replacing any value the environment had;
+  - runs in the slot;
+  - puts the slot after the verb for `open`, `test`, `run`, `build`, `close` and `cache key`;
+  - never passes `--project-path`;
+  - decodes the `--format json` reply with its exit code.
+
+  `Runner` and `Exec` mirror `internal/git`'s, and `Exec` finds `unity` on the given environment's
+  `PATH`, reporting `ErrNoUnity` when it is missing.
+  - The table is tested against (c) as `docs/contracts.md` writes it, one subtest per row.
+  - `CacheKey` now runs through the table, so `unity cache key` runs in the slot with
+    `UNITY_PROJECT_PATH` set.
+
 ## [0.2.0] - 2026-10-21
 
 ### Added
