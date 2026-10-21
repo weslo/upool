@@ -21,6 +21,7 @@ look for.
 | `managed-slot-main.log` | `test-e/main-log-excerpt.txt` | §9 E.5–E.7 | slot in `.claude/worktrees`: overlay lines, "Auto-trusted worktree … (inherited from …)", one refusal, archive and reuse |
 | `subagent-session-main.log` | `test-f/main-log-excerpt.txt` | §9 F.3 | the subagent test's session: no worktree lines at all, because subagent worktrees never reach the app |
 | `desktop-project-scope-main.log` | none: #171 | contracts.md A26 | a create hook registered in a scratch repository's own `.claude/settings.local.json`: "Created hook-based worktree", the overlay and auto-trust skipped as "provenance not vouched", `--project-config-root` the main checkout, `worktree=232804ms`, and the remove on archive (desktop app 3.1623.0) |
+| `desktop-project-scope-capture-main.log` | none: #172 | contracts.md A26 | three desktop worktree sessions under project-scope hooks, `settings.local.json` then `settings.json`: their creates (`worktree=1940ms`, `129ms`, `154ms`), the overlay and auto-trust skipped each time, `--project-config-root` the main checkout, and the removes on archive (desktop app 3.1623.0) |
 | `desktop-exec-probe-main.log` | none: #163 | contracts.md A24 | a create hook running a upool built under `~/Documents`: "Created hook-based worktree" and the session started (desktop app 3.1623.0) |
 
 ## exec-probe/
@@ -64,3 +65,14 @@ The probe behind [contracts.md](../contracts.md) A26
 | File | What it shows |
 |---|---|
 | `probe.txt` | the scratch repository's `.claude/settings.local.json`, registering upool for `WorktreeCreate` and `WorktreeRemove` and a probe for `SessionStart`; the probe's log of the `SessionStart` stdin, `cwd` the worktree; the session's reply, `UPOOL_PROBE` exported by the probe; and the worktree gone after the archive, its branch kept |
+
+## project-scope-capture/
+
+The capture behind [contracts.md](../contracts.md) A26's measurements
+([#172](https://github.com/weslo/upool/issues/172), 2026-10-20; desktop app 3.1623.0, Claude Code
+2.1.304, macOS 15.7.3), recorded as it ran, with paths as variables. Its `main.log` lines are
+`logs/desktop-project-scope-capture-main.log`.
+
+| File | What it shows |
+|---|---|
+| `capture.txt` | the logger every hook ran through and the two settings files; its log of each hook's start and end to the millisecond, its source (`local` or `shared`) and its parent process, for three desktop sessions, a second prompt after a hook was written into a worktree's own settings, a `claude -p --worktree` run and two archives; and the CLI run's output |

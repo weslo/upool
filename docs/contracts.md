@@ -703,12 +703,25 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   user scope (A24). It installs the skill in the project's `.claude/skills/upool/` and
   `.agents/skills/upool/`, and upserts the block into its `CLAUDE.md` and `AGENTS.md`. `upool setup`
   goes, and upool never writes the user's own Claude Code settings. The skipped overlay costs
-  nothing: the session-start confirm re-copies the agent files. Two things are still to be measured
-  before `init` registers anything (#172): the probe's create logged `worktree=232804ms`, nearly 4
-  minutes with nothing logged in between, and what the skipped auto-trust does to a session. #172
-  also settles `settings.local.json` against `settings.json`, a slot's own copy of the settings, and
-  the CLI. The work is #173 (`init` registers the hooks), #174 (`setup` removed, the skill and
-  blocks per project) and #175 (`doctor`) (maintainer decision, 2026-10-20; (a)).
+  nothing: the session-start confirm re-copies the agent files. The work is #173 (`init` registers
+  the hooks), #174 (`setup` removed, the skill and blocks per project) and #175 (`doctor`)
+  (maintainer decision, 2026-10-20; (a)).
+
+  **Measured** ([#172](https://github.com/weslo/upool/issues/172), desktop app 3.1623.0, Claude Code
+  2.1.304; `evidence/logs/desktop-project-scope-capture-main.log`,
+  `evidence/project-scope-capture/capture.txt`). Three desktop worktree sessions under project-scope
+  hooks, one started by the user and two by a session, logged `worktree=1940ms`, `129ms` and
+  `154ms`, with upool's own create at 50 to 60 ms: the probe's 232804 ms did not recur, and its
+  cause stays unknown. Hooks in `settings.local.json` and in a committed `settings.json` behaved
+  alike: the app ran them, skipped the overlay and auto-trust both times, and no session it drove
+  showed a difference for the skipped auto-trust. Each hook fired once per event: a worktree that
+  carried its own copy of `settings.json` from its start, and one given a `settings.local.json`
+  mid-session, never ran theirs, since the app runs the session with `--project-config-root` the
+  main checkout. The create and remove hooks ran under `Claude.app/Contents/Helpers/disclaimer`, and
+  `SessionStart` and `UserPromptSubmit` in the session's CLI process. `claude -p --worktree` ran the
+  project's create and `SessionStart` hooks in its own process. So `init` registers in
+  `settings.local.json`, which holds this machine's path to upool and stays out of git, and the
+  slots' copies need no handling.
 
 ### Other open questions
 

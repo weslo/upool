@@ -1,0 +1,71 @@
+== ~/.upool-scope-capture/hook.sh, every hook's command in the scratch repository
+#!/bin/sh
+# Scope capture (#172): logs each hook run with millisecond times and its parent, then runs
+# upool's hook for the worktree events and a marker export for SessionStart.
+here="$HOME/.upool-scope-capture"
+upool="${home}/Documents/Personal/upool/bin/upool"
+ms() { /usr/bin/perl -MTime::HiRes=time -MPOSIX=strftime -e '$t=time; printf "%s.%03d", strftime("%Y-%m-%d %H:%M:%S", localtime $t), ($t-int $t)*1000'; }
+event="$1"; src="$2"
+stdin=$(cat)
+parent=$(ps -o command= -p "$PPID" 2>/dev/null | cut -c1-100)
+echo "$(ms) start $event from=$src ppid=$PPID parent=$parent" >>"$here/hooks.log"
+printf '%s\n' "$stdin" >>"$here/stdin-$event.jsonl"
+status=0; out=
+case "$event" in
+WorktreeCreate) out=$(printf '%s\n' "$stdin" | "$upool" hook worktree-create 2>>"$here/upool.stderr"); status=$? ;;
+WorktreeRemove) out=$(printf '%s\n' "$stdin" | "$upool" hook worktree-remove 2>>"$here/upool.stderr"); status=$? ;;
+SessionStart) if [ -n "${CLAUDE_ENV_FILE:-}" ]; then echo "export UPOOL_PROBE=scope-$src" >>"$CLAUDE_ENV_FILE"; fi ;;
+esac
+echo "$(ms) end $event from=$src status=$status" >>"$here/hooks.log"
+if [ -n "$out" ]; then printf '%s\n' "$out"; fi
+exit $status
+
+== .claude/settings.local.json for runs 1 and 2 (from=local)
+{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["WorktreeCreate","local"]}]}],"WorktreeRemove":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["WorktreeRemove","local"]}]}],"SessionStart":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["SessionStart","local"]}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["UserPromptSubmit","local"]}]}]}}
+== .claude/settings.json, committed, for run 3 and the CLI (from=shared)
+{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["WorktreeCreate","shared"]}]}],"WorktreeRemove":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["WorktreeRemove","shared"]}]}],"SessionStart":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["SessionStart","shared"]}]}],"UserPromptSubmit":[{"hooks":[{"type":"command","command":"${home}/.upool-scope-capture/hook.sh","args":["UserPromptSubmit","shared"]}]}]}}
+
+== hooks.log: run 1 (desktop, started by the user; 21:16 is its folder's first session, without a worktree), run 2 and its second prompt, run 3, the CLI, the archives
+2026-10-20 21:16:21.268 start SessionStart from=local ppid=66134 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:16:21.286 end SessionStart from=local status=0
+2026-10-20 21:16:21.837 start UserPromptSubmit from=local ppid=66134 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:16:21.849 end UserPromptSubmit from=local status=0
+2026-10-20 21:17:52.597 start WorktreeCreate from=local ppid=66268 parent=/Applications/Claude.app/Contents/Helpers/disclaimer -- ${home}/.upool-scope-capture/hook.sh Work
+2026-10-20 21:17:54.334 end WorktreeCreate from=local status=0
+2026-10-20 21:17:54.888 start SessionStart from=local ppid=66289 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:17:54.905 end SessionStart from=local status=0
+2026-10-20 21:17:55.215 start UserPromptSubmit from=local ppid=66289 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:17:55.228 end UserPromptSubmit from=local status=0
+2026-10-20 21:18:27.473 start WorktreeCreate from=local ppid=66461 parent=/Applications/Claude.app/Contents/Helpers/disclaimer -- ${home}/.upool-scope-capture/hook.sh Work
+2026-10-20 21:18:27.532 end WorktreeCreate from=local status=0
+2026-10-20 21:18:27.967 start SessionStart from=local ppid=66478 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:18:27.980 end SessionStart from=local status=0
+2026-10-20 21:18:28.307 start UserPromptSubmit from=local ppid=66478 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:18:28.320 end UserPromptSubmit from=local status=0
+2026-10-20 21:18:54.287 start UserPromptSubmit from=local ppid=66478 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:18:54.299 end UserPromptSubmit from=local status=0
+2026-10-20 21:22:44.628 start WorktreeCreate from=shared ppid=66872 parent=/Applications/Claude.app/Contents/Helpers/disclaimer -- ${home}/.upool-scope-capture/hook.sh Work
+2026-10-20 21:22:44.688 end WorktreeCreate from=shared status=0
+2026-10-20 21:22:45.082 start SessionStart from=shared ppid=66894 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:22:45.094 end SessionStart from=shared status=0
+2026-10-20 21:22:45.424 start UserPromptSubmit from=shared ppid=66894 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:22:45.437 end UserPromptSubmit from=shared status=0
+2026-10-20 21:23:15.449 start WorktreeCreate from=shared ppid=67144 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:23:15.498 end WorktreeCreate from=shared status=0
+2026-10-20 21:23:15.643 start SessionStart from=shared ppid=67144 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:23:15.656 end SessionStart from=shared status=0
+2026-10-20 21:23:18.007 start UserPromptSubmit from=shared ppid=67144 parent=${home}/Library/Application Support/Claude/claude-code/2.1.304/6bbba6adc37f/claude.app/Contents/M
+2026-10-20 21:23:18.019 end UserPromptSubmit from=shared status=0
+2026-10-20 21:23:43.634 start WorktreeRemove from=shared ppid=67355 parent=/Applications/Claude.app/Contents/Helpers/disclaimer -- ${home}/.upool-scope-capture/hook.sh Work
+2026-10-20 21:23:43.716 end WorktreeRemove from=shared status=0
+2026-10-20 21:23:45.782 start WorktreeRemove from=shared ppid=67385 parent=/Applications/Claude.app/Contents/Helpers/disclaimer -- ${home}/.upool-scope-capture/hook.sh Work
+2026-10-20 21:23:45.865 end WorktreeRemove from=shared status=0
+
+== the CLI: claude -p --worktree cli-probe, Claude Code 2.1.304, stdout
+`pwd` printed:
+
+```
+${home}/Documents/upool-scope-capture/.claude/worktrees/cli-probe
+```
+
+I couldn't get the value of `$UPOOL_PROBE`. The permission layer blocked `echo "$UPOOL_PROBE"` because it can't check a variable before the command runs. I tried `printenv UPOOL_PROBE` instead, and that needed approval, so it didn't run either. I don't know whether the variable is set or what it contains.
