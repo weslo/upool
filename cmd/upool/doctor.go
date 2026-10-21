@@ -147,7 +147,7 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	}
 	r.Checks = append(r.Checks, stateVolumeCheck(inv.home),
 		leaseCheck(rp.pool.Slots, inv.now(), cfg.AgentTTL.Value))
-	r.Checks = append(r.Checks, hookChecks(inv.home)...)
+	r.Checks = append(r.Checks, hookChecks(inv.home, repo)...)
 	r.Checks = append(r.Checks, versionChecks(ctx, inv)...)
 
 	var failed []string

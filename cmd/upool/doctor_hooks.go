@@ -19,24 +19,24 @@ const (
 	checkHookProvenance = "hook-provenance"
 )
 
-// hookChecks checks the hook installation: its registration in ~/.claude/settings.json, and that no
-// registered repository registers upool's hooks in its own settings as well (docs/design.md, "One
-// binary, a dozen commands, one JSON file per pool", the `doctor` row; docs/contracts.md (a),
-// "WorktreeCreate output and app behaviour").
-func hookChecks(home string) []doctorCheck {
-	return []doctorCheck{hookSettingsCheck(home), hookProvenanceCheck(home)}
+// hookChecks checks the hook installation of the pool whose main checkout is repo: its
+// registration in the project's .claude/settings.local.json, and that nothing else registers
+// upool's hooks, the user's own settings or a registered repository's committed ones (A26;
+// docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `doctor` row;
+// docs/contracts.md (a), "WorktreeCreate output and app behaviour").
+func hookChecks(home, repo string) []doctorCheck {
+	return []doctorCheck{hookSettingsCheck(filepath.Join(repo, projectSettings)),
+		hookProvenanceCheck(home)}
 }
 
-// hookSettingsCheck fails unless ~/.claude/settings.json, the only scope the desktop app vouches
-// for (docs/contracts.md (a)), registers upool for each event as setup writes it, `upool hook
-// <event>` in exec form with upool an absolute path, and each upool it registers is an executable
-// file.
-func hookSettingsCheck(home string) doctorCheck {
-	file := settingsPath(home)
+// hookSettingsCheck fails unless file, the project's .claude/settings.local.json, registers upool
+// for each event as init writes it, `upool hook <event>` in exec form with upool an absolute path,
+// and each upool it registers is an executable file (A26).
+func hookSettingsCheck(file string) doctorCheck {
 	b, err := os.ReadFile(file)
 	if errors.Is(err, fs.ErrNotExist) {
 		return doctorCheck{checkHookSettings, checkFail, file + " does not exist, so no hook " +
-			"is registered: run upool setup"}
+			"is registered: run upool init"}
 	}
 	if err != nil {
 		return failedCheck(checkHookSettings, fmt.Errorf("reading %s: %w", file, err))
@@ -61,36 +61,45 @@ func hookSettingsCheck(home string) doctorCheck {
 	}
 	if len(missing) > 0 {
 		return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s does not register %s: "+
-			"run upool setup", file, strings.Join(missing, ", "))}
+			"run upool init", file, strings.Join(missing, ", "))}
 	}
 	for _, upool := range upools {
 		info, err := os.Stat(upool)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s registers %s, which "+
-				"does not exist: run upool setup as the upool on PATH", file, upool)}
+				"does not exist: run upool init as the upool on PATH", file, upool)}
 		case err != nil:
 			return failedCheck(checkHookSettings, fmt.Errorf("checking %s, which %s registers: %w",
 				upool, file, err))
 		case !info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0:
 			return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s registers %s, which "+
-				"is not an executable file: run upool setup as the upool on PATH", file, upool)}
+				"is not an executable file: run upool init as the upool on PATH", file, upool)}
 		}
 	}
 	return doctorCheck{checkHookSettings, checkPass, fmt.Sprintf("%s registers %s for %s", file,
 		strings.Join(upools, ", "), strings.Join(events, ", "))}
 }
 
-// hookProvenanceCheck warns about each registered repository whose committed .claude/settings
-// files register upool's hooks. init registers them in the project's .claude/settings.local.json,
-// which holds this machine's path to upool and stays out of git (A26), so that file is passed over;
-// a committed copy would run for everyone who clones the repository.
+// hookProvenanceCheck warns when anything but a project's .claude/settings.local.json registers
+// upool's hooks, which init writes there (A26): the user's own ~/.claude/settings.json, where they
+// would run for every repository on the machine and twice in a pool, and a registered repository's
+// committed .claude/settings files, where they would run for everyone who clones it.
 func hookProvenanceCheck(home string) doctorCheck {
 	repos, err := registry.List(home)
 	if err != nil {
 		return failedCheck(checkHookProvenance, err)
 	}
 	var found, unread []string
+	if b, err := os.ReadFile(settingsPath(home)); err == nil {
+		if registered, err := registeredHooks(b); err != nil {
+			unread = append(unread, fmt.Sprintf("%s: %v", settingsPath(home), err))
+		} else if registersUpool(registered) {
+			found = append(found, settingsPath(home))
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		unread = append(unread, fmt.Sprintf("%s: %v", settingsPath(home), err))
+	}
 	for _, repo := range repos {
 		dir := filepath.Join(repo.Path, ".claude")
 		entries, err := os.ReadDir(dir)
@@ -133,8 +142,9 @@ func hookProvenanceCheck(home string) doctorCheck {
 	if len(reasons) > 0 {
 		return doctorCheck{checkHookProvenance, checkWarn, strings.Join(reasons, "; ")}
 	}
-	return doctorCheck{checkHookProvenance, checkPass, fmt.Sprintf("none of the %d registered "+
-		"repositories registers upool's hooks in a committed .claude/settings file", len(repos))}
+	return doctorCheck{checkHookProvenance, checkPass, fmt.Sprintf("neither %s nor a committed "+
+		".claude/settings file of the %d registered repositories registers upool's hooks",
+		settingsPath(home), len(repos))}
 }
 
 // registeredHooks returns the handlers a settings file registers, by event. A group or handler
