@@ -184,8 +184,8 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 |---|---|
 | `command` is not a stable verb: `"status"`, `"command"`, `"command eval"`, `"unity command eval"` (on the failing eval), `"command save_all"`, `"cache"`, `"vcs git worktree add"` | `testdata/captures/unity/*.json` |
 | The `recompile` capture has no top-level `errors` or `warnings` | `unity/recompile-up-to-date.json` |
-| `unity open` printed `Warning: "<path>" was not found in the Hub project registry, opening as a file path.` before the JSON and repeated it in `warnings` | `unity/open-gui.raw.txt` |
-| `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim (upool never calls it) | S§5 |
+| `unity open` prints `Warning: "<path>" was not found in the Hub project registry, opening as a file path.` on **stderr**, and repeats it in `warnings`; stdout is the bare envelope. The spike's recording put the line before the JSON because it caught both streams together (A12) | `unity/open-gui-streams.stderr.txt`, `unity/open-headless.stderr.txt`; `unity/open-gui.raw.txt` |
+| `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim (upool never calls it); `projects verify` does the same | S§5; `unity/projects-verify-pass.json` |
 | Fixtures write the directory a command ran in as `${cwd}`; the spike ran these from `/tmp`, which the CLI reports as `/private/tmp` | `testdata/README.md` |
 
 ### Codes upool must handle
@@ -194,14 +194,14 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 |---|---|---|---|---|---|
 | 0 | — | — | success | S§2; S§8 | `unity/status-*.json`, `close-*.json`, … |
 | 6 | `STATUS_NO_INSTANCES` | No Unity Editor instances found with the Pipeline package installed. Open Unity and install the Pipeline package, or run unity pipeline install. | `status --until-ready --timeout N` after waiting the **whole** timeout (15.1 s for 15) for a non-existent path or a project with no Editor | S§2 T6.5; D-editors | `unity/status-until-ready-no-instances.json`, `evidence/unity-projections/status-until-ready-closed-project.json` |
-| not recorded | `STATUS_NO_INSTANCES` | same | `status` filtered by the variable or `--project-path` to a project with no Editor | S§2 T6.4 | `evidence/unity-projections/status-env-no-instances.json`, `status-project-path-no-instances.json` |
+| 6 | `STATUS_NO_INSTANCES` | same | `status` filtered by the variable or `--project-path` to a project with no Editor | S§2 T6.4 | `unity/status-no-instances.json` (A2); `evidence/unity-projections/status-env-no-instances.json`, `status-project-path-no-instances.json` |
 | 6 | `COMMAND_FAILED` | No Pipeline instance found for project: `<path>`. Make sure Unity Editor is running with the Pipeline package installed. | `unity command` with the variable naming a project that has no Editor | S§2 T6.4 (exit code from the spike's `commands.log`) | `unity/command-eval-no-pipeline-instance.json`, `evidence/unity-projections/command-list-no-pipeline-instance.json` |
 | 6 | `COMMAND_FAILED` | Not a Unity project (ProjectVersion.txt not found at /private/tmp). | `test` or `run` with no positional path, outside a project | S§2 T6.6; S§8 B.3 | `unity/test-not-a-unity-project.json`, `unity/run-not-a-unity-project.json` |
-| not recorded | `COMMAND_FAILED` | same | `build` with no positional path | S§8 B.3 | `evidence/unity-projections/build-not-a-unity-project.json` |
-| not recorded | `COMMAND_FAILED` | Pipeline server returned 400 Bad Request: Internal Server Error. Main thread operation timed out after 5000ms | first `eval` on a freshly opened GUI Editor; **the code ran anyway**, so re-query side effects instead of retrying | S§8 C.3; D-editors | `unity/command-eval-main-thread-timeout.json` |
-| not recorded | `AMBIGUOUS_EDITOR` | Multiple Unity Editors are running with Pipeline servers: … Pass --project-path \<path\> with one of the project paths listed above to choose one, or run the command from inside one of those project directories. | 2 or more Editors, cwd outside them, variable unset | S§8 B.2 | `evidence/unity-projections/command-eval-ambiguous-editor.json` |
-| not recorded | `INVALID_COMMAND_ARGS` | error: unknown option '--project-path' | `cache key --project-path` | S§8 D.1 | `unity/cache-key-project-path-invalid.json` |
-| 7 | — | — | **never observed** in any capture | — | none; see [Open questions](#open-questions) |
+| 6 | `COMMAND_FAILED` | same | `build` with no positional path | S§8 B.3 | `unity/build-not-a-unity-project.json` (A2); `evidence/unity-projections/build-not-a-unity-project.json` |
+| not recorded | `COMMAND_FAILED` | Pipeline server returned 400 Bad Request: Internal Server Error. Main thread operation timed out after 5000ms | first `eval` on a freshly opened GUI Editor; **the code ran anyway**, so re-query side effects instead of retrying | S§8 C.3; D-editors | `unity/command-eval-main-thread-timeout.json`; it did not recur in #86, where the first `eval` answered at once (`unity/command-eval-first-call.json`, exit 0), so its exit stays unrecorded and upool reads its code (A2) |
+| 6 | `AMBIGUOUS_EDITOR` | Multiple Unity Editors are running with Pipeline servers: … Pass --project-path \<path\> with one of the project paths listed above to choose one, or run the command from inside one of those project directories. | 2 or more Editors, cwd outside them, variable unset | S§8 B.2 | `evidence/unity-projections/command-eval-ambiguous-editor.json`; `unity/command-eval-ambiguous-editor.json` (A2) |
+| 2 | `INVALID_COMMAND_ARGS` | error: unknown option '--project-path' | `cache key --project-path` | S§8 D.1 | `unity/cache-key-project-path-invalid.json`; `unity/cache-key-project-path-rejected.json` (A2) |
+| 7 | — | — | **never observed** in any capture | — | none; a failure, upool exits 1 (A1) |
 
 ### upool's own exit codes
 
@@ -767,7 +767,7 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
 
 ### Decided for M3
 
-Answered on 2026-10-21, before M3's build began. Questions 2 and 12 wait on M3's capture (#86).
+Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once M3's capture (#86) had recorded what they needed.
 
 - **1. Unity CLI exit 7** ([#11](https://github.com/weslo/upool/issues/11)). No capture shows it,
   and nothing known produces it. What should upool do when a wrapped call returns it?
@@ -831,6 +831,52 @@ Answered on 2026-10-21, before M3's build began. Questions 2 and 12 wait on M3's
   `-nographics` is not passed: it would make the Editor behave unlike the GUI one a person
   develops in (maintainer decision, 2026-10-21; D-editors; (c)).
 
+- **2. Unrecorded exit codes** ([#12](https://github.com/weslo/upool/issues/12)). The spike
+  recorded no exit for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the first-eval `COMMAND_FAILED`
+  timeout, `build`'s "Not a Unity project" or `status` filtered to a project with no Editor. M3's
+  capture (#86) recorded four of them: `INVALID_COMMAND_ARGS` exits 2, and the other three exit 6.
+  The first-call timeout did not recur, so its exit is still unknown.
+
+  **A2.** Key on codes, with the exits as recorded. Every wrapper decides a failure by
+  `errors[].code`, never by the exit code, and the tests reply with the exits (d) now lists. The
+  first-call timeout, whose exit no capture holds, is read by its code alone (maintainer decision,
+  2026-10-21; (d)).
+
+- **12. `unity open`'s warning line** ([#17](https://github.com/weslo/upool/issues/17)). The
+  spike's `open` capture had the Hub-registry `Warning: …` line before the JSON, recorded with both
+  streams together. M3's capture, streams apart, shows it on stderr, with stdout the bare envelope
+  repeating it in `warnings` (`unity/open-gui-streams.stderr.txt`).
+
+  **A12.** The `open` wrapper decodes stdout as the bare envelope, as every other verb's; the
+  warning reaches upool through `warnings`. No tolerance for text before the JSON is needed
+  (maintainer decision, 2026-10-21; (d)).
+
+- **34. `release` when `projects verify --strict` fails**
+  ([#29](https://github.com/weslo/upool/issues/29)). design.md runs `unity projects verify --strict`
+  before release but says nothing of a failure. M3's capture shows it exits 0 on a clean slot and 6
+  with `PROJECTS_VERIFY_FAILED` and a `META_MISSING` error when a `.meta` file is missing
+  (`unity/projects-verify-pass.json`, `unity/projects-verify-fail.json`).
+
+  **A34.** Warn, and release anyway. The problems go to stderr and the envelope's `warnings`, and
+  the slot is released and exits 0. A clean slot's committed work lives on its branch, which
+  `release` keeps, and a dirty slot is parked whatever verify says; refusing would leave
+  `upool run`'s release on exit holding the slot (maintainer decision, 2026-10-21; D-lanes).
+
+- **35. Whether `init` runs Unity's VCS set-up**
+  ([#30](https://github.com/weslo/upool/issues/30)). design.md had `init` run
+  `unity vcs doctor --fix`, `merge-setup` and `hooks install` on first registration, against its
+  own rule of no repo-level executable hooks. On a throwaway clone (#86):
+  - `vcs doctor --fix` exited 4, with 3 of 5 findings repaired.
+  - It added 27 LFS patterns to `.gitattributes`, after which git showed 717 tracked binaries as
+    modified.
+  - It added 49 `.gitignore` rules and installed four LFS git hooks.
+  - `merge-setup` set the UnityYAMLMerge merge driver in `.git/config`
+    (`unity/vcs-doctor-fix.json`, `unity/vcs-merge-setup.json`).
+
+  **A35.** None. `init` runs none of the three, and leaves the repository's VCS set-up to its
+  owner. `doctor` reports what `unity vcs doctor` finds, `merge-setup`'s state included, and the
+  commands that would fix it (maintainer decision, 2026-10-21; D-lanes; D-commands).
+
 ### Decided for M4
 
 - **16. GoReleaser `brews`** ([#21](https://github.com/weslo/upool/issues/21)). The design asks
@@ -864,14 +910,7 @@ Answered on 2026-10-21, before M3's build began. Questions 2 and 12 wait on M3's
 
 ### Other open questions
 
-- **2. Unrecorded exit codes.** The exits for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the
-  first-eval `COMMAND_FAILED` timeout, `build`'s "Not a Unity project" and `status` filtered to a
-  project with no Editor (without `--until-ready`) were not recorded, and `AMBIGUOUS_EDITOR` exists
-  only as a jq projection. The fake `unity` needs all of them; a new capture with
-  `scripts/capture-unity.sh`, which records exit codes, should supply them.
-- **12. `unity open` warning line.** Was the `Warning: …` line before the JSON on stdout or stderr? A
-  parser that expects bare JSON on stdout breaks if it was stdout. `scripts/capture-unity.sh` keeps
-  stdout and stderr apart, so a new capture answers this.
+None: every question raised so far is answered above.
 
 [^1]: The design (D-route) calls the desktop `session_id` "the app's own id" and the spike (S§2 TB)
     writes it as `local_<id>`. The captured stdin carries the bare UUID (`e8c6f3e6-…`); only
