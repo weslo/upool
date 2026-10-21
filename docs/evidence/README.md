@@ -1,11 +1,12 @@
 # evidence
 
-Spike output that backs [contracts.md](../contracts.md) but that no test reads: the desktop app's
-log excerpts, and `jq` projections of Unity CLI replies whose full envelopes were not kept. Paths in
-them are written as the variables in [testdata/README.md](../../testdata/README.md), and, like the
-captures, these files are copied verbatim and never edited. The "Section" column points into
-[spike-report.md](../spike-report.md); the "Spike log" column names the file in the spike's `logs/`
-folder, which is not in this repository.
+Spike output, and that of later probes, that backs [contracts.md](../contracts.md) but that no
+test reads: the desktop app's log excerpts, `jq` projections of Unity CLI replies whose full
+envelopes were not kept, and the exec probe's transcripts. Paths in them are written as the
+variables in [testdata/README.md](../../testdata/README.md), and, like the captures, these files are
+copied verbatim and never edited. The "Section" column points into
+[spike-report.md](../spike-report.md), or names the decision a later probe backs; the "Spike log"
+column names the file in the spike's `logs/` folder, which is not in this repository.
 
 ## logs/
 
@@ -19,6 +20,19 @@ look for.
 | `sibling-slot-main.log` | `test-a/main-log-excerpt.txt` | §8 A.5–A.8 | user-scope hook outside the managed directory: overlay and auto-trust skipped for location; four "already in use" refusals; archive and reuse sequences; `worktree=36ms`–`56ms` timings |
 | `managed-slot-main.log` | `test-e/main-log-excerpt.txt` | §9 E.5–E.7 | slot in `.claude/worktrees`: overlay lines, "Auto-trusted worktree … (inherited from …)", one refusal, archive and reuse |
 | `subagent-session-main.log` | `test-f/main-log-excerpt.txt` | §9 F.3 | the subagent test's session: no worktree lines at all, because subagent worktrees never reach the app |
+| `desktop-exec-probe-main.log` | none: #163 | contracts.md A24 | a create hook running a upool built under `~/Documents`: "Created hook-based worktree" and the session started (desktop app 3.1623.0) |
+
+## exec-probe/
+
+The probe behind [contracts.md](../contracts.md) A24
+([#163](https://github.com/weslo/upool/issues/163), 2026-10-20; desktop app 3.1623.0, Claude Code
+2.1.304, macOS 15.7.3), recorded as it ran, with paths as variables. Its `main.log` lines are
+`logs/desktop-exec-probe-main.log`.
+
+| File | What it shows |
+|---|---|
+| `hook.txt` | the user-scope create hook, a script outside `~/Documents` that ran `bin/upool hook worktree-create` from a checkout under it; its log (exit 0), stdin, stdout and empty stderr; and its parent process, `Claude.app/Contents/MacOS/Claude` |
+| `helper.txt` | the same checkout, through `Claude.app/Contents/Helpers/disclaimer` from a shell: `head` on a file and `sh` on a script fail with `Operation not permitted`, and upool runs, directly and from `sh -c` |
 
 ## unity-projections/
 

@@ -32,7 +32,7 @@ func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 		}
 	}
 	want := []string{checkGitignore, checkLibrary, "slot-1", checkCloneSharing, checkStateVolume,
-		checkLeases, checkHookScripts, checkHookSettings, checkHookProvenance, "unity-cli",
+		checkLeases, checkHookSettings, checkHookProvenance, "unity-cli",
 		"claude-code"}
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("checks = %v, want %v", names, want)

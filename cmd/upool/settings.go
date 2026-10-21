@@ -10,15 +10,16 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 )
 
-// hookEvents are the Claude Code events setup registers each hook script for, in the order it
-// adds them to a settings.json that has none of them (docs/design.md, "Build in four phases, with
-// the clone recipe first", phase 2; #67).
-var hookEvents = []struct{ script, event string }{
-	{"worktree-create.sh", "WorktreeCreate"},
-	{"worktree-remove.sh", "WorktreeRemove"},
-	{"session-start.sh", "SessionStart"},
+// hookEvents are the Claude Code events setup registers upool for, each with the `upool hook`
+// subcommand that handles it, in the order setup adds them to a settings.json that has none of
+// them (docs/design.md, "Build in four phases, with the clone recipe first", phase 2; #67).
+var hookEvents = []struct{ hook, event string }{
+	{"worktree-create", "WorktreeCreate"},
+	{"worktree-remove", "WorktreeRemove"},
+	{"session-start", "SessionStart"},
 }
 
 // settingsMode is the mode of a settings.json that setup creates, private to the user as Claude
@@ -40,9 +41,11 @@ func settingsPath(home string) string {
 	return filepath.Join(home, ".claude", "settings.json")
 }
 
-// commandHook is a hook handler as setup registers it, in exec form: with args present, Claude Code
-// spawns command itself, with no shell to split or expand the script's path (docs/design.md, the
-// `setup` row; spike §8 A.2–3).
+// commandHook is a hook handler, as setup registers it and the hook checks read it. setup writes
+// it in exec form, upool's path as command and `hook <event>` as args: with args present, Claude
+// Code spawns command itself, with no shell to split or expand the path (docs/design.md, the
+// `setup` row; spike §8 A.2–3). The desktop app's helper can run upool from anywhere, ~/Documents
+// included, though it cannot read a file there (docs/contracts.md (a); #163).
 type commandHook struct {
 	Type    string   `json:"type"`
 	Command string   `json:"command"`
@@ -71,9 +74,9 @@ type registration struct {
 	changed bool
 }
 
-// planRegistration reads settings.json under home and returns it with the scripts in hooksDir
-// registered.
-func planRegistration(home, hooksDir string) (registration, error) {
+// planRegistration reads settings.json under home and returns it with upool's hooks registered,
+// each running upool, an absolute path.
+func planRegistration(home, upool string) (registration, error) {
 	reg := registration{file: settingsPath(home), mode: settingsMode}
 	reg.target = reg.file
 	if _, err := os.Lstat(reg.file); err == nil {
@@ -102,7 +105,7 @@ func planRegistration(home, hooksDir string) (registration, error) {
 			}
 		}
 	}
-	if err := registerHooks(settings, hooksDir); err != nil {
+	if err := registerHooks(settings, upool); err != nil {
 		return registration{}, fmt.Errorf("registering the hooks in %s: %w", reg.file, err)
 	}
 	var b bytes.Buffer
@@ -167,12 +170,12 @@ func keepBackup(backup string, data []byte, mode fs.FileMode) (bool, error) {
 	return true, nil
 }
 
-// registerHooks registers, in settings, each script in hookEvents for its event. A handler whose
-// command is a file in hooksDir is upool's, from this run or an earlier one, wherever it sits: each
-// is removed, a matcher group left with no handlers goes with it, and the event's own group takes
-// the place of the first group it was removed from, or goes last. A second run therefore leaves the
-// file as it was. Every other key, group and handler is kept as written.
-func registerHooks(settings *jsonObject, hooksDir string) error {
+// registerHooks registers, in settings, upool for each event in hookEvents. A handler that runs
+// `upool hook` is upool's, from this run or an earlier one, wherever it sits and whichever upool it
+// names: each is removed, a matcher group left with no handlers goes with it, and the event's own
+// group takes the place of the first group it was removed from, or goes last. A second run
+// therefore leaves the file as it was. Every other key, group and handler is kept as written.
+func registerHooks(settings *jsonObject, upool string) error {
 	hooks := &jsonObject{}
 	if raw, ok := settings.get("hooks"); ok {
 		if err := json.Unmarshal(raw, hooks); err != nil {
@@ -193,7 +196,7 @@ func registerHooks(settings *jsonObject, hooksDir string) error {
 			}
 			continue
 		}
-		kept, first, err := removeUpoolHooks(groups, hooksDir)
+		kept, first, err := removeUpoolHooks(groups)
 		if err != nil {
 			return fmt.Errorf("hooks.%s: %w", event, err)
 		}
@@ -211,7 +214,7 @@ func registerHooks(settings *jsonObject, hooksDir string) error {
 	}
 	for _, h := range hookEvents {
 		group, err := marshalJSON(hookGroup{Hooks: []commandHook{{
-			Type: "command", Command: filepath.Join(hooksDir, h.script), Args: []string{},
+			Type: "command", Command: upool, Args: []string{"hook", h.hook},
 		}}})
 		if err != nil {
 			return err
@@ -237,8 +240,7 @@ func registerHooks(settings *jsonObject, hooksDir string) error {
 // removeUpoolHooks returns groups without upool's handlers, and the index in the result where the
 // first group that held one was, or -1 if none did. A group or handler of a shape it does not
 // recognise is not upool's, and is kept as it is.
-func removeUpoolHooks(groups []json.RawMessage, hooksDir string) (kept []json.RawMessage,
-	first int, err error) {
+func removeUpoolHooks(groups []json.RawMessage) (kept []json.RawMessage, first int, err error) {
 	first = -1
 	kept = []json.RawMessage{}
 	for _, raw := range groups {
@@ -254,10 +256,8 @@ func removeUpoolHooks(groups []json.RawMessage, hooksDir string) (kept []json.Ra
 		}
 		others := []json.RawMessage{}
 		for _, h := range handlers {
-			var handler struct {
-				Command string `json:"command"`
-			}
-			if json.Unmarshal(h, &handler) == nil && isUpoolHook(handler.Command, hooksDir) {
+			var handler commandHook
+			if json.Unmarshal(h, &handler) == nil && runsUpoolHook(handler) {
 				continue
 			}
 			others = append(others, h)
@@ -284,10 +284,19 @@ func removeUpoolHooks(groups []json.RawMessage, hooksDir string) (kept []json.Ra
 	return kept, first, nil
 }
 
-// isUpoolHook says whether command, a handler's command, runs a file in hooksDir, where only
-// upool's scripts live.
-func isUpoolHook(command, hooksDir string) bool {
-	return filepath.IsAbs(command) && filepath.Dir(filepath.Clean(command)) == hooksDir
+// runsUpoolHook says whether h runs `upool hook`, by any path to upool: in exec form, a command
+// named upool whose first argument is hook; in shell form, with no args, a command line whose
+// first two words are those.
+func runsUpoolHook(h commandHook) bool {
+	command, args := h.Command, h.Args
+	if args == nil {
+		words := strings.Fields(h.Command)
+		if len(words) == 0 {
+			return false
+		}
+		command, args = words[0], words[1:]
+	}
+	return filepath.Base(command) == upoolName && len(args) > 0 && args[0] == "hook"
 }
 
 // sameJSON says whether a and b, both valid JSON, hold the same value, whatever their layout.

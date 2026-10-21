@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -50,16 +49,6 @@ func (e setupEnv) setup(t *testing.T, args ...string) result {
 	return dispatch(t, commandTable, hookTable, e.env, "", append([]string{"setup"}, args...)...)
 }
 
-// hooks is ~/.upool/hooks in e.
-func (e setupEnv) hooks() string {
-	return filepath.Join(e.home, ".upool", "hooks")
-}
-
-// script is the hook script for event in e.
-func (e setupEnv) script(event string) string {
-	return filepath.Join(e.hooks(), event+".sh")
-}
-
 // skills are the copies of the skill setup installs in e, in skillFiles' order.
 func (e setupEnv) skills() []string {
 	return homePaths(e, skillFiles)
@@ -80,7 +69,7 @@ func homePaths(e setupEnv, names []string) []string {
 	return files
 }
 
-// events are the events `upool hook` handles, sorted, as setup lists their scripts.
+// events are the events `upool hook` handles, sorted.
 func events() []string {
 	return slices.Sorted(maps.Keys(hookTable))
 }
@@ -103,19 +92,16 @@ func setupData(t *testing.T, r result) setupReport {
 	return report
 }
 
-// The acceptance test of #66: three executable scripts, each clean under sh -n and ending in an
-// exec of the path upool was found through on PATH, and a second run changes nothing.
-func TestSetupInstallsHookScripts(t *testing.T) {
+// The acceptance test of #163: each event's handler runs `upool hook <event>` by the path upool
+// was found through on PATH, not the binary that path links to; setup makes no ~/.upool, since no
+// script stands between the hook and upool; and a second run changes nothing.
+func TestSetupRegistersUpoolItself(t *testing.T) {
 	e := newSetupEnv(t)
 	r := e.setup(t)
 	if r.code != output.ExitOK {
 		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
 	}
-	want := []string{"created " + e.hooks()}
-	for _, event := range events() {
-		want = append(want, "created "+e.script(event))
-	}
-	want = append(want, "the hook scripts run "+e.upool, "created "+settingsPath(e.home))
+	want := []string{"the hooks run " + e.upool, "created " + settingsPath(e.home)}
 	for _, file := range e.skills() {
 		want = append(want, "created "+file)
 	}
@@ -126,53 +112,28 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	if got := strings.Join(want, "\n") + "\n"; r.stdout != got {
 		t.Errorf("stdout = %q, want %q", r.stdout, got)
 	}
+	if _, err := os.Lstat(filepath.Join(e.home, ".upool")); err == nil {
+		t.Errorf("setup made %s", filepath.Join(e.home, ".upool"))
+	}
+	b, err := os.ReadFile(settingsPath(e.home))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registered, err := registeredHooks(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hookEvents {
+		got := registered[h.event]
+		if len(got) != 1 || got[0].Type != "command" || got[0].Command != e.upool ||
+			!slices.Equal(got[0].Args, []string{"hook", h.hook}) {
+			t.Errorf("%s handlers = %+v, want one running %s hook %s", h.event, got, e.upool,
+				h.hook)
+		}
+	}
 
-	entries, err := os.ReadDir(e.hooks())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var names []string
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
-	var wantNames []string
-	for _, event := range events() {
-		wantNames = append(wantNames, event+".sh")
-	}
-	if !slices.Equal(names, wantNames) {
-		t.Errorf("~/.upool/hooks holds %q, want %q", names, wantNames)
-	}
-	checkMode(t, e.hooks(), hooksMode)
 	before := map[string]os.FileInfo{}
-	for _, event := range events() {
-		file := e.script(event)
-		checkMode(t, file, scriptMode)
-		if out, err := exec.Command("sh", "-n", file).CombinedOutput(); err != nil {
-			t.Errorf("sh -n %s: %v: %s", file, err, out)
-		}
-		b, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		lines := strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
-		if got, want := lines[len(lines)-1], "exec '"+e.upool+"' hook "+event; got != want {
-			t.Errorf("%s ends in %q, want %q", event, got, want)
-		}
-		if strings.Contains(string(b), e.exe) {
-			t.Errorf("%s names the binary %s that the link on PATH resolves to", event, e.exe)
-		}
-		info, err := os.Stat(file)
-		if err != nil {
-			t.Fatal(err)
-		}
-		before[file] = info
-	}
-	info, err := os.Stat(settingsPath(e.home))
-	if err != nil {
-		t.Fatal(err)
-	}
-	before[settingsPath(e.home)] = info
-	for _, file := range append(e.skills(), e.instructions()...) {
+	for _, file := range append(append(e.skills(), e.instructions()...), settingsPath(e.home)) {
 		info, err := os.Stat(file)
 		if err != nil {
 			t.Fatal(err)
@@ -188,11 +149,7 @@ func TestSetupInstallsHookScripts(t *testing.T) {
 	if r.code != output.ExitOK {
 		t.Fatalf("second run: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
 	}
-	want = []string{e.hooks() + " is up to date"}
-	for _, event := range events() {
-		want = append(want, e.script(event)+" is up to date")
-	}
-	want = append(want, "the hook scripts run "+e.upool, settingsPath(e.home)+" is up to date")
+	want = []string{"the hooks run " + e.upool, settingsPath(e.home) + " is up to date"}
 	for _, file := range e.skills() {
 		want = append(want, file+" is up to date")
 	}
@@ -230,21 +187,11 @@ func checkMode(t *testing.T, path string, want os.FileMode) {
 	}
 }
 
-// A later run puts back what changed, a script's text or mode and the directory's mode, says so,
-// leaves the rest alone, and never rewrites a config.toml that exists.
+// A later run puts back what changed, a copy of the skill here, says so, leaves the rest alone,
+// and never rewrites a config.toml that exists.
 func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 	e := newSetupEnv(t)
 	setupData(t, e.setup(t, "--json"))
-	if err := os.Chmod(e.hooks(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(e.script("worktree-remove"), []byte("#!/bin/sh\nexec '/old/upool' "+
-		"hook worktree-remove\n"), scriptMode); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(e.script("session-start"), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	if err := os.WriteFile(e.skills()[1], []byte("an older skill\n"), skillMode); err != nil {
 		t.Fatal(err)
 	}
@@ -255,13 +202,7 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 
 	got := setupData(t, e.setup(t, "--json"))
 	want := setupReport{
-		Upool: e.upool,
-		Hooks: installed{e.hooks(), updated},
-		Scripts: []installed{
-			{e.script("session-start"), updated},
-			{e.script("worktree-create"), unchanged},
-			{e.script("worktree-remove"), updated},
-		},
+		Upool:    e.upool,
 		Settings: installed{settingsPath(e.home), unchanged},
 		Skills:   []installed{{e.skills()[0], unchanged}, {e.skills()[1], updated}},
 		Blocks: []upserted{
@@ -273,12 +214,6 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 	if string(mustJSON(t, got)) != string(mustJSON(t, want)) {
 		t.Errorf("data = %s, want %s", mustJSON(t, got), mustJSON(t, want))
 	}
-	checkMode(t, e.hooks(), hooksMode)
-	checkMode(t, e.script("session-start"), scriptMode)
-	if b, err := os.ReadFile(e.script("worktree-remove")); err != nil ||
-		!strings.HasSuffix(string(b), "exec '"+e.upool+"' hook worktree-remove\n") {
-		t.Errorf("worktree-remove.sh = %q, %v, want it to exec %s", b, err, e.upool)
-	}
 	if b, err := os.ReadFile(e.skills()[1]); err != nil || string(b) != assets.Skill {
 		t.Errorf("%s = %q, %v, want the skill", e.skills()[1], b, err)
 	}
@@ -287,8 +222,8 @@ func TestSetupRewritesOnlyWhatChanged(t *testing.T) {
 	}
 }
 
-// The scripts run the first upool on PATH that is this binary, passing over another upool before
-// it, and a path that needs quoting is quoted for sh.
+// The hooks run the first upool on PATH that is this binary, passing over another upool before
+// it, by its path as written: in exec form, a path a shell would need quoted needs nothing.
 func TestSetupRunsTheUpoolOnPathThatIsThisBinary(t *testing.T) {
 	e := newSetupEnv(t)
 	other := tempDir(t)
@@ -311,19 +246,23 @@ func TestSetupRunsTheUpoolOnPathThatIsThisBinary(t *testing.T) {
 	if got.Upool != link {
 		t.Errorf("upool = %q, want %q", got.Upool, link)
 	}
-	file := e.script("worktree-create")
-	out, err := exec.Command("sh", "-c", `sed '$s/^exec /printf "%s\\n" /' "$1" | sh`, "sh",
-		file).CombinedOutput()
+	b, err := os.ReadFile(settingsPath(e.home))
 	if err != nil {
-		t.Fatalf("running %s with exec replaced by printf: %v: %s", file, err, out)
+		t.Fatal(err)
 	}
-	if want := link + "\nhook\nworktree-create\n"; string(out) != want {
-		t.Errorf("%s's exec arguments = %q, want %q", file, out, want)
+	registered, err := registeredHooks(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range hookEvents {
+		if got := registered[h.event]; len(got) != 1 || got[0].Command != link {
+			t.Errorf("%s handlers = %+v, want one running %q", h.event, got, link)
+		}
 	}
 }
 
-// Without this binary on PATH there is no path for the scripts to run that survives an upgrade,
-// so setup refuses and writes nothing.
+// Without this binary on PATH there is no path for the hooks to run that survives an upgrade, so
+// setup refuses and writes nothing.
 func TestSetupRefusesWhenThisBinaryIsNotOnPath(t *testing.T) {
 	for name, path := range map[string]func(t *testing.T, e setupEnv) string{
 		"no upool": func(t *testing.T, _ setupEnv) string { return tempDir(t) },
@@ -331,7 +270,7 @@ func TestSetupRefusesWhenThisBinaryIsNotOnPath(t *testing.T) {
 			return filepath.Dir(writeOtherUpool(t))
 		},
 		// The entry reaches this binary from the test's working directory, but the helper
-		// does not run the scripts from setup's.
+		// does not run the hooks from setup's.
 		"only relative": func(t *testing.T, e setupEnv) string {
 			wd, err := os.Getwd()
 			if err != nil {
@@ -364,7 +303,8 @@ func writeOtherUpool(t *testing.T) string {
 }
 
 // A home directory in a folder the desktop app's helper cannot read from, by name in any case or
-// through a link, is refused before anything is written (#66).
+// through a link, is refused before anything is written: the hooks read upool's state under
+// ~/.upool (#66).
 func TestSetupRefusesAHomeInAProtectedFolder(t *testing.T) {
 	for _, home := range []string{"Documents/home", "Desktop/home", "Downloads/home",
 		"documents/home", "Documents", "link"} {

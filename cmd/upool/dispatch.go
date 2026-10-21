@@ -271,8 +271,8 @@ func jsonRequested(args []string) bool {
 }
 
 // usage is what upool prints on stderr for a command line it cannot dispatch. It lists only the
-// commands in the table, the implemented ones, and not `upool hook`, which only the hook scripts
-// that `upool setup` installs call (docs/design.md, "Repository, CI and Homebrew distribution").
+// commands in the table, the implemented ones, and not `upool hook`, which only the hooks that
+// `upool setup` registers run (docs/design.md, "Repository, CI and Homebrew distribution").
 func usage(commands map[string]command) string {
 	var b strings.Builder
 	b.WriteString("usage: upool --version\n")

@@ -5,12 +5,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/output"
 )
 
@@ -38,12 +36,12 @@ const otherSettings = `{
 `
 
 // upoolEntries replaces each "@<event>@" in doc, a JSON document, with upool's matcher group for
-// that event in e: one handler, in exec form, running the event's script.
+// that event in e: one handler, in exec form, running `upool hook <event>`.
 func upoolEntries(t *testing.T, e setupEnv, doc string) string {
 	t.Helper()
 	for _, event := range events() {
 		group := mustJSON(t, map[string]any{"hooks": []any{map[string]any{
-			"type": "command", "command": e.script(event), "args": []string{},
+			"type": "command", "command": e.upool, "args": []string{"hook", event},
 		}}})
 		doc = strings.ReplaceAll(doc, `"@`+event+`@"`, string(group))
 	}
@@ -189,9 +187,6 @@ func TestSetupCreatesSettings(t *testing.T) {
 	}
 	want := []string{filepath.Join(e.home, ".claude", "settings.json"),
 		filepath.Join(e.home, ".config", "upool", "config.toml")}
-	for _, event := range events() {
-		want = append(want, e.script(event))
-	}
 	want = append(append(append(want, e.skills()...), e.instructions()...), local)
 	slices.Sort(files)
 	slices.Sort(want)
@@ -241,26 +236,29 @@ func TestSetupKeepsOneBackup(t *testing.T) {
 }}`))
 }
 
-// upool's earlier entries, whatever their form and wherever they sit, are replaced where the first
-// of them was, not duplicated; a handler running a file elsewhere is not upool's.
+// upool's earlier entries, in exec or shell form and whichever upool they run, are replaced where
+// the first of them was, not duplicated, and an event left with no handlers goes; a handler that
+// runs another program, or upool but not `upool hook`, is not upool's.
 func TestSetupReplacesItsEarlierEntries(t *testing.T) {
 	e := newSetupEnv(t)
-	other := filepath.Join(e.home, ".upool", "hooks-old", "worktree-remove.sh")
 	writeSettings(t, e, upoolEntries(t, e, `{"hooks": {
   "WorktreeCreate": [
     {"hooks": [{"type": "command", "command": "first"}]},
-    {"hooks": [{"type": "command", "command": "`+e.script("worktree-create")+`"}]},
+    {"hooks": [{"type": "command", "command": "/old/bin/upool", "args": ["hook", "worktree-create"]}]},
     {"hooks": [{"type": "command", "command": "last"}]}
   ],
   "SessionStart": [
     {"matcher": "startup", "hooks": [
       {"type": "command", "command": "other-tool start"},
-      {"type": "command", "command": "`+e.script("session-start")+`", "timeout": 5}
+      {"type": "command", "command": "upool hook session-start", "timeout": 5}
     ]},
     "@session-start@"
   ],
-  "Stop": [{"hooks": [{"type": "command", "command": "`+filepath.Join(e.hooks(), "stop.sh")+`"}]}],
-  "WorktreeRemove": [{"hooks": [{"type": "command", "command": "`+other+`"}]}],
+  "Stop": [{"hooks": [{"type": "command", "command": "/opt/homebrew/bin/upool", "args": ["hook", "stop"]}]}],
+  "WorktreeRemove": [{"hooks": [
+    {"type": "command", "command": "/opt/other/upool-wrapper", "args": ["hook", "worktree-remove"]},
+    {"type": "command", "command": "/opt/homebrew/bin/upool", "args": ["status"]}
+  ]}],
   "Notification": "not an array"
 }}`), 0o600)
 	got := setupData(t, e.setup(t, "--json"))
@@ -278,11 +276,37 @@ func TestSetupReplacesItsEarlierEntries(t *testing.T) {
     {"matcher": "startup", "hooks": [{"type": "command", "command": "other-tool start"}]}
   ],
   "WorktreeRemove": [
-    {"hooks": [{"type": "command", "command": "`+other+`"}]},
+    {"hooks": [
+      {"type": "command", "command": "/opt/other/upool-wrapper", "args": ["hook", "worktree-remove"]},
+      {"type": "command", "command": "/opt/homebrew/bin/upool", "args": ["status"]}
+    ]},
     "@worktree-remove@"
   ],
   "Notification": "not an array"
 }}`))
+}
+
+// runsUpoolHook takes a handler's form from whether it has args: in exec form the command is one
+// path, spaces and all, and in shell form its first word.
+func TestRunsUpoolHook(t *testing.T) {
+	for _, tt := range []struct {
+		h    commandHook
+		want bool
+	}{
+		{commandHook{Command: "/My Tools/upool", Args: []string{"hook", "worktree-create"}}, true},
+		{commandHook{Command: "/My Tools/upool", Args: []string{}}, false},
+		{commandHook{Command: "upool hook worktree-create"}, true},
+		{commandHook{Command: "upool hook worktree-create", Args: []string{}}, false},
+		{commandHook{Command: "/opt/homebrew/bin/upool  hook"}, true},
+		{commandHook{Command: "upool hook", Args: []string{"worktree-create"}}, false},
+		{commandHook{Command: "upool status"}, false},
+		{commandHook{Command: ""}, false},
+		{commandHook{Command: "   "}, false},
+	} {
+		if got := runsUpoolHook(tt.h); got != tt.want {
+			t.Errorf("runsUpoolHook(%+v) = %v, want %v", tt.h, got, tt.want)
+		}
+	}
 }
 
 // A settings.json that is a link, as a dotfiles repository leaves it, stays a link: the file it
@@ -314,7 +338,7 @@ func TestSetupWritesThroughALinkedSettingsFile(t *testing.T) {
 	if err := json.Unmarshal(b, &doc); err != nil {
 		t.Fatal(err)
 	}
-	if raw, _ := doc.get("hooks"); !strings.Contains(string(raw), e.script("worktree-create")) {
+	if raw, _ := doc.get("hooks"); !strings.Contains(string(raw), e.upool) {
 		t.Errorf("%s = %s, want the hooks registered in it", target, b)
 	}
 	checkSettings(t, settingsPath(e.home)+backupSuffix, otherSettings)
@@ -353,21 +377,14 @@ func TestSetupRefusesSettingsItCannotRegisterIn(t *testing.T) {
 	}
 }
 
-// Every hook script setup installs is registered for an event, and nothing else is.
-func TestHookEventsNameEveryScript(t *testing.T) {
-	names, err := fs.Glob(assets.Hooks, "hooks/*.sh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var scripts, registered []string
-	for _, name := range names {
-		scripts = append(scripts, filepath.Base(name))
-	}
+// Every event `upool hook` handles is registered for a Claude Code event, and nothing else is.
+func TestHookEventsNameEveryHook(t *testing.T) {
+	var registered []string
 	for _, h := range hookEvents {
-		registered = append(registered, h.script)
+		registered = append(registered, h.hook)
 	}
 	slices.Sort(registered)
-	if !reflect.DeepEqual(registered, scripts) {
-		t.Errorf("hookEvents registers %q, want the scripts %q", registered, scripts)
+	if !slices.Equal(registered, events()) {
+		t.Errorf("hookEvents registers %q, want the hooks upool handles, %q", registered, events())
 	}
 }

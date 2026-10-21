@@ -9,27 +9,27 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `upool setup` installs the three hook scripts, `worktree-create.sh`, `worktree-remove.sh` and
-  `session-start.sh`, in `~/.upool/hooks` (mode 0700, scripts 0755), and writes
-  `~/.config/upool/config.toml`, a comment naming every key, when there is none. Each script is
-  POSIX sh that execs `upool hook <event>` by the path this binary was found through on `PATH`,
-  symlinks kept, so a Homebrew install's `/opt/homebrew/bin/upool` survives `brew upgrade`. setup
-  refuses when no `upool` on `PATH` is the binary running, and when `HOME` is in a `Documents`,
-  `Desktop` or `Downloads` folder, where the desktop app's hook helper cannot run the scripts. A
-  second run rewrites only what changed and says what it did to each file; `--json` reports the
-  same. The hook handlers are still stubs.
-- `upool setup` registers the three scripts at user scope in `~/.claude/settings.json`, for
+- `upool setup` writes `~/.config/upool/config.toml`, a comment naming every key, when there is
+  none. It refuses when no `upool` on `PATH` is the binary running, and when `HOME` is in a
+  `Documents`, `Desktop` or `Downloads` folder, where the desktop app's hook helper could not read
+  the state the hooks need under `~/.upool`. A second run rewrites only what changed and says what
+  it did to each file; `--json` reports the same. The hook handlers are still stubs.
+- `upool setup` registers upool itself at user scope in `~/.claude/settings.json`, for
   `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: one matcher group each, with no matcher,
-  whose handler runs the script in exec form (`"args": []`, so no shell splits its path). Every
-  other key, group and hook in the file is kept, in the order written. upool's own earlier
-  entries, any handler that runs a file in `~/.upool/hooks`, are replaced where the first of them
-  was rather than duplicated, so a second run leaves the file as it was. The write is atomic, keeps
-  the file's mode (0600 for a new one) and goes through a link to the file it links to. Before its
-  first change to an existing file, setup keeps a copy, `settings.json.upool-backup`, which no
-  later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object of
-  arrays, is refused before setup writes anything. Project settings are never written. Until the
-  create hook's pooled branch lands, the registered hook fails every Claude Code worktree session
-  in a pooled repository.
+  whose handler runs `upool hook <event>` in exec form (`"args": ["hook", "<event>"]`, so no shell
+  splits upool's path), by the path this binary was found through on `PATH`, symlinks kept, so a
+  Homebrew install's `/opt/homebrew/bin/upool` survives `brew upgrade`. No script stands between the
+  hook and upool: the desktop app's helper runs a binary under `~/Documents`, though it cannot read
+  a file there, so a upool built in a checkout there works (#163; docs/contracts.md A24). Every
+  other key, group and hook in the file is kept, in the order written. upool's own earlier entries,
+  any handler that runs `upool hook` by any path, in exec or shell form, are replaced where the
+  first of them was rather than duplicated, so a second run leaves the file as it was. The write is
+  atomic, keeps the file's mode (0600 for a new one) and goes through a link to the file it links
+  to. Before its first change to an existing file, setup keeps a copy, `settings.json.upool-backup`,
+  which no later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object
+  of arrays, is refused before setup writes anything. Project settings are never written. Until the
+  create hook's pooled branch lands, the registered hook fails every Claude Code worktree session in
+  a pooled repository.
 - `upool setup` installs the upool skill, `assets/skill/upool/SKILL.md`, at
   `~/.claude/skills/upool/SKILL.md` and `~/.agents/skills/upool/SKILL.md`, and upserts upool's
   marked block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, creating each file and its
@@ -41,10 +41,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   rewritten. The block is upserted as `init` does it, every byte outside its markers kept, and an
   instruction file whose markers do not pair is refused before setup writes anything.
 - `upool doctor` checks the hook installation, which belongs to the machine rather than the pool:
-  `hook-scripts` fails unless each of the three scripts is in `~/.upool/hooks`, executable, outside
-  `Documents`, `Desktop` and `Downloads` (symlinks resolved), still the script setup writes, and
-  running an upool that exists; `hook-settings` fails unless `~/.claude/settings.json` registers
-  each script for its event; and `hook-provenance` warns about each registered repository whose
+  `hook-settings` fails unless `~/.claude/settings.json` registers `upool hook <event>` for each
+  event, in exec form with upool an absolute path, and each upool it registers is an executable
+  file, wherever it is; and `hook-provenance` warns about each registered repository whose
   own `.claude/settings*.json` also registers upool's hooks, which the desktop app does not vouch
   for there.
 - `upool run <name> -- <cmd...>`, the agent-agnostic launcher: it takes a slot as `take <name>`
