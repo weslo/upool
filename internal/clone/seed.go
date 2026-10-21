@@ -41,6 +41,10 @@ type Seeder struct {
 	// ((f) transition 23; A4).
 	OwnerPID  int
 	Home, Key string
+	// Keys compares a needs-reset slot's cache key across its reset (A20), and Warn, when it is
+	// not nil, is told what the reset warned.
+	Keys KeyCheck
+	Warn func(line string)
 }
 
 // Choose returns the seed for the next clone, and why each candidate it passed over did not
@@ -49,9 +53,9 @@ type Seeder struct {
 // returns an error wrapping ErrNoSeed, and the lines say why.
 //
 // The freshest ready slot is the one its Editor compiled last (Staleness.Compiled). A needs-reset
-// slot is reset, `git checkout --detach <base>` and `git clean -fd`, and made ready first ((f)
-// transition 20); one that the reset leaves stale falls through to the main checkout, since
-// refreshing a stale seed arrives in M4 (A19).
+// slot is reset and made ready first, as ResetNeedsReset does it ((f) transition 20); one that is
+// dirty, or that the reset leaves stale, falls through to the main checkout, since refreshing a
+// stale seed arrives in M4 (A19).
 func (sd Seeder) Choose(ctx context.Context) (Seed, []string, error) {
 	p, err := pool.Load(sd.Home, sd.Key)
 	if err != nil {
@@ -105,15 +109,21 @@ func (sd Seeder) Choose(ctx context.Context) (Seed, []string, error) {
 		if s.State != pool.StateNeedsReset {
 			continue
 		}
-		reset, err := sd.reset(ctx, p, s)
+		reset, why, warnings, err := ResetNeedsReset(ctx, sd.Git, sd.Keys, sd.Home, sd.Key,
+			s.Name)
 		if err != nil {
 			return Seed{}, nil, err
 		}
+		for _, w := range warnings {
+			if sd.Warn != nil {
+				sd.Warn(w)
+			}
+		}
 		if !reset {
-			skip(s.Name, "taken meanwhile")
+			skip(s.Name, why)
 			continue
 		}
-		_, why, err := sd.qualifies(ctx, editors, s.Path)
+		_, why, err = sd.qualifies(ctx, editors, s.Path)
 		if err != nil {
 			return Seed{}, nil, err
 		}
@@ -198,28 +208,6 @@ func (sd Seeder) hold(ctx context.Context, s pool.Slot) (bool, error) {
 		return nil
 	})
 	return held, err
-}
-
-// reset resets the needs-reset slot s of p to base and makes it ready, if state.json still has it
-// needs-reset, and reports whether it did ((f) transition 20).
-func (sd Seeder) reset(ctx context.Context, p pool.Pool, s pool.Slot) (bool, error) {
-	if err := pool.ResetToBase(ctx, sd.Git, s.Path, p.Base); err != nil {
-		return false, err
-	}
-	done := false
-	err := pool.Update(ctx, sd.Home, sd.Key, func(cur *pool.Pool) error {
-		i := slices.IndexFunc(cur.Slots, func(c pool.Slot) bool { return c.Name == s.Name })
-		if i < 0 || cur.Slots[i].State != pool.StateNeedsReset {
-			return nil
-		}
-		state, err := pool.Next(cur.Slots[i], pool.Refresh{})
-		if err != nil {
-			return err
-		}
-		cur.Slots[i].State, done = state, true
-		return nil
-	})
-	return done, err
 }
 
 // Done returns a slot seed to ready once the copy has read it ((f) transition 18): the copy only

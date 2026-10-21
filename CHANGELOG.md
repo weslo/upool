@@ -78,6 +78,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   a stat and git alone, and `confirm_timeout` comes from the user file, the environment or the
   default, never from `.upool.toml`. A lock git refuses is said on stderr, and `take --confirm`
   takes it instead.
+- `upool refresh`, the top-up after a handout, run from a pool's checkout. It records itself as the
+  pool's `refresh_job` (its PID and start time) and clears it when it ends; with a live job already
+  recorded it exits 0 and does nothing. It resets each `needs-reset` slot to `ready` (define-order
+  noise reverted, `git checkout --detach <base>`, `git clean -fd`, the cache key compared across
+  it), under `~/.upool/lock` so that the create hook cannot hand the slot out meanwhile, and leaves
+  one that has become dirty as it is, saying so. Then it clones, seeding as `take` does, until the
+  pool has `ready` slots ready, counting `creating` and `warming` ones, or `max_slots` slots, or no
+  seed qualifies, and says which stopped it. The session-start hook starts it after each startup it
+  confirms, detached in the pool's main checkout, in a session of its own, with stdin from
+  `/dev/null` and its output appended to `~/.upool/pools/<repo-key>/refresh.log`. `status` shows the
+  job while its process is alive, and `status --json` gains `refresh_job` in every pool. The seed
+  chooser's reset of a `needs-reset` seed is now the same reset, so it too leaves a dirty slot alone
+  and compares the cache key.
 - `upool hook worktree-remove` ends a slot's lease when the desktop app archives its session: it
   finds the slot by its canonical path, which the app may hand back lowercased, judges it with git
   reads alone (`git status --porcelain`, and `git for-each-ref --contains HEAD`, so a commit on no

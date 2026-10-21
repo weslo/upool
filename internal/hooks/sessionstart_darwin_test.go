@@ -3,8 +3,10 @@
 package hooks
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -78,4 +80,30 @@ func TestSessionStartRunsTheDeferredReset(t *testing.T) {
 		t.Errorf("lease = %+v, want it confirmed with its reset done", l)
 	}
 	h.checkExported(t, req.Cwd)
+}
+
+// The acceptance test of #79, the hook's half: a startup whose confirm succeeds starts one
+// top-up, of the slot's pool in its main checkout, through the injected starter; one that fails
+// to start is reported, and the slot is exported all the same.
+func TestSessionStartSpawnsRefresh(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		h := startHarness(t, true, "session")
+		var s starts
+		if fail {
+			s.err = errors.New("fork failed")
+		}
+		h.env.StartRefresh = s.start
+		req := h.capture(t, "session-start.json")
+		h.readySlot(t, "slot-1", req.Cwd)
+		h.hookLease(t)
+		err := h.start(t, req)
+		if want := []string{h.e.Repo + " " + h.key}; !slices.Equal(s.calls, want) {
+			t.Errorf("top-ups started = %q, want %q", s.calls, want)
+		}
+		if fail != (err != nil) || (fail && !strings.Contains(err.Error(),
+			"starting the top-up: fork failed")) {
+			t.Errorf("fail %t: SessionStart: %v", fail, err)
+		}
+		h.checkExported(t, req.Cwd)
+	}
 }

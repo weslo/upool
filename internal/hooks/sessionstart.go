@@ -23,16 +23,16 @@ const SourceStartup = "startup"
 // the Unity CLI targets by (docs/contracts.md (b) and (c)).
 const projectPathVar = "UNITY_PROJECT_PATH"
 
-// SessionStart handles a SessionStart request. For a session whose stdin cwd is a slot, matched
-// by canonical path, it confirms the slot's lease in-process on startup, as `upool take --confirm`
-// does, and on any other source only records env.ParentPID as the lease's holder while the slot
-// has one, re-copying no agent file and running no reset (A14); then, whatever the source and
-// whatever the confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile. The stdin cwd is
-// the slot even though the hook's own working directory is the main checkout, so it is read and
-// $PWD never is ((b)). A session anywhere else is left alone. It returns no path: Claude Code adds
-// a SessionStart hook's stdout to the session's context, and the hook has nothing to say there.
-// The hook exits 0 whatever this returns, its error on stderr: SessionStart has no abort role
-// ((d)).
+// SessionStart handles a SessionStart request. For a session whose stdin cwd is a slot, matched by
+// canonical path, it confirms the slot's lease in-process on startup, as `upool take --confirm`
+// does, and then starts the detached top-up through env.StartRefresh (#79). On any other source it
+// only records env.ParentPID as the lease's holder while the slot has one, re-copying no agent
+// file, running no reset and starting no top-up (A14). Then, whatever the source and whatever the
+// confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile. The stdin cwd is the slot even
+// though the hook's own working directory is the main checkout, so it is read and $PWD never is
+// ((b)). A session anywhere else is left alone. It returns no path: Claude Code adds a SessionStart
+// hook's stdout to the session's context, and the hook has nothing to say there. The hook exits 0
+// whatever this returns, its error on stderr: SessionStart has no abort role ((d)).
 func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventSessionStart {
 		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
@@ -47,13 +47,17 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	}
 	var errs []error
 	if req.Source == SourceStartup {
-		_, warnings, err := Confirm(ctx, env, req.Cwd)
+		c, warnings, err := Confirm(ctx, env, req.Cwd)
 		for _, w := range warnings {
 			// stderr is for warnings only; stdout would reach the session's context.
 			_, _ = fmt.Fprintf(env.Stderr, "upool: %s\n", w)
 		}
 		if err != nil {
 			errs = append(errs, err)
+		} else if env.StartRefresh != nil {
+			if err := env.StartRefresh(c.Repo, ref.repo.Key); err != nil {
+				errs = append(errs, fmt.Errorf("starting the top-up: %w", err))
+			}
 		}
 	} else if err := recordHolder(ctx, env, ref); err != nil {
 		errs = append(errs, err)

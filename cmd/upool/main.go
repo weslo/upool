@@ -21,6 +21,7 @@ var commandTable = map[string]command{
 	"init":    initCommand,
 	"path":    pathCommand,
 	"release": releaseCommand,
+	"refresh": refreshCommand,
 	"run":     runCommand,
 	"setup":   setupCommand,
 	"status":  statusCommand,

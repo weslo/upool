@@ -112,6 +112,10 @@ type Env struct {
 	EnvFile string
 	// Getenv looks up an environment variable, for the configuration the pooled branch loads.
 	Getenv func(string) string
+	// StartRefresh starts `upool refresh` detached for the pool key names, in its main checkout,
+	// and returns once it has started; the session-start hook calls it after each handout it
+	// confirms (#79). Nil starts nothing.
+	StartRefresh func(checkout, key string) error
 }
 
 // worktreesDir is Claude Code's managed worktree directory, relative to a repository.
