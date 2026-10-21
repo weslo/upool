@@ -74,8 +74,9 @@ func ResetToBase(ctx context.Context, g git.Client, dir, base string) error {
 	return g.Clean(ctx, dir)
 }
 
-// Unlock unlocks the worktree at path, run in repo, if git has it locked: the lock take holds for
-// a lease's lifetime.
+// Unlock unlocks the worktree at path, run in repo, if git has it locked, as an earlier upool locked
+// a slot for its lease's lifetime. No lease takes the lock now (A27), but a slot leased before that
+// would otherwise stay locked, and the desktop app does not archive a locked worktree.
 func Unlock(ctx context.Context, g git.Client, repo, path string) error {
 	key, err := paths.Key(path)
 	if err != nil {

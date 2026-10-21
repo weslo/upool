@@ -12,8 +12,6 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/clone"
-	"github.com/weslo/upool/internal/git"
-	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 )
@@ -45,8 +43,7 @@ type Confirmed struct {
 
 // Confirm is the confirm that `upool take --confirm <path>` and the SessionStart hook run for the
 // session's slot (docs/design.md, "Environment, confirmation and release"; docs/contracts.md (b);
-// (f) transition 6). It finds the slot by its canonical path, takes the lease's git worktree lock
-// if the take did not, runs the deferred reset of a slot handed out from needs-reset, confirms the
+// (f) transition 6). It finds the slot by its canonical path, runs the deferred reset of a slot handed out from needs-reset, confirms the
 // lease with env.ParentPID, the session's CLI, as its holder (A6), and re-copies the agent files
 // from the main checkout. A confirmed lease is confirmed again, re-copying again. The warnings are
 // for stderr.
@@ -59,10 +56,6 @@ func Confirm(ctx context.Context, env Env, path string) (Confirmed, []string, er
 	if repo == "" {
 		repo = ref.repo.Path
 	}
-	if err := lockLease(ctx, env.Git, repo, s); err != nil {
-		return Confirmed{}, nil, err
-	}
-
 	var warnings []string
 	reset, reimport := false, false
 	if s.Lease.ResetPending {
@@ -136,30 +129,6 @@ func confirmTarget(home, path string) (slotRef, error) {
 			s.Name, s.State)
 	}
 	return ref, nil
-}
-
-// lockLease takes the git worktree lock the lease on s holds for its lifetime, unless git already
-// has the slot locked (docs/design.md, "Leases that survive crashes and never reclaim a live
-// tree").
-func lockLease(ctx context.Context, g git.Client, repo string, s pool.Slot) error {
-	key, err := paths.Key(s.Path)
-	if err != nil {
-		return err
-	}
-	wts, err := g.WorktreeList(ctx, repo)
-	if err != nil {
-		return err
-	}
-	for _, wt := range wts {
-		wk, err := paths.Key(wt.Path)
-		if err != nil {
-			return err
-		}
-		if wk == key && wt.Locked {
-			return nil
-		}
-	}
-	return g.WorktreeLock(ctx, repo, s.Path, pool.LeaseLockReason+s.Lease.LeaseID)
 }
 
 // deferredReset is the reset a slot handed out from needs-reset still owes (A5; A23): define-order

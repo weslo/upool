@@ -94,8 +94,7 @@ const retryInterval = time.Second
 // takeSlot leases a slot of the pool containing the working directory with the branch name
 // checked out, for take and `upool run`. It checks the branch before it leases anything, leases a
 // ready slot under ~/.upool/lock, waiting for one up to the timeout, and then, with the lock
-// dropped, locks the slot's worktree and checks the branch out. If either fails, the lease is
-// undone.
+// dropped, checks the branch out. If that fails, the lease is undone.
 func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error) {
 	if opts.timeout < 0 {
 		return takeReport{}, fmt.Errorf("--timeout %d is negative; usage: upool %s",
@@ -157,7 +156,7 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 	if err != nil {
 		return takeReport{}, err
 	}
-	if err := l.prepare(ctx, s, leaseID, name, opts.base); err != nil {
+	if err := l.prepare(ctx, s, name, opts.base); err != nil {
 		return takeReport{}, errors.Join(err, l.undo(ctx, s, leaseID))
 	}
 	return takeReport{Path: s.Path, Slot: s.Name, Branch: name, LeaseID: leaseID, Repo: repo},
@@ -345,7 +344,7 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // each slot was skipped). A ready slot qualifies only while its directory exists, git lists it
 // and its backlink checks out; otherwise it is skipped as missing-from-worktree-list
 // ((f) transition 17). First it ends the unconfirmed leases older than confirm_timeout, and
-// returns the slots they were on, whose git worktree locks the caller releases (#75).
+// returns the slots they were on, whose leases the caller finishes (#75).
 func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, skipped []string,
 	expired []pool.Slot, err error) {
 	id, err := pool.NewLeaseID()
@@ -413,13 +412,10 @@ func skipReason(s pool.Slot, listed map[string]bool, repo string) string {
 	return ""
 }
 
-// prepare finishes the lease of s with the lock dropped: it locks the worktree for the lease's
-// lifetime, then checks the branch name out, creating it from base, or the pool's base, when it
-// does not exist (A18).
-func (l leaser) prepare(ctx context.Context, s pool.Slot, leaseID, name, base string) error {
-	if err := l.g.WorktreeLock(ctx, l.repo, s.Path, pool.LeaseLockReason+leaseID); err != nil {
-		return err
-	}
+// prepare finishes the lease of s with the lock dropped: it checks the branch name out, creating
+// it from base, or the pool's base, when it does not exist (A18). It takes no git worktree lock
+// (A27).
+func (l leaser) prepare(ctx context.Context, s pool.Slot, name, base string) error {
 	exists, err := l.g.BranchExists(ctx, l.repo, name)
 	if err != nil {
 		return err
@@ -433,24 +429,11 @@ func (l leaser) prepare(ctx context.Context, s pool.Slot, leaseID, name, base st
 	return l.g.CheckoutNewBranch(ctx, s.Path, name, base)
 }
 
-// undo gives up the lease leaseID on s after prepare failed: it unlocks the worktree if prepare
-// locked it, and makes the slot ready again if the lease is still the one take wrote. The slot was
-// ready, so clean and detached at base, and prepare changed nothing in it unless the checkout
-// succeeded.
+// undo gives up the lease leaseID on s after prepare failed: it makes the slot ready again if the
+// lease is still the one take wrote. The slot was ready, so clean and detached at base, and prepare
+// changed nothing in it unless the checkout succeeded.
 func (l leaser) undo(ctx context.Context, s pool.Slot, leaseID string) error {
-	var errs []error
-	wts, err := l.g.WorktreeList(ctx, l.repo)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	key, kerr := paths.Key(s.Path)
-	for _, wt := range wts {
-		if wk, err := paths.Key(wt.Path); kerr == nil && err == nil && wk == key && wt.Locked &&
-			wt.LockReason == pool.LeaseLockReason+leaseID {
-			errs = append(errs, l.g.WorktreeUnlock(ctx, l.repo, s.Path))
-		}
-	}
-	errs = append(errs, pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
+	err := pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
 		for i := range p.Slots {
 			cur := &p.Slots[i]
 			if cur.Name != s.Name || cur.Lease == nil || cur.Lease.LeaseID != leaseID {
@@ -463,8 +446,8 @@ func (l leaser) undo(ctx context.Context, s pool.Slot, leaseID string) error {
 			cur.State, cur.Lease = state, nil
 		}
 		return nil
-	}))
-	if err := errors.Join(errs...); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("undoing the lease on %s: %w", s.Name, err)
 	}
 	return nil

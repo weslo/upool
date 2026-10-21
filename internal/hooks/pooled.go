@@ -67,7 +67,6 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 			_, _ = fmt.Fprintln(env.Stderr, "upool: "+line)
 		}
 		if err == nil {
-			lockForLease(ctx, env, checkout, s)
 			return s.Path, nil
 		}
 		if !errors.Is(err, pool.ErrNoSlot) {
@@ -106,18 +105,4 @@ func presentSlots(ctx context.Context, env Env, checkout string) (func(pool.Slot
 		key, err := paths.Key(s.Path)
 		return err == nil && listed[key]
 	}, nil
-}
-
-// lockForLease takes the git worktree lock the lease on s holds for its lifetime (docs/design.md,
-// "Leases that survive crashes and never reclaim a live tree"). It is a git write from the
-// helper, which the spike exercised only as `worktree add`, so a lock that fails is said on
-// stderr and the slot is handed out all the same: `take --confirm` takes the lock the take did
-// not.
-func lockForLease(ctx context.Context, env Env, checkout string, s pool.Slot) {
-	err := env.Git.WorktreeLock(ctx, checkout, s.Path, pool.LeaseLockReason+s.Lease.LeaseID)
-	if err != nil {
-		// stderr is for warnings only; the app takes the worktree path from stdout.
-		_, _ = fmt.Fprintf(env.Stderr, "upool: did not lock %s for its lease, which take "+
-			"--confirm will: %v\n", s.Name, err)
-	}
 }

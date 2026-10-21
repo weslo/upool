@@ -40,9 +40,8 @@ func TestReleaseRefusesLiveHolderWithoutForce(t *testing.T) {
 	if r.code != output.ExitFailure || r.stderr != want {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
 	}
-	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased || s.Lease == nil ||
-		!p.worktree(t, s.Path).Locked {
-		t.Errorf("slot-1 = %s, lease %+v; want it still leased and locked", s.State, s.Lease)
+	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased || s.Lease == nil {
+		t.Errorf("slot-1 = %s, lease %+v; want it still leased", s.State, s.Lease)
 	}
 	if r := runIn(t, p.Env, p.Repo, "release", "feature-x", "--force"); r.code != output.ExitOK {
 		t.Errorf("--force: exit %d, stderr %q; want 0", r.code, r.stderr)

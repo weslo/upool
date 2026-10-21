@@ -227,8 +227,8 @@ func recordAgentWorktree(ctx context.Context, env Env, req Request, path string)
 // a session is archived, and returns the removed worktree's path. For a pool's slot it judges the
 // slot clean or dirty with git reads alone, which worked from the app's restricted helper, and
 // marks a clean slot needs-reset and a dirty one parked, its status lines on stderr, clearing the
-// lease (docs/contracts.md (f) transitions 8 and 9). The slot stays on disk and its git worktree
-// lock stays until the deferred reset: the app accepts exit 0 with the directory still present, and
+// lease (docs/contracts.md (f) transitions 8 and 9). The slot stays on disk for the deferred reset:
+// the app accepts exit 0 with the directory still present, and
 // hands the path out again (docs/contracts.md (a), WorktreeRemove rules). Any other worktree is a
 // pass-through one, and is removed when clean (A22). The hook exits 0 whatever this returns, its
 // error on stderr ((d)).
