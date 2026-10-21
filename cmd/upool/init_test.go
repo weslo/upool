@@ -21,11 +21,22 @@ import (
 
 // newInitEnv is a testenv environment for init. init loads every setting, and off darwin config
 // cannot default editor_ram_budget_gb from the machine's RAM (config.PhysicalMemory), so the
-// environment sets it; init does not use it.
+// environment sets it; init does not use it. init registers the hooks to run upool by the path it
+// finds this binary at on PATH, so PATH ends in a directory holding a link to it, as a Homebrew
+// install's does.
 func newInitEnv(t *testing.T, opts ...testenv.Option) *testenv.Env {
 	t.Helper()
 	e := testenv.New(t, opts...)
 	e.Setenv(config.EnvName("editor_ram_budget_gb"), "16")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := tempDir(t)
+	if err := os.Symlink(exe, filepath.Join(bin, upoolName)); err != nil {
+		t.Fatal(err)
+	}
+	e.Setenv("PATH", e.Getenv("PATH")+string(os.PathListSeparator)+bin)
 	return e
 }
 
@@ -296,4 +307,27 @@ func TestInitSlotsHelpSaysWhatBecomesOfThem(t *testing.T) {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and the help naming slots beyond ready",
 			r.code, r.stdout, r.stderr)
 	}
+}
+
+// A project settings file init cannot register the hooks in is refused before anything is
+// written, and left as it was.
+func TestInitRefusesProjectSettingsItCannotRegisterIn(t *testing.T) {
+	e := newInitEnv(t)
+	const doc = `{"hooks": ["WorktreeCreate"]}`
+	e.WriteFile(projectSettings, doc)
+	r := runIn(t, e, e.Repo, "init")
+	checkRefused(t, e, r, readFile(t, e, ".gitignore"), e.Path(projectSettings))
+	if got := readFile(t, e, projectSettings); got != doc {
+		t.Errorf("%s = %q, want it unchanged: %q", projectSettings, got, doc)
+	}
+}
+
+// Without this binary on PATH there is no path for the hooks to run that survives an upgrade, so
+// init refuses before writing anything.
+func TestInitRefusesWhenThisBinaryIsNotOnPath(t *testing.T) {
+	e := newInitEnv(t)
+	dirs := filepath.SplitList(e.Getenv("PATH"))
+	e.Setenv("PATH", strings.Join(dirs[:len(dirs)-1], string(os.PathListSeparator)))
+	r := runIn(t, e, e.Repo, "init")
+	checkRefused(t, e, r, readFile(t, e, ".gitignore"), "no upool on PATH is this binary")
 }

@@ -59,12 +59,16 @@ type hookGroup struct {
 	Hooks []commandHook `json:"hooks"`
 }
 
-// registration is setup's change to settings.json, worked out before setup writes anything so that
-// a settings.json it cannot read or parse stops it with the machine as it was.
+// registration is a change to a Claude Code settings file that registers upool's hooks, worked out
+// before anything is written so that a file that cannot be read or parsed stops the command with
+// nothing changed: setup's to ~/.claude/settings.json, and init's to a project's
+// .claude/settings.local.json (A26).
 type registration struct {
-	// file is ~/.claude/settings.json, as setup reports it, and target the file written: file, or
+	// file is the settings file, as the command reports it, and target the file written: file, or
 	// what it links to, so that a link into a dotfiles repository stays a link.
 	file, target string
+	// backup says whether apply keeps a copy of an existing file before its first change to it.
+	backup bool
 	// exists says whether target exists, and old and mode are its contents and mode bits.
 	exists bool
 	old    []byte
@@ -74,10 +78,10 @@ type registration struct {
 	changed bool
 }
 
-// planRegistration reads settings.json under home and returns it with upool's hooks registered,
-// each running upool, an absolute path.
-func planRegistration(home, upool string) (registration, error) {
-	reg := registration{file: settingsPath(home), mode: settingsMode}
+// planRegistration reads the settings file and returns it with upool's hooks registered, each
+// running upool, an absolute path. With backup, apply keeps a copy of the file as it was.
+func planRegistration(file, upool string, backup bool) (registration, error) {
+	reg := registration{file: file, backup: backup, mode: settingsMode}
 	reg.target = reg.file
 	if _, err := os.Lstat(reg.file); err == nil {
 		if reg.target, err = filepath.EvalSymlinks(reg.file); err != nil {
@@ -120,15 +124,20 @@ func planRegistration(home, upool string) (registration, error) {
 	return reg, nil
 }
 
-// apply writes the registration, unless settings.json already held it. Before its first change to
-// an existing settings.json it keeps a copy beside it, settings.json.upool-backup, which no later
+// apply writes the registration, unless the file already held it. With reg.backup, before its
+// first change to an existing file it keeps a copy beside it, <file>.upool-backup, which no later
 // run replaces; backup is that copy's path when this run made it.
 func (reg registration) apply() (installed, string, error) {
 	if !reg.changed {
 		return installed{Path: reg.file, Change: unchanged}, "", nil
 	}
 	backup := ""
-	if reg.exists {
+	switch {
+	case !reg.exists:
+		if err := os.MkdirAll(filepath.Dir(reg.target), agentDirMode); err != nil {
+			return installed{}, "", fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
+		}
+	case reg.backup:
 		made, err := keepBackup(reg.file+backupSuffix, reg.old, reg.mode)
 		if err != nil {
 			return installed{}, "", err
@@ -136,8 +145,6 @@ func (reg registration) apply() (installed, string, error) {
 		if made {
 			backup = reg.file + backupSuffix
 		}
-	} else if err := os.MkdirAll(filepath.Dir(reg.target), agentDirMode); err != nil {
-		return installed{}, "", fmt.Errorf("creating %s: %w", filepath.Dir(reg.target), err)
 	}
 	if err := writeAtomic(reg.target, reg.content, reg.mode); err != nil {
 		return installed{}, "", err

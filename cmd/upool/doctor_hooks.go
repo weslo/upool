@@ -81,10 +81,10 @@ func hookSettingsCheck(home string) doctorCheck {
 		strings.Join(upools, ", "), strings.Join(events, ", "))}
 }
 
-// hookProvenanceCheck warns about each registered repository whose own .claude/settings*.json
-// registers upool's hooks. The user-scope hooks already run in every repository, and from a
-// project's settings the desktop app does not vouch for a hook ("provenance not vouched", spike
-// §7).
+// hookProvenanceCheck warns about each registered repository whose committed .claude/settings
+// files register upool's hooks. init registers them in the project's .claude/settings.local.json,
+// which holds this machine's path to upool and stays out of git (A26), so that file is passed over;
+// a committed copy would run for everyone who clones the repository.
 func hookProvenanceCheck(home string) doctorCheck {
 	repos, err := registry.List(home)
 	if err != nil {
@@ -102,7 +102,8 @@ func hookProvenanceCheck(home string) doctorCheck {
 			continue
 		}
 		for _, entry := range entries {
-			if ok, _ := filepath.Match("settings*.json", entry.Name()); !ok || entry.IsDir() {
+			if ok, _ := filepath.Match("settings*.json", entry.Name()); !ok || entry.IsDir() ||
+				entry.Name() == filepath.Base(projectSettings) {
 				continue
 			}
 			file := filepath.Join(dir, entry.Name())
@@ -124,8 +125,7 @@ func hookProvenanceCheck(home string) doctorCheck {
 	var reasons []string
 	if len(found) > 0 {
 		reasons = append(reasons, strings.Join(found, ", ")+" registers upool's hooks, which "+
-			"~/.claude/settings.json already registers for every repository and the desktop app "+
-			"does not vouch for from a project's settings: remove them there")
+			"init registers in the project's .claude/settings.local.json: remove them there")
 	}
 	if len(unread) > 0 {
 		reasons = append(reasons, "could not read "+strings.Join(unread, "; "))
@@ -134,7 +134,7 @@ func hookProvenanceCheck(home string) doctorCheck {
 		return doctorCheck{checkHookProvenance, checkWarn, strings.Join(reasons, "; ")}
 	}
 	return doctorCheck{checkHookProvenance, checkPass, fmt.Sprintf("none of the %d registered "+
-		"repositories registers upool's hooks in its own .claude/settings*.json", len(repos))}
+		"repositories registers upool's hooks in a committed .claude/settings file", len(repos))}
 }
 
 // registeredHooks returns the handlers a settings file registers, by event. A group or handler

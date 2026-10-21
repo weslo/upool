@@ -141,7 +141,7 @@ func setupMachine(inv *invocation) (any, []string, error) {
 		return nil, nil, err
 	}
 	r := setupReport{Upool: upool}
-	reg, err := planRegistration(inv.home, upool)
+	reg, err := planRegistration(settingsPath(inv.home), upool, true)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -244,8 +244,8 @@ func findOnPath(pathList, exe string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no %s on PATH is this binary, %s, and the hooks run upool by the "+
-		"path PATH finds it at: run upool setup as the upool on PATH, or put this one's "+
-		"directory on PATH", upoolName, exe)
+		"path PATH finds it at: run the upool on PATH, or put this one's directory on PATH",
+		upoolName, exe)
 }
 
 // checkBlock refuses an instruction file that upool's block b cannot be upserted into, such as one
