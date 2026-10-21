@@ -379,9 +379,29 @@ func TestHookSuccessPrintsOnlyThePath(t *testing.T) {
 	}
 }
 
-// Each hook that fails says so on stderr, with its event's exit code and nothing on stdout: the
-// stub, worktree-create for a session in a repository that is not there, whose pass-through
-// worktree git cannot make, and worktree-remove given another event's request.
+// A hook that succeeds with no path, as session-start does, leaves stdout empty: Claude Code adds a
+// SessionStart hook's stdout to the session's context. The real session-start, for a session in
+// no slot, does nothing and says nothing.
+func TestHookWithNoPathPrintsNothing(t *testing.T) {
+	var out, errOut bytes.Buffer
+	env := testEnv(t)
+	env["CLAUDE_ENV_FILE"] = filepath.Join(tempDir(t), "sessionstart-hook-0.sh")
+	stdin := strings.NewReader(hookStdin(t, "desktop-no-worktree-session-start.json"))
+	code := run([]string{"hook", "session-start"}, stdin, &out, &errOut,
+		func(key string) string { return env[key] })
+	if code != output.ExitOK || out.String() != "" || errOut.String() != "" {
+		t.Errorf("exit = %d, stdout %q, stderr %q; want %d and nothing on either", code,
+			out.String(), errOut.String(), output.ExitOK)
+	}
+	if _, err := os.Lstat(env["CLAUDE_ENV_FILE"]); err == nil {
+		t.Errorf("%s exists, want nothing exported for a session in no slot",
+			env["CLAUDE_ENV_FILE"])
+	}
+}
+
+// Each hook that fails says so on stderr, with its event's exit code and nothing on stdout:
+// worktree-create for a session in a repository that is not there, whose pass-through worktree git
+// cannot make, and worktree-remove and session-start given another event's request.
 func TestHookFailuresGoToStderr(t *testing.T) {
 	tests := []struct {
 		event, capture string
@@ -392,7 +412,8 @@ func TestHookFailuresGoToStderr(t *testing.T) {
 			"making the worktree "},
 		{"worktree-remove", "desktop-session-create.json", output.ExitOK,
 			`stdin is a "WorktreeCreate" request, not WorktreeRemove`},
-		{"session-start", "session-start.json", output.ExitOK, "not implemented"},
+		{"session-start", "desktop-session-create.json", output.ExitOK,
+			`stdin is a "WorktreeCreate" request, not SessionStart`},
 	}
 	if len(tests) != len(hookTable) {
 		t.Errorf("%d events tested, want all %d in the hook table", len(tests), len(hookTable))

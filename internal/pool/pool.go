@@ -94,6 +94,10 @@ type Slot struct {
 	Lease *Lease `json:"lease"`
 }
 
+// LeaseLockReason is the reason a leased slot's `git worktree lock` carries, followed by the
+// lease's LeaseID.
+const LeaseLockReason = "upool lease "
+
 // Lease is a slot's current lease. It is also held as a `git worktree lock` on the slot, which
 // lives in git, not here (docs/contracts.md (e)).
 type Lease struct {
