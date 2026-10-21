@@ -107,6 +107,9 @@ type Env struct {
 	Now       func() time.Time
 	// Stderr is for warnings; Claude Code takes the worktree path from stdout alone.
 	Stderr io.Writer
+	// EnvFile is CLAUDE_ENV_FILE, set for SessionStart hooks: the file whose export lines reach
+	// the session's Bash tool (docs/contracts.md (b), `CLAUDE_ENV_FILE`).
+	EnvFile string
 }
 
 // worktreesDir is Claude Code's managed worktree directory, relative to a repository.
@@ -233,13 +236,14 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 		return "", fmt.Errorf("the request's worktree_path %q is not an absolute path",
 			req.WorktreePath)
 	}
-	key, s, ok, err := findSlot(env.Home, req.WorktreePath)
+	ref, ok, err := findSlot(env.Home, req.WorktreePath)
 	if err != nil {
 		return "", err
 	}
 	if !ok {
 		return removePassThrough(ctx, env, req)
 	}
+	s := ref.slot
 	if s.Lease == nil {
 		return "", fmt.Errorf("%s is %s, with no lease to end", s.Name, s.State)
 	}
@@ -247,7 +251,7 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("checking whether %s is clean: %w", s.Name, err)
 	}
-	err = pool.Update(ctx, env.Home, key, func(p *pool.Pool) error {
+	err = pool.Update(ctx, env.Home, ref.repo.Key, func(p *pool.Pool) error {
 		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
 		if i < 0 {
 			return fmt.Errorf("%s left state.json meanwhile", s.Name)
@@ -310,31 +314,39 @@ func removePassThrough(ctx context.Context, env Env, req Request) (string, error
 	return path, nil
 }
 
+// slotRef is a slot of a registered pool: the registry's entry for the pool, the pool as
+// state.json records it, and the slot.
+type slotRef struct {
+	repo registry.Repo
+	pool pool.Pool
+	slot pool.Slot
+}
+
 // findSlot returns the slot of a registered pool whose path is path, by canonical key, since the
-// desktop app may hand the path back lowercased, and the key of the pool it is in.
-func findSlot(home, path string) (string, pool.Slot, bool, error) {
+// desktop app may hand the path back lowercased, and whether there is one.
+func findSlot(home, path string) (slotRef, bool, error) {
 	want, err := paths.Key(path)
 	if err != nil {
-		return "", pool.Slot{}, false, err
+		return slotRef{}, false, err
 	}
 	repos, err := registry.List(home)
 	if err != nil {
-		return "", pool.Slot{}, false, err
+		return slotRef{}, false, err
 	}
 	for _, repo := range repos {
 		p, err := pool.Load(home, repo.Key)
 		if err != nil {
-			return "", pool.Slot{}, false, err
+			return slotRef{}, false, err
 		}
 		for _, s := range p.Slots {
 			k, err := paths.Key(s.Path)
 			if err != nil {
-				return "", pool.Slot{}, false, err
+				return slotRef{}, false, err
 			}
 			if k == want {
-				return repo.Key, s, true, nil
+				return slotRef{repo: repo, pool: p, slot: s}, true, nil
 			}
 		}
 	}
-	return "", pool.Slot{}, false, nil
+	return slotRef{}, false, nil
 }

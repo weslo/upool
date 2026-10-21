@@ -2,7 +2,6 @@
 package main
 
 import (
-	"errors"
 	"io"
 	"os"
 	"os/signal"
@@ -31,17 +30,12 @@ var commandTable = map[string]command{
 
 // hookTable is the events `upool hook <event>` handles, one per event that `upool setup`
 // registers it for; failExit follows docs/contracts.md (d). worktree-create refuses a session in a
-// pool until #78, and session-start is a stub until its M2 issue.
+// pool until #78.
 var hookTable = map[string]hook{
 	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
 	"worktree-remove": {handle: worktreeRemove, failExit: output.ExitOK},
-	"session-start":   {handle: notImplemented, failExit: output.ExitOK},
+	"session-start":   {handle: sessionStart, failExit: output.ExitOK},
 }
-
-// errNotImplemented is what the stub hook handlers return.
-var errNotImplemented = errors.New("not implemented")
-
-func notImplemented(*invocation) (string, error) { return "", errNotImplemented }
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))

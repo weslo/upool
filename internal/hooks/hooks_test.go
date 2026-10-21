@@ -160,7 +160,7 @@ func (h harness) capture(t *testing.T, file string) Request {
 		t.Fatal(err)
 	}
 	text, err := pathvars.Fill(string(b), pathvars.Var{Name: "home", Path: h.e.Home},
-		pathvars.Var{Name: "repo", Path: h.e.Repo},
+		pathvars.Var{Name: "repo", Path: h.e.Repo}, pathvars.Var{Name: "spike", Path: h.spike()},
 		pathvars.Var{Name: "claude_tmp", Path: filepath.Join(h.e.Home, "claude-tmp")})
 	if err != nil {
 		t.Fatalf("filling %s: %v", file, err)
@@ -170,6 +170,12 @@ func (h harness) capture(t *testing.T, file string) Request {
 		t.Fatal(err)
 	}
 	return req
+}
+
+// spike is the folder that stands in for the spike's, beside the repository: the one its sibling
+// slots and probe worktrees were in (testdata/README.md, `${spike}`).
+func (h harness) spike() string {
+	return filepath.Join(h.e.Home, "spike")
 }
 
 // worktree returns git's entry for the worktree at path in h's repository, and whether it has one.

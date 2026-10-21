@@ -87,9 +87,6 @@ type takeReport struct {
 // Human returns the slot's path.
 func (r takeReport) Human() string { return r.Path }
 
-// leaseLockReason is the reason a leased slot's `git worktree lock` carries.
-const leaseLockReason = "upool lease "
-
 // retryInterval is how often take looks again for a ready slot while it waits (docs/design.md,
 // "Leases that survive crashes and never reclaim a live tree": pool-full is a wait, not a failure).
 const retryInterval = time.Second
@@ -418,7 +415,7 @@ func skipReason(s pool.Slot, listed map[string]bool, repo string) string {
 // lifetime, then checks the branch name out, creating it from base, or the pool's base, when it
 // does not exist (A18).
 func (l leaser) prepare(ctx context.Context, s pool.Slot, leaseID, name, base string) error {
-	if err := l.g.WorktreeLock(ctx, l.repo, s.Path, leaseLockReason+leaseID); err != nil {
+	if err := l.g.WorktreeLock(ctx, l.repo, s.Path, pool.LeaseLockReason+leaseID); err != nil {
 		return err
 	}
 	exists, err := l.g.BranchExists(ctx, l.repo, name)
@@ -447,7 +444,7 @@ func (l leaser) undo(ctx context.Context, s pool.Slot, leaseID string) error {
 	key, kerr := paths.Key(s.Path)
 	for _, wt := range wts {
 		if wk, err := paths.Key(wt.Path); kerr == nil && err == nil && wk == key && wt.Locked &&
-			wt.LockReason == leaseLockReason+leaseID {
+			wt.LockReason == pool.LeaseLockReason+leaseID {
 			errs = append(errs, l.g.WorktreeUnlock(ctx, l.repo, s.Path))
 		}
 	}

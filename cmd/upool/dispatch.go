@@ -174,8 +174,9 @@ func (d *dispatcher) help(cmd command, fs *flag.FlagSet) int {
 
 // hook runs `upool hook <event>`. On success stdout gets the handler's path and a newline and
 // nothing else, because the app takes stdout as the worktree path (docs/contracts.md (a),
-// "WorktreeCreate output and app behaviour"). On failure the error goes to stderr and upool exits
-// with the event's failExit.
+// "WorktreeCreate output and app behaviour"); a handler that returns no path, as session-start's
+// does, leaves stdout empty, since Claude Code adds a SessionStart hook's stdout to the session's
+// context. On failure the error goes to stderr and upool exits with the event's failExit.
 func (d *dispatcher) hook(args []string) int {
 	events := strings.Join(slices.Sorted(maps.Keys(d.hooks)), ", ")
 	if len(args) == 0 {
@@ -196,6 +197,9 @@ func (d *dispatcher) hook(args []string) int {
 	if err != nil {
 		say(d.stderr, fmt.Sprintf("hook %s: %v", event, err))
 		return h.failExit
+	}
+	if path == "" {
+		return output.ExitOK
 	}
 	if _, err := fmt.Fprintln(d.stdout, path); err != nil {
 		say(d.stderr, fmt.Sprintf("hook %s: writing the path: %v", event, err))

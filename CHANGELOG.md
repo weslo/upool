@@ -104,6 +104,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   checkout lacks goes and relative links stay relative. A confirmed lease confirms again and
   re-copies again. It prints the slot's path; a path that is no leased slot exits 1, and so does
   a slot owed a reset that is not clean, with nothing reset.
+- `upool hook session-start` reads the session's slot from stdin `cwd`, matched by canonical path,
+  and does nothing for a session in no slot. On `startup` it runs `take --confirm`'s confirm
+  in-process, then appends `export UNITY_PROJECT_PATH='<slot>'` to the file `CLAUDE_ENV_FILE` names,
+  once however often it runs for the session. On `resume`, `clear` and `compact` it exports the
+  variable and, while the slot has a lease, records its parent, the session's CLI, as the lease's
+  holder, re-copying no agent file and running no reset (A14). It exports the slot even when the
+  confirm fails, prints nothing on stdout, which Claude Code adds to the session's context, and
+  exits 0 on every path, with any failure on stderr.
 
 ## [0.1.0] - 2026-10-20
 
