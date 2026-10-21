@@ -35,6 +35,13 @@ func mustInit(t *testing.T, e *testenv.Env, args ...string) result {
 	return r
 }
 
+// pathUpool is the upool newInitEnv puts at the end of e's PATH, the path init registers the hooks
+// to run upool by.
+func pathUpool(e *testenv.Env) string {
+	dirs := filepath.SplitList(e.Getenv("PATH"))
+	return filepath.Join(dirs[len(dirs)-1], upoolName)
+}
+
 // repoKey is the <repo-key> init gives e's repository.
 func repoKey(t *testing.T, e *testenv.Env) string {
 	t.Helper()

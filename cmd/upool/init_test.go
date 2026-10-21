@@ -40,13 +40,6 @@ func newInitEnv(t *testing.T, opts ...testenv.Option) *testenv.Env {
 	return e
 }
 
-// pathUpool is the upool newInitEnv puts at the end of e's PATH, the path init registers the hooks
-// to run upool by.
-func pathUpool(e *testenv.Env) string {
-	dirs := filepath.SplitList(e.Getenv("PATH"))
-	return filepath.Join(dirs[len(dirs)-1], upoolName)
-}
-
 // runIn runs upool with args in e, with dir as the working directory: the real command table,
 // e's environment, the test clock, and this process's ID, which a clone records as its slot's
 // owner and reads the start time of, and its parent's, which take --confirm records as a lease's
