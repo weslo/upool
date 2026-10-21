@@ -133,6 +133,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   holder, re-copying no agent file and running no reset (A14). It exports the slot even when the
   confirm fails, prints nothing on stdout, which Claude Code adds to the session's context, and
   exits 0 on every path, with any failure on stderr.
+- `docs/manual-gates/M2.md`, M2's manual gate, in run order with the spike's project on the
+  spike's Mac: "Before you start" builds upool and makes a pool of two slots; checks 1 to 9 are the
+  M2 issues' own (registration, skill, a desktop session landing in a slot, the environment, the
+  top-up, archive, subagent worktrees, pass-through and its archive); checks 10 to 13 are the
+  end-to-end ones: three sessions in a row, each in a slot at base with the main checkout's
+  settings, two live sessions with no unconfirmed lease left a minute later, every handout's
+  `worktree=` under 200 ms, and the create hook's wait as #148 measured it. #148's capture
+  procedure is kept as an appendix.
 
 ### Fixed
 
