@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/weslo/upool/internal/output"
 )
 
 // ProjectPathVar is the variable every Unity CLI call carries, set to the slot it targets: the CLI
@@ -119,17 +121,22 @@ type Client struct {
 }
 
 // Reply is one call's result: the --format json reply decoded, with the command's exit code and
-// stderr, which a caller needs to map a failure to upool's exits (#83).
+// stderr. Err maps a failed reply to upool's error and exit (docs/contracts.md (d)).
 type Reply struct {
 	Response Response
 	ExitCode int
 	Stderr   []byte
+
+	// verb and slot are the call's, which Err names.
+	verb Verb
+	slot string
 }
 
 // Call runs verb against the slot at slot (absolute): `unity <verb> [<slot>] <args…> --format
 // json`, in the slot, with UNITY_PROJECT_PATH=<slot>, and the slot positional where the verb's
-// row in docs/contracts.md (c) says. A reply whose stdout does not decode is an error, whatever
-// the exit code; a decoded failure is a Reply with Response.Success false, for the caller to read.
+// row in docs/contracts.md (c) says. A decoded failure is a Reply and no error, for the caller to
+// read and to map with Reply.Err. A reply whose stdout is not JSON is a failure whatever the exit
+// code, carrying the raw stdout and stderr; it exits as a failure (d) does not list (Reply.Err).
 func (c Client) Call(ctx context.Context, verb Verb, slot string, args ...string) (Reply, error) {
 	argv := slices.Clone(verb.Words)
 	if verb.Positional {
@@ -140,16 +147,13 @@ func (c Client) Call(ctx context.Context, verb Verb, slot string, args ...string
 	if err != nil {
 		return Reply{}, err
 	}
-	var r Response
-	if err := json.Unmarshal(res.Stdout, &r); err != nil {
-		msg := strings.TrimSpace(string(res.Stderr))
-		if msg == "" {
-			msg = err.Error()
-		}
-		return Reply{}, fmt.Errorf("unity %s %s exited %d with no JSON reply: %s", verb.Name(),
-			slot, res.ExitCode, msg)
+	reply := Reply{ExitCode: res.ExitCode, Stderr: res.Stderr, verb: verb, slot: slot}
+	if err := json.Unmarshal(res.Stdout, &reply.Response); err != nil {
+		return reply, failure(res.ExitCode == cliExitNoTarget, output.CodeCommandFailed,
+			"unity %s %s exited %d with a reply that is not JSON: stdout %q, stderr %q",
+			verb.Name(), slot, res.ExitCode, res.Stdout, res.Stderr)
 	}
-	return Reply{Response: r, ExitCode: res.ExitCode, Stderr: res.Stderr}, nil
+	return reply, nil
 }
 
 // withProjectPath is env with UNITY_PROJECT_PATH set to slot, replacing any value env had.

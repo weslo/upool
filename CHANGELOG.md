@@ -52,6 +52,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     as for a full pool until `--timeout`, cloning nothing, and its skip reasons name the holder's
     lease. It then fails naming that lease again.
   - `status` gains a LANE column, and `which --json` and `status --json` give each lease's `lane`.
+- `internal/unity`: Unity CLI failures map to upool's errors and exits (docs/contracts.md (d); A1;
+  A2; A3). `Reply.Err` decides that a reply failed by its `errors[].code`, never by the exit code,
+  and passes the CLI's code and every message through.
+  - A failure (d) records with exit 6 exits 6: `STATUS_NO_INSTANCES`, `AMBIGUOUS_EDITOR`, and
+    `COMMAND_FAILED` for no Pipeline instance or not a Unity project.
+  - `INVALID_COMMAND_ARGS` exits 1. So does the main-thread timeout, whose error also wraps
+    `ErrMayHaveRun`: its code may have run, so a caller re-queries rather than retrying.
+  - A code or message (d) does not list exits 6 when the CLI did, and 1 for any other exit, 7
+    included.
+  - A reply that is not JSON is a failure, whatever the exit, carrying the raw stdout and stderr;
+    it used to be a plain error.
+  - `unity cache key` failures go through the same mapping, so a reply that succeeded is no longer
+    refused for a non-zero exit.
 
 ## [0.2.0] - 2026-10-21
 

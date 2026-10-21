@@ -23,21 +23,19 @@ const cacheKeyTimeout = 30 * time.Second
 // --project-path, which `cache key` rejects (docs/contracts.md (c);
 // testdata/captures/unity/cache-key-project-path-invalid.json). unity is found on env's PATH and
 // run with env, plus UNITY_PROJECT_PATH, as its whole environment; it reports false, and no error,
-// when env's PATH has no unity.
+// when env's PATH has no unity. A failed call is Reply.Err's error.
 func CacheKey(ctx context.Context, env []string, project string) (string, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, cacheKeyTimeout)
 	defer cancel()
 	reply, err := Client{Runner: Exec{}, Env: env}.Call(ctx, VerbCacheKey, project)
+	if err == nil {
+		err = reply.Err()
+	}
 	switch {
 	case errors.Is(err, ErrNoUnity):
 		return "", false, nil
 	case err != nil:
 		return "", true, err
-	case !reply.Response.Success && len(reply.Response.Errors) > 0:
-		return "", true, fmt.Errorf("unity cache key %s: %s: %s", project,
-			reply.Response.Errors[0].Code, reply.Response.Errors[0].Message)
-	case reply.ExitCode != 0:
-		return "", true, fmt.Errorf("unity cache key %s exited %d", project, reply.ExitCode)
 	}
 	var data struct {
 		Key string `json:"key"`
