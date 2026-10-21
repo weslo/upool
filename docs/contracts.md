@@ -275,9 +275,10 @@ Lease:
 | `lane` | string, `script` or `scene` | default `script`; at most one `scene` lease per project | `take --lane` | D-lanes |
 | `name_hint` | string | the create stdin `name`; never a key | hook (create) | D-route |
 
-The lease is also held as a `git worktree lock` on the slot for its lifetime; that lives in git, not
-in this file (D-leases). A lease has no name either: `take <name>` names a branch, and `path`,
-`release` and `run` find a slot by the branch git reports checked out in it (A18).
+A lease is this entry alone: no lease takes a `git worktree lock`, since the desktop app refuses to
+archive a locked worktree and runs no `WorktreeRemove` for it (A27). A lease has no name either:
+`take <name>` names a branch, and `path`, `release` and `run` find a slot by the branch git reports
+checked out in it (A18).
 
 Agent worktree:
 
@@ -722,6 +723,25 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   project's create and `SessionStart` hooks in its own process. So `init` registers in
   `settings.local.json`, which holds this machine's path to upool and stays out of git, and the
   slots' copies need no handling.
+
+- **27. Whether a lease holds a `git worktree lock`**
+  ([#181](https://github.com/weslo/upool/issues/181)). The design held each lease as a
+  `git worktree lock` on its slot as well, as insurance, since the spike saw the app never lock or
+  touch a slot a hook made (D-leases; S§8 A.4). The first M2 gate run (2026-10-21, desktop app
+  3.1623.0, Claude Code 2.1.304) archived two desktop sessions in slots, each idle with its lease
+  confirmed. Each time, the app checked for a lock before it ran any hook, logged
+  ``Refusing to remove worktree … locked with `git worktree lock` (kept with its entry). Unlock it
+  to let cleanup proceed.``, and never ran `WorktreeRemove`. Both slots stayed `leased` with their
+  holders dead. Nothing in upool runs before that check, so upool cannot drop the lock in time
+  (`evidence/logs/desktop-archive-lock-main.log`). The archive of an unlocked worktree a hook made
+  ran the remove hook in #171 and #172.
+
+  **A27.** No lease takes a `git worktree lock`: a lease is its `state.json` entry alone, with its
+  holder PID, for the create hook's, `take`'s and `run`'s leases alike. Where a lease ends,
+  `release`, the dead-PID reclaim and an unconfirmed lease's expiry still unlock a slot git has
+  locked, which frees a slot an earlier upool locked. The insurance is not replaced: `git worktree
+  remove` without `--force` already refuses a dirty tree, and upool checks a slot's `.git` backlink
+  before it trusts the slot. The work is #182 (maintainer decision, 2026-10-21; (a); (e)).
 
 ### Other open questions
 

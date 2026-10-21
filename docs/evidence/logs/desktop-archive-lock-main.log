@@ -1,0 +1,24 @@
+2026-10-21 07:16:51 [info] Creating worktree for session local_619e8a7f-ea08-415a-a209-22b18abe6614 from ${repo}
+2026-10-21 07:18:52 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
+2026-10-21 07:18:52 [info] Skipped per-machine config overlay for hook-based worktree "intelligent-bartik-58f881" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-21 07:18:52 [info] Created hook-based worktree "intelligent-bartik-58f881" at ${repo}/.claude/worktrees/slot-1
+2026-10-21 07:18:52 [info] Using worktree "intelligent-bartik-58f881" at ${repo}/.claude/worktrees/slot-1 for session local_619e8a7f-ea08-415a-a209-22b18abe6614
+2026-10-21 07:18:52 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-1 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-21 07:18:52 [info] [CCD] passing --project-config-root ${repo} for session local_619e8a7f-ea08-415a-a209-22b18abe6614
+2026-10-21 07:18:56 [info] [CCD start-timing] local_619e8a7f-ea08-415a-a209-22b18abe6614 preflight=14ms worktree=121296ms mcp=27ms query=5ms enqueue=8ms init=1034ms first_assistant=3144ms | ccd_overhead=121342ms total_to_init=122384ms total_to_assistant=125528ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/10ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=11 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-21 07:19:32 [info] Creating worktree for session local_49077baf-6720-4ece-b15a-83b9970b95c8 from ${repo}
+2026-10-21 07:19:32 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-2
+2026-10-21 07:19:32 [info] Skipped per-machine config overlay for hook-based worktree "awesome-poitras-120459" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-21 07:19:32 [info] Created hook-based worktree "awesome-poitras-120459" at ${repo}/.claude/worktrees/slot-2
+2026-10-21 07:19:32 [info] Using worktree "awesome-poitras-120459" at ${repo}/.claude/worktrees/slot-2 for session local_49077baf-6720-4ece-b15a-83b9970b95c8
+2026-10-21 07:19:32 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-2 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-21 07:19:32 [info] [CCD] passing --project-config-root ${repo} for session local_49077baf-6720-4ece-b15a-83b9970b95c8
+2026-10-21 07:19:36 [info] [CCD start-timing] local_49077baf-6720-4ece-b15a-83b9970b95c8 preflight=5ms worktree=75ms mcp=21ms query=2ms enqueue=2ms init=808ms first_assistant=2651ms | ccd_overhead=103ms total_to_init=913ms total_to_assistant=3564ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/9ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=4 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-21 07:23:00 [info] Archived session local_619e8a7f-ea08-415a-a209-22b18abe6614
+2026-10-21 07:23:00 [info] Cleaning up worktree intelligent-bartik-58f881 for session local_619e8a7f-ea08-415a-a209-22b18abe6614
+2026-10-21 07:23:00 [info] Removing worktree "intelligent-bartik-58f881" (leased by local_619e8a7f-ea08-415a-a209-22b18abe6614): ${repo}/.claude/worktrees/slot-1
+2026-10-21 07:23:00 [warn] Refusing to remove worktree "intelligent-bartik-58f881" at ${repo}/.claude/worktrees/slot-1: locked with `git worktree lock` (kept with its entry). Unlock it to let cleanup proceed.
+2026-10-21 07:28:42 [info] Archived session local_49077baf-6720-4ece-b15a-83b9970b95c8
+2026-10-21 07:28:42 [info] Cleaning up worktree awesome-poitras-120459 for session local_49077baf-6720-4ece-b15a-83b9970b95c8
+2026-10-21 07:28:42 [info] Removing worktree "awesome-poitras-120459" (leased by local_49077baf-6720-4ece-b15a-83b9970b95c8): ${repo}/.claude/worktrees/slot-2
+2026-10-21 07:28:42 [warn] Refusing to remove worktree "awesome-poitras-120459" at ${repo}/.claude/worktrees/slot-2: locked with `git worktree lock` (kept with its entry). Unlock it to let cleanup proceed.
