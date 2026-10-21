@@ -5,7 +5,7 @@ The external behaviour `upool` depends on, extracted from [design.md](design.md)
 the spike report wins and a footnote says so. Fixture names refer to files under
 [`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
 [`docs/evidence/`](evidence/README.md). Nothing here is new design except the maintainer's answers
-to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A24: they settle what both
+to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A25: they settle what both
 documents leave open, and the tables follow them. Every other gap is listed under
 [Open questions](#open-questions), not filled.
 
@@ -143,7 +143,7 @@ desktop worktree session's `/clear` does the same was not tried.
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
 | upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
-| `SessionEnd` (best effort, 1.5 s budget) is built against `hooks/cli-session-end.json` (A15). At `/exit` of an interactive `claude --worktree` session it says `reason: "prompt_input_exit"`, with `cwd` the **main checkout** though the session ran in the worktree, and carries `prompt_id` and `scratchpad_dir`; `/clear` ends a session with `reason: "clear"`, and quitting the desktop app ended each of its sessions with `reason: "other"`. `CwdChanged` was not exercised | D-env; D-unverified; A15; `hooks/cli-session-end.json`; testdata/README.md (#148) |
+| upool registers no `SessionEnd` hook (A25). At `/exit` of an interactive `claude --worktree` session it says `reason: "prompt_input_exit"`, with `cwd` the **main checkout** though the session ran in the worktree, and carries `prompt_id` and `scratchpad_dir`; `/clear` ends a session with `reason: "clear"`, and quitting the desktop app ended each of its sessions with `reason: "other"`. `CwdChanged` was not exercised | D-env; D-unverified; A15; A25; `hooks/cli-session-end.json`; testdata/README.md (#148) |
 
 ## (c) Unity CLI targeting (CLI 1.0.0-beta.13)
 
@@ -619,7 +619,7 @@ need captures first, which [#148](https://github.com/weslo/upool/issues/148) rec
   `SessionEnd`'s best-effort release is built and tested against that capture, as rule 1 requires
   ([#80](https://github.com/weslo/upool/issues/80)). If `SessionEnd` never fires there, #80 closes
   without code, and `WorktreeRemove` and `upool run` remain the releases. The `WorktreeRemove`
-  capture fills (a)'s CLI column.
+  capture fills (a)'s CLI column. It fired, and #80 closed without code all the same (A25).
 - **22. Removing a pass-through worktree** ([#27](https://github.com/weslo/upool/issues/27)). The
   user-scope `WorktreeRemove` hook runs for every repository, and the app accepts exit 0 with the
   directory still present ((a)). What does it do with a worktree in a repository upool does not
@@ -665,6 +665,22 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   `PATH` finds upool at, and installs no scripts. A handler that runs `upool hook`, by any path, is
   upool's, so a later `setup` replaces it. What the hooks read still lives outside the protected
   folders, under `~/.upool/` (maintainer decision, 2026-10-20; (a); (e)).
+
+- **25. Whether `SessionEnd` releases a lease**
+  ([#80](https://github.com/weslo/upool/issues/80)). A15 said to build `SessionEnd`'s best-effort
+  release against its capture, and the capture (#148) shows what it would have to do. Its stdin
+  names no slot: `cwd` is the main checkout and `transcript_path` is keyed by the repository, so
+  only `session_id` would tie it to a lease, and only a CLI session's. `/clear` ends a session with
+  `reason: "clear"` under the lease holder's id while the same CLI process carries on in the
+  worktree. And the interactive session's `/exit` that sent it also sent `WorktreeRemove`, which
+  ends the lease already. `claude -p --worktree`, the case it was meant for, was not captured.
+
+  **A25.** upool registers no `SessionEnd` hook, and #80 closed without code. `WorktreeRemove`
+  releases desktop and interactive CLI sessions. `upool run` is the release for `-p` sessions and
+  other agents, and a `-p` session run without it is left to the dead-PID reclaim of `take` and
+  `doctor --fix`, since its confirmed lease records the CLI's PID (A6; (f) transitions 13 and 14)
+  (maintainer decision, 2026-10-20; (b); `hooks/cli-session-end.json`;
+  `hooks/session-start-clear.json`).
 
 ### Other open questions
 
