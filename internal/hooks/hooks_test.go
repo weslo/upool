@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
@@ -131,10 +132,13 @@ type harness struct {
 func newHarness(t *testing.T, register bool) harness {
 	t.Helper()
 	e := testenv.New(t)
+	// Off macOS the configuration the pooled branch loads cannot default editor_ram_budget_gb
+	// from the machine's RAM (config.PhysicalMemory).
+	e.Setenv(config.EnvName("editor_ram_budget_gb"), "16")
 	var stderr bytes.Buffer
 	h := harness{e: e, stderr: &stderr, env: Env{Git: git.Client{Runner: git.Exec{},
 		Env: e.Environ()}, Home: e.Home, ParentPID: parentPID,
-		Now: func() time.Time { return clock }, Stderr: &stderr}}
+		Now: func() time.Time { return clock }, Stderr: &stderr, Getenv: e.Getenv}}
 	if register {
 		repo, err := registry.Add(context.Background(), e.Home, e.Repo)
 		if err != nil {
@@ -303,25 +307,24 @@ func TestPassThroughRefusesABadName(t *testing.T) {
 }
 
 // The acceptance test of #72, its second half: a session whose cwd is a registered main checkout,
-// or a directory in one, is the pool's (A13), and is refused, with nothing made, until the pooled
-// branch is built (#78); one in a pool's slot is not the main checkout, and passes through.
+// or a directory in one, is the pool's (A13), and gets one of its slots (#78); one in a pool's
+// slot is not the main checkout, and passes through.
 func TestRegisteredRepoRoutesToPool(t *testing.T) {
 	h := newHarness(t, true)
-	for _, dir := range []string{h.e.Repo, filepath.Join(h.e.Repo, "Assets")} {
+	slots := []string{filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1"),
+		filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-2")}
+	for i, path := range slots {
+		h.readySlot(t, filepath.Base(path), path)
+		dir := []string{h.e.Repo, filepath.Join(h.e.Repo, "Assets")}[i]
 		req := h.capture(t, "desktop-session-create.json")
 		req.Cwd = dir
-		_, err := WorktreeCreate(context.Background(), h.env, req)
-		want := "is in pool " + h.key + ", and handing a session one of its slots is not built yet"
-		if err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("from %s: err = %v, want it to say %q", dir, err, want)
+		got, err := WorktreeCreate(context.Background(), h.env, req)
+		if err != nil || got != path {
+			t.Errorf("from %s: path = %q, %v; want the pool's %s", dir, got, err, path)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(h.e.Repo, ".claude", "worktrees")); err == nil {
-		t.Error(".claude/worktrees exists, want nothing made for a pooled session")
-	}
 
-	slot := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
-	h.e.Git("worktree", "add", "-q", "--detach", slot)
+	slot := slots[0]
 	req := h.capture(t, "desktop-session-create.json")
 	req.Cwd = slot
 	path, err := WorktreeCreate(context.Background(), h.env, req)

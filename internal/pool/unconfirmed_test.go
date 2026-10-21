@@ -90,6 +90,25 @@ func TestUnconfirmedFallsBackToNeedsReset(t *testing.T) {
 	}
 }
 
+// A slot Present rejects is passed over, ready or needs-reset, for the next it accepts, and with
+// none accepted the take fails with ErrNoSlot.
+func TestUnconfirmedPassesOverWhatPresentRejects(t *testing.T) {
+	home := poolOf(t, StateReady, StateNeedsReset, StateReady)
+	gone := map[string]bool{"slot-1": true}
+	tk := hookTake(start)
+	tk.Present = func(s Slot) bool { return !gone[s.Name] }
+	s, _, err := tk.Take(context.Background(), home, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkUnconfirmed(t, s, "slot-3", false)
+	gone["slot-3"] = true
+	gone["slot-2"] = true
+	if s, _, err := tk.Take(context.Background(), home, key); !errors.Is(err, ErrNoSlot) {
+		t.Errorf("Take = %+v, %v; want ErrNoSlot with every free slot rejected", s, err)
+	}
+}
+
 // With no slot ready or needs-reset the take fails with ErrNoSlot and changes nothing: it never
 // clones one.
 func TestUnconfirmedNeverClones(t *testing.T) {

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/weslo/upool/internal/git"
 )
 
 // The create hook's take and the expiry of its leases (docs/contracts.md (f) transitions 4, 7 and
@@ -28,6 +30,10 @@ type UnconfirmedTake struct {
 	// take first expires the pool's unconfirmed leases older than that.
 	Now            time.Time
 	ConfirmTimeout time.Duration
+	// Present says whether a slot is still there to hand out, on disk and in `git worktree list`,
+	// as the create hook can tell from the desktop app's helper with a stat and git alone; a slot
+	// it rejects is passed over. Nil passes over none.
+	Present func(Slot) bool
 }
 
 // Take leases a slot of the pool repoKey names under home, under the lock: a ready slot if there
@@ -46,7 +52,7 @@ func (t UnconfirmedTake) Take(ctx context.Context, home, repoKey string) (taken 
 		if expired, err = p.ExpireUnconfirmed(t.Now, t.ConfirmTimeout); err != nil {
 			return err
 		}
-		i := p.handOut()
+		i := p.handOut(t.Present)
 		if i < 0 {
 			return nil
 		}
@@ -73,11 +79,12 @@ func (t UnconfirmedTake) Take(ctx context.Context, home, repoKey string) (taken 
 }
 
 // handOut returns the index of the slot an unconfirmed take hands out, the first unleased ready
-// slot or else the first unleased needs-reset one (A5), or -1 when there is neither.
-func (p *Pool) handOut() int {
+// slot or else the first unleased needs-reset one (A5), of those present accepts when it is not
+// nil, or -1 when there is neither.
+func (p *Pool) handOut(present func(Slot) bool) int {
 	for _, state := range []State{StateReady, StateNeedsReset} {
 		for i, s := range p.Slots {
-			if s.State == state && s.Lease == nil {
+			if s.State == state && s.Lease == nil && (present == nil || present(s)) {
 				return i
 			}
 		}
@@ -105,6 +112,27 @@ func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration) ([]Slot, 
 		s.State, s.Lease = state, nil
 	}
 	return expired, nil
+}
+
+// EndExpired finishes the unconfirmed leases an expiry ended in the pool whose main checkout is
+// repo, once state.json no longer holds them: it releases each slot's git worktree lock, if the
+// take that handed the slot out held one, and returns a line saying what became of each slot.
+func EndExpired(ctx context.Context, g git.Client, repo string, expired []Slot,
+	timeout time.Duration) []string {
+	var lines []string
+	for _, s := range expired {
+		state := StateReady
+		if s.Lease.ResetPending {
+			state = StateNeedsReset
+		}
+		line := fmt.Sprintf("ended the unconfirmed lease on %s, which no session confirmed "+
+			"within %s: %s is %s again", s.Name, timeout, s.Name, state)
+		if err := Unlock(ctx, g, repo, s.Path); err != nil {
+			line += fmt.Sprintf(", but its git worktree lock stays: %v", err)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }
 
 // ConfirmExpired says whether s holds an unconfirmed lease older than timeout at now, which has

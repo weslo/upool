@@ -29,8 +29,7 @@ var commandTable = map[string]command{
 }
 
 // hookTable is the events `upool hook <event>` handles, one per event that `upool setup`
-// registers it for; failExit follows docs/contracts.md (d). worktree-create refuses a session in a
-// pool until #78.
+// registers it for; failExit follows docs/contracts.md (d).
 var hookTable = map[string]hook{
 	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
 	"worktree-remove": {handle: worktreeRemove, failExit: output.ExitOK},
