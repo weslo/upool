@@ -67,14 +67,15 @@ func contractC(t *testing.T) []contractRow {
 // never the reply, so a verb no one has captured (list, job, mcp, build) gets another capture: the
 // fake records and replays, it does not imitate Unity (CONTRIBUTING.md, "Testing").
 var replies = map[string]fake.Reply{
-	"command":   {Capture: "command-save-all.json"},
-	"status":    {Capture: "status-one-editor.json"},
-	"recompile": {Capture: "recompile-up-to-date.json"},
-	"open":      {Capture: "open-gui.json"},
-	"test":      {Capture: "test-positional.json"},
-	"run":       {Capture: "run-not-a-unity-project.json", Exit: 6},
-	"close":     {Capture: "close-headless.json"},
-	"cache key": {Capture: "cache-key.json"},
+	"command":         {Capture: "command-save-all.json"},
+	"status":          {Capture: "status-one-editor.json"},
+	"recompile":       {Capture: "recompile-up-to-date.json"},
+	"open":            {Capture: "open-gui.json"},
+	"test":            {Capture: "test-positional.json"},
+	"run":             {Capture: "run-not-a-unity-project.json", Exit: 6},
+	"close":           {Capture: "close-headless.json"},
+	"cache key":       {Capture: "cache-key.json"},
+	"projects verify": {Capture: "projects-verify-pass.json"},
 }
 
 // slotDir is a slot for the calls to target: a directory with symlinks resolved, as the fake
@@ -135,8 +136,9 @@ func checkCall(t *testing.T, v Verb) {
 	if !ok {
 		reply = fake.Reply{Capture: "recompile-up-to-date.json"}
 	}
+	repo := filepath.Dir(filepath.Dir(filepath.Dir(slot)))
 	reply.Vars = []pathvars.Var{{Name: "spike", Path: filepath.Dir(slot)},
-		{Name: "cwd", Path: slot}}
+		{Name: "cwd", Path: slot}, {Name: "repo", Path: repo}}
 	u := fake.Install(t, reply)
 	env := []string{"PATH=" + u.Dir(), "HOME=" + u.Dir(), ProjectPathVar + "=/somewhere/else"}
 	got, err := Client{Runner: Exec{}, Env: env}.Call(context.Background(), v, slot, "--extra")

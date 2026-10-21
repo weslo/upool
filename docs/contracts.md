@@ -160,6 +160,7 @@ desktop worktree session's `/clear` does the same was not tried.
 | `build` | **no**: same error | positional `[project]`; no `--project-path` | S§8 B.3; `evidence/unity-projections/build-not-a-unity-project.json` |
 | `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors | S§8 B.5, C.6; D-editors; `unity/close-gui.json` |
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
+| `projects verify` | not tested with the variable | positional: `unity projects verify --strict <slot>` reported that slot as its `project` | #86; `unity/projects-verify-pass.json`, `unity/projects-verify-fail.json` |
 
 Resolution without the variable:
 

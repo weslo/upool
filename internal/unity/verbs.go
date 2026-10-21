@@ -25,7 +25,8 @@ type Verb struct {
 	Words []string
 	// Positional says the verb takes the project as a positional argument right after Words,
 	// because it ignores UNITY_PROJECT_PATH (test, run, build), was never tested with it (close),
-	// rejects --project-path (cache key), or was only ever measured with the path given (open).
+	// rejects --project-path (cache key), or was only ever measured with the path given (open,
+	// projects verify).
 	Positional bool
 }
 
@@ -46,12 +47,15 @@ var (
 	VerbBuild     = Verb{Words: []string{"build"}, Positional: true}
 	VerbClose     = Verb{Words: []string{"close"}, Positional: true}
 	VerbCacheKey  = Verb{Words: []string{"cache", "key"}, Positional: true}
+	// VerbProjectsVerify checks a project's .meta files, GUIDs, conflict markers and manifest
+	// (testdata/captures/unity/projects-verify-pass.json).
+	VerbProjectsVerify = Verb{Words: []string{"projects", "verify"}, Positional: true}
 )
 
 // Verbs is the table: every verb upool may run, in docs/contracts.md (c)'s order. A call goes
 // through Client.Call with one of them, so no call can miss the targeting rules.
 var Verbs = []Verb{VerbCommand, VerbStatus, VerbRecompile, VerbList, VerbJob, VerbMCP, VerbOpen,
-	VerbTest, VerbRun, VerbBuild, VerbClose, VerbCacheKey}
+	VerbTest, VerbRun, VerbBuild, VerbClose, VerbCacheKey, VerbProjectsVerify}
 
 // Name is the verb as (c) writes it, such as "cache key".
 func (v Verb) Name() string { return strings.Join(v.Words, " ") }

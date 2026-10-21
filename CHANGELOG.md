@@ -70,6 +70,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   anyway, it runs `save_all` once more as the re-query (A29); the second call's result is its own.
   Any other failure is returned as it is, with no second call. `docs/manual-gates/M3.md` gains the
   check "First-call timeout".
+- `upool release` runs `unity projects verify --strict <slot>` before it resets or parks the slot
+  (docs/design.md, "Lanes: scripts in parallel, scenes one at a time, `.meta` never regenerated").
+  - When verify fails, the failure and each finding, with its hint, are warnings on stderr and in
+    the `--json` envelope's `warnings`. The slot is released anyway and release exits 0 (A34), so
+    `upool run`'s release on exit never holds a slot over it.
+  - Without `unity` on `PATH`, release verifies nothing and says nothing, as the cache key
+    comparison does.
+  - The verb table and docs/contracts.md (c) gain `projects verify`, with the slot positional.
 
 ## [0.2.0] - 2026-10-21
 

@@ -16,6 +16,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/unity"
 )
 
 // releaseUsage is release's usage line, which its handler also names when it refuses its
@@ -24,8 +25,9 @@ const releaseUsage = "release [path|name] [--if-lease-id ID] [--force] [--json]"
 
 // releaseCommand is `upool release`: it returns a leased slot to the pool, reset and ready when it
 // is clean and parked when it is dirty (docs/design.md, "One binary, a dozen commands, one JSON
-// file per pool", the `release` row; docs/contracts.md (f) transitions 11 and 12). Closing an
-// Editor the tool opened arrives with M3.
+// file per pool", the `release` row; docs/contracts.md (f) transitions 11 and 12), after
+// `unity projects verify --strict` has checked it (A34). Closing an Editor the tool opened arrives
+// with M3.
 var releaseCommand = command{
 	usage: releaseUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -61,9 +63,10 @@ func (r releaseReport) Human() string {
 }
 
 // release is release's handler. It finds the slot, refuses a live holder's lease and a lease
-// --if-lease-id does not name, reverts define-order noise, and then resets a clean slot to base or
-// parks a dirty one. Either way it unlocks a worktree an earlier upool locked (pool.Unlock) and
-// clears the lease, writing state.json last and only if the lease is still the one it read.
+// --if-lease-id does not name, verifies the slot (verifySlot), reverts define-order noise, and
+// then resets a clean slot to base or parks a dirty one. Either way it unlocks a worktree an
+// earlier upool locked (pool.Unlock) and clears the lease, writing state.json last and only if the
+// lease is still the one it read.
 func release(inv *invocation, ifLeaseID string, force bool) (any, []string, error) {
 	if len(inv.args) > 1 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args[1:],
@@ -83,6 +86,7 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		return nil, nil, err
 	}
 
+	warnings := verifySlot(ctx, inv, s)
 	if _, err := pool.RevertNoise(ctx, g, s.Path); err != nil {
 		return nil, nil, err
 	}
@@ -91,7 +95,6 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		return nil, nil, err
 	}
 	clean := len(dirty) == 0
-	var warnings []string
 	reimport := false
 	if clean {
 		keys := clone.KeyCheck{Env: inv.environ()}
@@ -124,6 +127,26 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		}
 	}
 	return r, warnings, nil
+}
+
+// verifySlot runs `unity projects verify --strict` on the slot before release resets or parks it,
+// as the GUID rule asks (docs/design.md, "Lanes: scripts in parallel, scenes one at a time,
+// `.meta` never regenerated"), and returns a failure as warnings: the failure, then each finding
+// with its hint. The slot is released whatever verify says (A34): a clean slot's committed work
+// stays on its branch, and a dirty slot is parked anyway. Without unity on PATH it verifies nothing
+// and says nothing, as the cache key comparison does; doctor reports the missing CLI.
+func verifySlot(ctx context.Context, inv *invocation, s pool.Slot) []string {
+	findings, err := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}.Verify(ctx, s.Path)
+	if err == nil || errors.Is(err, unity.ErrNoUnity) {
+		return nil
+	}
+	warnings := []string{fmt.Sprintf("%s failed unity projects verify --strict, and is released "+
+		"anyway: %v", s.Name, err)}
+	for _, f := range findings {
+		warnings = append(warnings, fmt.Sprintf("%s: %s %s in %s: %s %s", s.Name, f.Severity,
+			f.Code, f.Path, f.Message, f.Hint))
+	}
+	return warnings
 }
 
 // releaseTarget finds the slot release acts on: the slot containing the path given, the slot that
