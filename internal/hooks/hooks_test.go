@@ -26,8 +26,8 @@ var clock = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 // parentPID is the parent the tests' hooks report.
 const parentPID = 4242
 
-// eventSessionEnd is SessionEnd's hook_event_name, whose captures #148 adds and whose hook #80
-// builds.
+// eventSessionEnd is SessionEnd's hook_event_name, whose captures #148 adds and for which upool
+// registers no hook (docs/contracts.md A25).
 const eventSessionEnd = "SessionEnd"
 
 // logCaptures are the files in capturesDir that are not hook stdin, by name: a hook's own log,
