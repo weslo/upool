@@ -97,21 +97,19 @@ func TestTakePrintsOnlyThePath(t *testing.T) {
 	}
 }
 
-func TestTakeLocksTheWorktree(t *testing.T) {
+// take leases a slot without a git worktree lock: the desktop app does not archive a locked
+// worktree (A27).
+func TestTakeLeavesTheWorktreeUnlocked(t *testing.T) {
 	p := newHarnessPool(t)
 	runIn(t, p.Env, p.Repo, "take", "feature-x")
-	id := p.loadPool(t).Slots[0].Lease.LeaseID
-	if wt := p.worktree(t, p.slot("slot-1")); !wt.Locked || wt.LockReason != "upool lease "+id {
-		t.Errorf("slot-1: locked %t, reason %q; want locked, \"upool lease %s\"", wt.Locked,
-			wt.LockReason, id)
+	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased || s.Lease == nil {
+		t.Fatalf("slot-1 = %s, lease %+v; want leased", s.State, s.Lease)
 	}
 	porcelain := p.Git("worktree", "list", "--porcelain")
 	if !strings.Contains(porcelain, "worktree "+p.slot("slot-1")+"\n") ||
-		!strings.Contains(porcelain, "\nlocked upool lease "+id+"\n") {
-		t.Errorf("git worktree list --porcelain =\n%s\nwant slot-1 locked with its lease", porcelain)
-	}
-	if p.worktree(t, p.slot("slot-2")).Locked {
-		t.Error("slot-2 is locked, want only the leased slot locked")
+		strings.Contains(porcelain, "\nlocked") {
+		t.Errorf("git worktree list --porcelain =\n%s\nwant slot-1 listed and nothing locked",
+			porcelain)
 	}
 }
 
@@ -315,7 +313,7 @@ func TestTakeWaitsUntilTimeout(t *testing.T) {
 	})
 }
 
-// A lease whose checkout fails is undone: the slot is ready again and its worktree unlocked.
+// A lease whose checkout fails is undone: the slot is ready again, its worktree unlocked.
 func TestTakeUndoesTheLeaseWhenTheCheckoutFails(t *testing.T) {
 	p := newHarnessPool(t)
 	r := runIn(t, p.Env, p.Repo, "take", "feature-x", "--base", "no-such-ref")

@@ -125,11 +125,6 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 		{"CheckoutNewBranch", func(c Client) error {
 			return c.CheckoutNewBranch(context.Background(), "/work/slot", "feature/x", "main")
 		}, []string{"checkout", "-q", "-b", "feature/x", "main"}},
-		{"WorktreeLock", func(c Client) error {
-			return c.WorktreeLock(context.Background(), "/work/slot",
-				"/work/repo/.claude/worktrees/slot-1", "upool lease 0123")
-		}, []string{"worktree", "lock", "--reason", "upool lease 0123",
-			"/work/repo/.claude/worktrees/slot-1"}},
 		{"WorktreeUnlock", func(c Client) error {
 			return c.WorktreeUnlock(context.Background(), "/work/slot",
 				"/work/repo/.claude/worktrees/slot-1")

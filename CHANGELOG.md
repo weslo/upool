@@ -69,13 +69,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `upool hook worktree-create` gives a session in a pool one of its slots: the first ready slot, or
   else a `needs-reset` one (A5), that is still on disk and in `git worktree list`, leased
   unconfirmed with the stdin `session_id` as holder (any `local_` prefix stripped) and its `name` as
-  `name_hint`. It locks the slot's worktree for the lease, prints only the slot's path, and first
-  ends the pool's unconfirmed leases older than `confirm_timeout`, releasing their locks. With no
-  slot free it tries again once a second for 20 s (A11), then exits 1, which aborts the session,
-  with a message naming `upool refresh`. It opens no file under the repository: slots are checked by
-  a stat and git alone, and `confirm_timeout` comes from the user file, the environment or the
-  default, never from `.upool.toml`. A lock git refuses is said on stderr, and `take --confirm`
-  takes it instead.
+  `name_hint`. It prints only the slot's path, and first ends the pool's unconfirmed leases older
+  than `confirm_timeout`. With no slot free it tries again once a second for 20 s (A11), then exits
+  1, which aborts the session, with a message naming `upool refresh`. It opens no file under the
+  repository: slots are checked by a stat and git alone, and `confirm_timeout` comes from the user
+  file, the environment or the default, never from `.upool.toml`.
 - `upool refresh`, the top-up after a handout, run from a pool's checkout. It records itself as the
   pool's `refresh_job` (its PID and start time) and clears it when it ends; with a live job already
   recorded it exits 0 and does nothing. It resets each `needs-reset` slot to `ready` (define-order
@@ -94,9 +92,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   reads alone (`git status --porcelain`, and `git for-each-ref --contains HEAD`, so a commit on no
   branch is dirty), and marks a clean slot `needs-reset` and a dirty one `parked`, each status line
   on stderr, clearing the lease and setting `last_used`. Define-order noise counts as clean but is
-  left for the deferred reset, as is the slot's worktree lock: git writes from the app's hook
-  helper are untested. The hook exits 0 whatever happens, its errors on stderr.
-  `pool.DirtyBesideNoise` is the clean test without the revert.
+  left for the deferred reset: git writes from the app's hook helper are untested. The hook exits 0
+  whatever happens, its errors on stderr. `pool.DirtyBesideNoise` is the clean test without the
+  revert.
 - `upool hook worktree-remove` removes a pass-through worktree, any worktree that is no pool's
   slot, when it is clean as a slot would be: `git -C <cwd> worktree remove <worktree_path>`,
   without `--force`, after reverting define-order noise, so git still refuses anything else. Its
@@ -109,20 +107,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   raised (A23).
 - An unconfirmed lease older than `confirm_timeout` (default 60 s) now ends whenever `take`,
   `status` or `doctor` reads its pool: its slot goes back to `ready`, or to `needs-reset` when
-  `reset_pending` says its deferred reset never ran, its git worktree lock is released, and a
-  line says so (a warning from `status` and `doctor`, progress from `take`). `status` and
-  `doctor` therefore write `state.json` when they end a lease, and only then. state.json gains
-  `reset_pending` in every lease; an older upool refuses the unknown key.
-- `upool take --confirm <path>` confirms the create hook's lease on the slot at path, matched by
-  its canonical path, as the SessionStart hook will run it: it takes the lease's git worktree lock
-  if the take did not, runs the deferred reset of a slot handed out from `needs-reset` (define-order
-  noise reverted, `git checkout --detach <base>`, `git clean -fd`, the cache key compared across
-  it), makes the lease `leased` and confirmed with upool's parent, the session's CLI, as its
-  holder, and replaces the slot's `CLAUDE.md`, `AGENTS.md`, `.agents/` and `.claude/` (all but
-  `.claude/worktrees`) with the main checkout's, copied with `cp -cR`, so an entry the main
-  checkout lacks goes and relative links stay relative. A confirmed lease confirms again and
-  re-copies again. It prints the slot's path; a path that is no leased slot exits 1, and so does
-  a slot owed a reset that is not clean, with nothing reset.
+  `reset_pending` says its deferred reset never ran, and a line says so (a warning from `status` and
+  `doctor`, progress from `take`). `status` and `doctor` therefore write `state.json` when they end
+  a lease, and only then. state.json gains `reset_pending` in every lease; an older upool refuses
+  the unknown key.
+- `upool take --confirm <path>` confirms the create hook's lease on the slot at path, matched by its
+  canonical path, as the SessionStart hook will run it: it runs the deferred reset of a slot handed
+  out from `needs-reset` (define-order noise reverted, `git checkout --detach <base>`,
+  `git clean -fd`, the cache key compared across it), makes the lease `leased` and confirmed with
+  upool's parent, the session's CLI, as its holder, and replaces the slot's `CLAUDE.md`,
+  `AGENTS.md`, `.agents/` and `.claude/` (all but `.claude/worktrees`) with the main checkout's,
+  copied with `cp -cR`, so an entry the main checkout lacks goes and relative links stay relative. A
+  confirmed lease confirms again and re-copies again. It prints the slot's path; a path that is no
+  leased slot exits 1, and so does a slot owed a reset that is not clean, with nothing reset.
 - `upool hook session-start` reads the session's slot from stdin `cwd`, matched by canonical path,
   and does nothing for a session in no slot. On `startup` it runs `take --confirm`'s confirm
   in-process, then appends `export UNITY_PROJECT_PATH='<slot>'` to the file `CLAUDE_ENV_FILE` names,
@@ -139,6 +136,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   settings, two live sessions with no unconfirmed lease left a minute later, every handout's
   `worktree=` under 200 ms, and the create hook's wait as #148 measured it. #148's capture
   procedure is kept as an appendix.
+
+### Changed
+
+- No lease takes a `git worktree lock` any more: `upool take` and `upool run` no longer lock the
+  slot they lease. The desktop app refuses to remove a locked worktree when its session is archived,
+  and runs no `WorktreeRemove` hook for it, so a locked slot never left `leased` (docs/contracts.md
+  A27; #181). `release`, the dead-PID reclaim and an unconfirmed lease's expiry still unlock a slot
+  git has locked, which frees one an earlier upool locked. `git.Client` loses `WorktreeLock`.
 
 ### Fixed
 

@@ -62,8 +62,8 @@ func (r releaseReport) Human() string {
 
 // release is release's handler. It finds the slot, refuses a live holder's lease and a lease
 // --if-lease-id does not name, reverts define-order noise, and then resets a clean slot to base or
-// parks a dirty one. Either way it unlocks the worktree and clears the lease, writing state.json
-// last and only if the lease is still the one it read.
+// parks a dirty one. Either way it unlocks a worktree an earlier upool locked (pool.Unlock) and
+// clears the lease, writing state.json last and only if the lease is still the one it read.
 func release(inv *invocation, ifLeaseID string, force bool) (any, []string, error) {
 	if len(inv.args) > 1 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args[1:],

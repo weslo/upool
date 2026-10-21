@@ -41,9 +41,9 @@ func TestSessionStartConfirmsTheSlot(t *testing.T) {
 				t.Fatalf("%s = %+v, want leased under its lease, confirmed", name, got)
 			}
 			checkHolder(t, l, os.Getpid())
-			if list := h.e.Git("worktree", "list", "--porcelain"); !strings.Contains(list,
-				"locked "+pool.LeaseLockReason+l.LeaseID) {
-				t.Errorf("git worktree list = %q, want %s locked for the lease", list, req.Cwd)
+			if list := h.e.Git("worktree", "list", "--porcelain"); strings.Contains(list,
+				"\nlocked") {
+				t.Errorf("git worktree list = %q, want no worktree locked (A27)", list)
 			}
 			copied := filepath.Join(req.Cwd, ".claude", "settings.local.json")
 			if b, err := os.ReadFile(copied); err != nil || string(b) != `{"changed": true}`+"\n" {

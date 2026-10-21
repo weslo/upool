@@ -83,10 +83,10 @@ func (r Reclaimer) Candidates(p Pool) ([]Slot, error) {
 }
 
 // Reclaim reclaims every candidate of the pool. Each slot's define-order noise is reverted, then a
-// clean slot is reset to base, any slot is unlocked, and state.json is written under the lock,
-// only if the lease is still the one Reclaim read. A slot that cannot be reclaimed is reported in
-// its Reclaimed's Err and left as it is; only a failure to read the pool or the ledger is
-// Reclaim's own error.
+// clean slot is reset to base, a slot an earlier upool locked is unlocked (Unlock), and state.json
+// is written under the lock, only if the lease is still the one Reclaim read. A slot that cannot
+// be reclaimed is reported in its Reclaimed's Err and left as it is; only a failure to read the
+// pool or the ledger is Reclaim's own error.
 func (r Reclaimer) Reclaim(ctx context.Context) ([]Reclaimed, error) {
 	p, err := Load(r.Home, r.Key)
 	if err != nil {

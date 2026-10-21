@@ -96,6 +96,18 @@ func TestReleaseResetsCleanSlot(t *testing.T) {
 	}
 }
 
+// A slot an earlier upool's take locked for its lease is unlocked when the lease is released, so
+// that the desktop app can archive a session handed the slot later (A27).
+func TestReleaseUnlocksAnEarlierUpoolsLock(t *testing.T) {
+	p := takenPool(t)
+	id := p.loadPool(t).Slots[0].Lease.LeaseID
+	p.Git("worktree", "lock", "--reason", "upool lease "+id, p.slot("slot-1"))
+	if r := runIn(t, p.Env, p.Repo, "release", "feature-x"); r.code != output.ExitOK {
+		t.Fatalf("release: exit %d, stderr %q", r.code, r.stderr)
+	}
+	p.checkReleased(t, pool.StateReady)
+}
+
 // An untracked file parks the slot, unreset and unlocked, with the file and its status line on
 // stderr: the remove hook's capture of the same state (testdata/captures/git/
 // remove-status-untracked.txt), rebuilt with real git.
@@ -209,9 +221,8 @@ func TestReleaseIfLeaseID(t *testing.T) {
 	if r.code != output.ExitFailure || r.stderr != want {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
 	}
-	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased || s.Lease == nil ||
-		!p.worktree(t, s.Path).Locked {
-		t.Errorf("slot-1 = %s, lease %+v; want it still leased and locked", s.State, s.Lease)
+	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased || s.Lease == nil {
+		t.Errorf("slot-1 = %s, lease %+v; want it still leased", s.State, s.Lease)
 	}
 	r = runIn(t, p.Env, p.Repo, "release", "feature-x", "--if-lease-id", id)
 	if r.code != output.ExitOK {

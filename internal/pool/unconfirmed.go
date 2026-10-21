@@ -95,8 +95,8 @@ func (p *Pool) handOut(present func(Slot) bool) int {
 // ExpireUnconfirmed ends every unconfirmed lease in p older than timeout at now, and returns the
 // slots it ended, as they were before. Each goes back to the state it was handed out from: ready,
 // or needs-reset when its deferred reset never ran (transition 7; A23). The caller writes p, and
-// releases each slot's git worktree lock if the take held one; take, status and doctor expire the
-// leases of a pool they read (#75).
+// finishes each slot with EndExpired; take, status and doctor expire the leases of a pool they read
+// (#75).
 func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration) ([]Slot, error) {
 	var expired []Slot
 	for i := range p.Slots {
@@ -115,8 +115,8 @@ func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration) ([]Slot, 
 }
 
 // EndExpired finishes the unconfirmed leases an expiry ended in the pool whose main checkout is
-// repo, once state.json no longer holds them: it releases each slot's git worktree lock, if the
-// take that handed the slot out held one, and returns a line saying what became of each slot.
+// repo, once state.json no longer holds them: it unlocks each slot an earlier upool locked
+// (Unlock), and returns a line saying what became of each slot.
 func EndExpired(ctx context.Context, g git.Client, repo string, expired []Slot,
 	timeout time.Duration) []string {
 	var lines []string

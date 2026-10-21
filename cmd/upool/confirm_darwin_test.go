@@ -60,7 +60,7 @@ func (p harnessPool) stateOf(t *testing.T, name string) pool.Slot {
 }
 
 // The confirm makes the lease leased and confirmed, held by upool's parent, the session's CLI
-// (A6), and locked in git for its lifetime; stdout is the slot's path.
+// (A6), and takes no git worktree lock (A27); stdout is the slot's path.
 func TestConfirmConfirmsTheLease(t *testing.T) {
 	p := newHarnessPool(t)
 	s := p.hookLease(t)
@@ -74,9 +74,8 @@ func TestConfirmConfirmsTheLease(t *testing.T) {
 		t.Errorf("holder = %v, %v; want upool's parent, %d, with its start time", l.HolderPID,
 			l.HolderPIDStart, os.Getppid())
 	}
-	if list := p.Git("worktree", "list", "--porcelain"); !strings.Contains(list,
-		"locked upool lease "+l.LeaseID) {
-		t.Errorf("git worktree list = %q, want %s locked for the lease", list, s.Path)
+	if list := p.Git("worktree", "list", "--porcelain"); strings.Contains(list, "\nlocked") {
+		t.Errorf("git worktree list = %q, want no worktree locked (A27)", list)
 	}
 }
 

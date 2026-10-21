@@ -545,9 +545,7 @@ func TestLeaseCallsOnAWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := c.WorktreeLock(ctx, repo, wt, "upool lease 0123"); err != nil {
-		t.Fatal(err)
-	}
+	must(t, c, repo, "worktree", "lock", "--reason", "upool lease 0123", wt)
 	wts, err := c.WorktreeList(ctx, repo)
 	if err != nil {
 		t.Fatal(err)

@@ -520,9 +520,8 @@ func (c Client) CheckoutDetach(ctx context.Context, dir, rev string) error {
 	return err
 }
 
-// The calls below lease a slot for `upool take`: the branch it names, the slot's checkout of it,
-// and the `git worktree lock` held for the lease's lifetime (docs/contracts.md (f) transition 5;
-// A18; docs/design.md, "Leases that survive crashes and never reclaim a live tree").
+// The calls below lease a slot for `upool take`: the branch it names and the slot's checkout of it
+// (docs/contracts.md (f) transition 5; A18).
 
 // CheckBranchName reports whether name is a valid branch name, from
 // `git check-ref-format --branch <name>`, so that take refuses a bad name before it leases a slot.
@@ -552,14 +551,6 @@ func (c Client) CheckoutBranch(ctx context.Context, dir, name string) error {
 // `git checkout -q -b <name> <start>`.
 func (c Client) CheckoutNewBranch(ctx context.Context, dir, name, start string) error {
 	_, err := c.run(ctx, dir, "checkout", "-q", "-b", name, start)
-	return err
-}
-
-// WorktreeLock locks the worktree at path with reason, run in repo:
-// `git worktree lock --reason <reason> <path>`, so that git's own cleanup leaves a leased slot
-// alone. Locking a locked worktree is an error.
-func (c Client) WorktreeLock(ctx context.Context, repo, path, reason string) error {
-	_, err := c.run(ctx, repo, "worktree", "lock", "--reason", reason, path)
 	return err
 }
 

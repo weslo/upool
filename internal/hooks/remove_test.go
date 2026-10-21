@@ -22,12 +22,11 @@ const leaseID = "0123456789abcdef0123456789abcdef"
 // before is when the tests' slots were last used, before the hook runs at clock.
 var before = clock.Add(-time.Hour)
 
-// leaseSlot adds a slot named name at path to h's pool, a worktree detached at base and locked as
-// take locks it, leased and confirmed as a desktop session's is once SessionStart has run.
+// leaseSlot adds a slot named name at path to h's pool, a worktree detached at base, leased and
+// confirmed as a desktop session's is once SessionStart has run.
 func (h harness) leaseSlot(t *testing.T, name, path string) {
 	t.Helper()
 	h.e.Git("worktree", "add", "-q", "--detach", path, testenv.Base)
-	h.e.Git("worktree", "lock", "--reason", "upool lease "+leaseID, path)
 	pid := 4321
 	start := before
 	err := pool.Update(context.Background(), h.e.Home, h.key, func(p *pool.Pool) error {
@@ -60,7 +59,7 @@ func (h harness) slot(t *testing.T, name string) pool.Slot {
 }
 
 // checkEnded fails the test unless h's slot name is in state, with its lease cleared, last_used
-// set to the hook's time, and its worktree still on disk and locked for the deferred reset.
+// set to the hook's time, and its worktree still on disk for the deferred reset.
 func (h harness) checkEnded(t *testing.T, name string, state pool.State) {
 	t.Helper()
 	s := h.slot(t, name)
@@ -69,8 +68,8 @@ func (h harness) checkEnded(t *testing.T, name string, state pool.State) {
 			s.Lease, s.LastUsed, state, clock)
 	}
 	wt, ok := h.worktree(t, s.Path)
-	if !ok || !wt.Locked {
-		t.Errorf("git lists %s as %+v, %t; want it still there and locked", s.Path, wt, ok)
+	if !ok {
+		t.Errorf("git lists %s as %+v, %t; want it still there", s.Path, wt, ok)
 	}
 }
 

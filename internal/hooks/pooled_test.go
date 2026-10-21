@@ -31,7 +31,8 @@ func (h harness) create(t *testing.T, req Request, want string) {
 }
 
 // checkHandedOut fails the test unless h's slot name holds the create hook's unconfirmed lease
-// for req, with resetPending as given, and git has the slot locked for that lease.
+// for req, with resetPending as given, and git lists the slot unlocked: no lease takes a git
+// worktree lock (A27).
 func (h harness) checkHandedOut(t *testing.T, name string, req Request, resetPending bool) {
 	t.Helper()
 	s := h.slot(t, name)
@@ -45,14 +46,14 @@ func (h harness) checkHandedOut(t *testing.T, name string, req Request, resetPen
 			resetPending, clock)
 	}
 	wt, ok := h.worktree(t, s.Path)
-	if l != nil && (!ok || !wt.Locked || wt.LockReason != pool.LeaseLockReason+l.LeaseID) {
-		t.Errorf("git lists %s as %+v, %t; want it locked for the lease", s.Path, wt, ok)
+	if !ok || wt.Locked {
+		t.Errorf("git lists %s as %+v, %t; want it listed and unlocked", s.Path, wt, ok)
 	}
 }
 
 // The acceptance test of #78: each captured desktop session create, against a pool with one ready
 // slot, gets exactly the slot's path, and leaves the slot leased-unconfirmed with holder the stdin
-// session_id and its name as the hint, its worktree locked for the lease, and nothing on stderr.
+// session_id and its name as the hint, its worktree unlocked, and nothing on stderr.
 func TestPooledHandsOutAReadySlot(t *testing.T) {
 	for _, file := range []string{"desktop-session-create.json", "sibling-session1-create.json"} {
 		t.Run(file, func(t *testing.T) {
@@ -178,8 +179,8 @@ func TestPooledOpensNoFileInTheRepository(t *testing.T) {
 	h.checkHandedOut(t, "slot-1", req, false)
 }
 
-// An unconfirmed lease older than confirm_timeout ends first, its worktree lock released, and
-// its slot goes to the new session, which stderr says (transition 7; #75). confirm_timeout comes
+// An unconfirmed lease older than confirm_timeout ends first, the worktree lock an earlier upool
+// took for it released, and its slot goes to the new session, which stderr says (transition 7; #75). confirm_timeout comes
 // from the user file: a project's .upool.toml is under the repository.
 func TestPooledEndsAnExpiredLeaseFirst(t *testing.T) {
 	h := newHarness(t, true)
@@ -190,8 +191,7 @@ func TestPooledEndsAnExpiredLeaseFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h.e.Git("worktree", "lock", "--reason", pool.LeaseLockReason+old.Lease.LeaseID,
-		h.slotPath("slot-1"))
+	h.e.Git("worktree", "lock", "--reason", "upool lease "+old.Lease.LeaseID, h.slotPath("slot-1"))
 	h.e.WriteFile(".upool.toml", "confirm_timeout = \"5m\"\n")
 	user := filepath.Join(h.e.Home, ".config", "upool", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(user), 0o755); err != nil {
@@ -206,23 +206,6 @@ func TestPooledEndsAnExpiredLeaseFirst(t *testing.T) {
 	if want := "upool: ended the unconfirmed lease on slot-1, which no session confirmed " +
 		"within 10s: slot-1 is ready again\n"; h.stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", h.stderr, want)
-	}
-}
-
-// A lock that git refuses, here because the slot is locked already, is said on stderr, and the
-// slot is handed out all the same: take --confirm takes the lock the take did not.
-func TestPooledHandsOutASlotItCouldNotLock(t *testing.T) {
-	h := newHarness(t, true)
-	h.readySlot(t, "slot-1", h.slotPath("slot-1"))
-	h.e.Git("worktree", "lock", "--reason", "someone else", h.slotPath("slot-1"))
-	req := h.capture(t, "desktop-session-create.json")
-	h.create(t, req, h.slotPath("slot-1"))
-	if s := h.slot(t, "slot-1"); s.State != pool.StateLeasedUnconfirmed {
-		t.Errorf("slot-1 = %s, want leased-unconfirmed", s.State)
-	}
-	if !strings.HasPrefix(h.stderr.String(), "upool: did not lock slot-1 for its lease, which "+
-		"take --confirm will: ") {
-		t.Errorf("stderr = %q, want the lock's failure", h.stderr)
 	}
 }
 
