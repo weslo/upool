@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
 	"github.com/weslo/upool/internal/unity/fake"
@@ -283,7 +285,8 @@ func TestReleaseComparesTheCacheKeyAcrossTheReset(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := takenPool(t)
-			u := fake.Install(t, fake.Reply{Capture: "cache-key.json"},
+			u := fake.Install(t, p.verifyReply("projects-verify-pass.json", 0),
+				fake.Reply{Capture: "cache-key.json"},
 				fake.Reply{Capture: "cache-key.json", Replace: tt.after})
 			p.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+p.Getenv("PATH"))
 			r := runIn(t, p.Env, p.Repo, "release", "feature-x")
@@ -298,9 +301,112 @@ func TestReleaseComparesTheCacheKeyAcrossTheReset(t *testing.T) {
 			if s := p.checkReleased(t, pool.StateReady); s.ReimportPending != tt.pending {
 				t.Errorf("reimport_pending = %t, want %t", s.ReimportPending, tt.pending)
 			}
-			if calls := u.Calls(); len(calls) != 2 || calls[0].Args[2] != p.slot("slot-1") {
-				t.Errorf("unity calls = %+v, want two, on slot-1", calls)
+			calls := u.Calls()
+			if len(calls) != 3 || calls[1].Args[0] != "cache" || calls[2].Args[0] != "cache" {
+				t.Fatalf("unity calls = %+v, want projects verify, then cache key twice", calls)
+			}
+			for _, c := range calls {
+				if c.Args[2] != p.slot("slot-1") {
+					t.Errorf("unity %v, want it on slot-1", c.Args)
+				}
 			}
 		})
 	}
+}
+
+// verifyReply is the fake unity's reply to `unity projects verify` on slot-1 with capture, a
+// testdata/captures/unity/projects-verify-* file, exiting exit.
+func (p harnessPool) verifyReply(capture string, exit int) fake.Reply {
+	return fake.Reply{Capture: capture, Exit: exit,
+		Vars: []pathvars.Var{{Name: "repo", Path: p.Repo}}}
+}
+
+// verifyWarnings are the warnings release gives for slot-1 failing `unity projects verify
+// --strict` as testdata/captures/unity/projects-verify-fail.json does: the failure, then its one
+// finding with its hint.
+func (p harnessPool) verifyWarnings() []string {
+	return []string{"slot-1 failed unity projects verify --strict, and is released anyway: " +
+		"unity projects verify " + p.slot("slot-1") + ": PROJECTS_VERIFY_FAILED: Project " +
+		"verification failed. Errors: 1",
+		"slot-1: error META_MISSING in Assets/AddressableAssetsData: This asset has no .meta " +
+			"file next to it, so Unity assigns a new guid and every existing reference to it " +
+			"breaks. Commit the .meta file next to the asset, or open the project in the Editor " +
+			"to regenerate it and commit the result."}
+}
+
+// The acceptance test of #87: release runs `unity projects verify --strict` on the slot, with the
+// slot positional, before it resets it (docs/design.md, "Lanes: scripts in parallel, scenes one
+// at a time, `.meta` never regenerated"). The passing capture lets the release go ahead quietly.
+// The failing one gives what A34 decides: the problems as warnings on stderr and in the
+// envelope's warnings, and the slot released anyway, exiting 0, reset when clean and parked when
+// dirty.
+func TestReleaseVerifies(t *testing.T) {
+	verifyArgs := func(p harnessPool) []string {
+		return []string{"projects", "verify", p.slot("slot-1"), "--strict", "--format", "json"}
+	}
+	t.Run("passing", func(t *testing.T) {
+		p := takenPool(t)
+		u := p.installUnity(t, p.verifyReply("projects-verify-pass.json", 0),
+			fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+		r := runIn(t, p.Env, p.Repo, "release", "feature-x")
+		if r.code != output.ExitOK || r.stderr != "" {
+			t.Errorf("exit %d, stderr %q; want 0 and nothing", r.code, r.stderr)
+		}
+		p.checkReleased(t, pool.StateReady)
+		if calls := u.Calls(); len(calls) == 0 || !slices.Equal(calls[0].Args, verifyArgs(p)) {
+			t.Errorf("unity calls = %+v, want unity %v first", calls, verifyArgs(p))
+		}
+	})
+	t.Run("failing, clean", func(t *testing.T) {
+		p := takenPool(t)
+		u := p.installUnity(t, p.verifyReply("projects-verify-fail.json", 6),
+			fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+		r := runIn(t, p.Env, p.Repo, "release", "feature-x")
+		want := "upool: warning: " + strings.Join(p.verifyWarnings(), "\nupool: warning: ") +
+			"\n"
+		if r.code != output.ExitOK || r.stderr != want {
+			t.Errorf("exit %d, stderr %q; want 0 and\n%s", r.code, r.stderr, want)
+		}
+		p.checkReleased(t, pool.StateReady)
+		if calls := u.Calls(); len(calls) != 3 || !slices.Equal(calls[0].Args, verifyArgs(p)) {
+			t.Errorf("unity calls = %+v, want unity %v, then the reset's cache keys", calls,
+				verifyArgs(p))
+		}
+	})
+	t.Run("failing, --json", func(t *testing.T) {
+		p := takenPool(t)
+		p.installUnity(t, p.verifyReply("projects-verify-fail.json", 6),
+			fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+		r := runIn(t, p.Env, p.Repo, "release", "feature-x", "--json")
+		var env output.Envelope
+		if err := json.Unmarshal([]byte(r.stdout), &env); err != nil {
+			t.Fatalf("release --json printed %q: %v", r.stdout, err)
+		}
+		if r.code != output.ExitOK || r.stderr != "" || !env.Success ||
+			!slices.Equal(env.Warnings, p.verifyWarnings()) {
+			t.Errorf("exit %d, stderr %q, envelope %+v; want 0, nothing, success and the "+
+				"warnings %q", r.code, r.stderr, env, p.verifyWarnings())
+		}
+		p.checkReleased(t, pool.StateReady)
+	})
+	t.Run("failing, dirty", func(t *testing.T) {
+		p := takenPool(t)
+		p.WriteFile(".claude/worktrees/slot-1/Assets/new.txt", "work\n")
+		p.installUnity(t, p.verifyReply("projects-verify-fail.json", 6))
+		r := runIn(t, p.Env, p.Repo, "release", "feature-x")
+		want := "upool: warning: " + strings.Join(append(p.verifyWarnings(),
+			"slot-1 is parked, not reset: ?? Assets/new.txt"), "\nupool: warning: ") + "\n"
+		if r.code != output.ExitOK || r.stderr != want {
+			t.Errorf("exit %d, stderr %q; want 0 and\n%s", r.code, r.stderr, want)
+		}
+		p.checkReleased(t, pool.StateParked)
+	})
+}
+
+// installUnity puts a fake unity answering with replies first on the pool's PATH.
+func (p harnessPool) installUnity(t *testing.T, replies ...fake.Reply) *fake.Unity {
+	t.Helper()
+	u := fake.Install(t, replies...)
+	p.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+p.Getenv("PATH"))
+	return u
 }
