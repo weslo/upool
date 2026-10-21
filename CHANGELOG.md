@@ -65,6 +65,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     it used to be a plain error.
   - `unity cache key` failures go through the same mapping, so a reply that succeeded is no longer
     refused for a non-zero exit.
+- `internal/unity`: `Client.SaveAll`, the `save_all` wrapper `upool close` will run before closing
+  an Editor. When `save_all` fails with the first-call main-thread timeout, whose code may have run
+  anyway, it runs `save_all` once more as the re-query (A29); the second call's result is its own.
+  Any other failure is returned as it is, with no second call. `docs/manual-gates/M3.md` gains the
+  check "First-call timeout".
 
 ## [0.2.0] - 2026-10-21
 
