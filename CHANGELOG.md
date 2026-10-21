@@ -9,44 +9,33 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- `upool setup` writes `~/.config/upool/config.toml`, a comment naming every key, when there is
-  none. It refuses when no `upool` on `PATH` is the binary running, and when `HOME` is in a
-  `Documents`, `Desktop` or `Downloads` folder, where the desktop app's hook helper could not read
-  the state the hooks need under `~/.upool`. A second run rewrites only what changed and says what
-  it did to each file; `--json` reports the same. The hook handlers are still stubs.
 - `upool init` registers upool's hooks in the project's own `.claude/settings.local.json`, for
-  `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: `upool hook <event>` in exec form, by the
-  path this binary was found through on `PATH`, as `setup` writes them, keeping the file's other
-  keys and hooks and replacing upool's earlier handlers in place. It reads the file before writing
-  anything, refusing one it cannot parse, and refuses when no `upool` on `PATH` is the binary
-  running. It registers them last, after the registry, and on an already registered repository it
-  registers them again and does nothing else. It never writes `~/.claude/settings.json`. The desktop
-  app runs hooks a project registers, skipping only its config overlay and auto-trust
-  (docs/contracts.md A26; #172).
-- `upool setup` registers upool itself at user scope in `~/.claude/settings.json`, for
   `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: one matcher group each, with no matcher,
   whose handler runs `upool hook <event>` in exec form (`"args": ["hook", "<event>"]`, so no shell
   splits upool's path), by the path this binary was found through on `PATH`, symlinks kept, so a
   Homebrew install's `/opt/homebrew/bin/upool` survives `brew upgrade`. No script stands between the
   hook and upool: the desktop app's helper runs a binary under `~/Documents`, though it cannot read
-  a file there, so a upool built in a checkout there works (#163; docs/contracts.md A24). Every
-  other key, group and hook in the file is kept, in the order written. upool's own earlier entries,
-  any handler that runs `upool hook` by any path, in exec or shell form, are replaced where the
-  first of them was rather than duplicated, so a second run leaves the file as it was. The write is
-  atomic, keeps the file's mode (0600 for a new one) and goes through a link to the file it links
-  to. Before its first change to an existing file, setup keeps a copy, `settings.json.upool-backup`,
-  which no later run replaces. A settings.json that is not JSON, or whose `hooks` is not an object
-  of arrays, is refused before setup writes anything. Project settings are never written.
-- `upool setup` installs the upool skill, `assets/skill/upool/SKILL.md`, at
-  `~/.claude/skills/upool/SKILL.md` and `~/.agents/skills/upool/SKILL.md`, and upserts upool's
-  marked block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`, creating each file and its
-  directory when absent. The skill is short and operational: pass `UNITY_PROJECT_PATH` positionally
-  to `unity test`, `run`, `build`, `close` and `cache key`; `save_all` before `close`; no
-  hand-edited scene YAML while a live Editor is reachable; re-query after a timeout before
-  retrying; open your scene explicitly after a headless session; and a subagent that needs Unity
-  takes its own slot with `upool take` and releases it. A copy of the skill that differs is
-  rewritten. The block is upserted as `init` does it, every byte outside its markers kept, and an
-  instruction file whose markers do not pair is refused before setup writes anything.
+  a file there (#163; docs/contracts.md A24), and it runs the hooks a project registers, skipping
+  only its config overlay and auto-trust (A26; #172). Every other key, group and hook in the file is
+  kept, in the order written; upool's own earlier entries, any handler that runs `upool hook` by any
+  path, in exec or shell form, are replaced where the first of them was. The write is atomic, keeps
+  the file's mode (0600 for a new one) and goes through a link to the file it links to. A file that
+  is not JSON, or whose `hooks` is not an object of arrays, is refused before `init` writes
+  anything, as is a `PATH` with no `upool` that is the binary running and a `HOME` in a `Documents`,
+  `Desktop` or `Downloads` folder, where the hook helper could not read the state under `~/.upool`.
+  `init` registers the hooks last, after the registry, and never writes `~/.claude/settings.json`.
+- `upool init` installs the upool skill, `assets/skill/upool/SKILL.md`, in the project at
+  `.claude/skills/upool/SKILL.md` and `.agents/skills/upool/SKILL.md`, and upserts upool's marked
+  block into its `AGENTS.md` as into its `CLAUDE.md`; the confirm's agent-file copy carries them
+  into the slots. The skill is short and operational: pass `UNITY_PROJECT_PATH` positionally to
+  `unity test`, `run`, `build`, `close` and `cache key`; `save_all` before `close`; no hand-edited
+  scene YAML while a live Editor is reachable; re-query after a timeout before retrying; open your
+  scene explicitly after a headless session; and a subagent that needs Unity takes its own slot with
+  `upool take` and releases it. An `AGENTS.md` whose markers do not pair is refused before anything
+  is written. On an already registered repository `init` installs the blocks, the skill and the
+  hooks again, rewriting only what differs, so an upgraded upool refreshes them, and does nothing
+  else. There is no `upool setup` (A26): `~/.config/upool/config.toml` is read when it exists, and
+  nothing writes it.
 - `upool doctor` checks the hook installation of the pool it runs in: `hook-settings` fails unless
   the project's `.claude/settings.local.json` registers `upool hook <event>` for each event, in exec
   form with upool an absolute path, and each upool it registers is an executable file, wherever it

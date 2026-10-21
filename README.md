@@ -16,12 +16,13 @@ number of running Editors within your machine's memory.
 
 ```bash
 brew install weslo/tap/upool
-upool setup
 cd <project> && upool init
 ```
 
-`upool setup` runs once per machine. `upool init` runs once per Unity project, from Terminal, inside
-the repository, with the project's Unity Editor closed. Upgrade with `brew upgrade upool`.
+`upool init` runs once per Unity project, from Terminal, inside the repository, with the project's
+Unity Editor closed. It registers upool's hooks, the skill and the instruction blocks in that
+project alone, and touches no other repository. Upgrade with `brew upgrade upool`, then run
+`upool init` again in each project to refresh them.
 
 ## 🏊 How a session gets a slot
 
@@ -54,7 +55,7 @@ passes.
 | ✅ Done | Planning ([#2](https://github.com/weslo/upool/issues/2), [#10](https://github.com/weslo/upool/pull/10)) | Each milestone below split into issues, listed in the [Build plan](https://github.com/weslo/upool/issues/107) | — |
 | ✅ Done | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
 | ✅ Done | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
-| 🚧 In progress | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `setup` and the worktree hooks that hand each session a slot, plus the skill and `run` | v0.2.0 |
+| 🚧 In progress | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `init`'s per-project hooks that hand each session a slot, plus the skill and `run` | v0.2.0 |
 | ⬜ Planned | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ⬜ Planned | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh`, `prune`, the disk budget and `.upool.toml`, then the Homebrew release the Quickstart uses | v0.4.0 |
 

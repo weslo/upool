@@ -23,13 +23,12 @@ var commandTable = map[string]command{
 	"release": releaseCommand,
 	"refresh": refreshCommand,
 	"run":     runCommand,
-	"setup":   setupCommand,
 	"status":  statusCommand,
 	"take":    takeCommand,
 	"which":   whichCommand,
 }
 
-// hookTable is the events `upool hook <event>` handles, one per event that `upool setup`
+// hookTable is the events `upool hook <event>` handles, one per event that `upool init`
 // registers it for; failExit follows docs/contracts.md (d).
 var hookTable = map[string]hook{
 	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},

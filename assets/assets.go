@@ -8,10 +8,11 @@ package assets
 
 import _ "embed"
 
-// Skill is the upool skill, which `upool setup` installs to ~/.claude/skills/upool/SKILL.md and
-// ~/.agents/skills/upool/SKILL.md (docs/design.md, "Hooks route, skills teach, leases and lanes
-// keep agents from colliding"). Its body is short and operational, Unity's own rules restated so
-// that they travel into subagents, which do not inherit an invoked skill.
+// Skill is the upool skill, which `upool init` installs in the project at
+// .claude/skills/upool/SKILL.md and .agents/skills/upool/SKILL.md (A26; docs/design.md, "Hooks
+// route, skills teach, leases and lanes keep agents from colliding"). Its body is short and
+// operational, Unity's own rules restated so that they travel into subagents, which do not
+// inherit an invoked skill.
 //
 //go:embed skill/upool/SKILL.md
 var Skill string

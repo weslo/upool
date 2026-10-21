@@ -2,34 +2,18 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/block"
-	"github.com/weslo/upool/internal/config"
 )
 
-// setupCommand is `upool setup`, run once per machine: it registers upool's hooks at user scope in
-// ~/.claude/settings.json, each running this binary by the path PATH finds it at, installs the
-// skill and upserts upool's block into the user-scope instruction files, and writes the user config
-// if there is none (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the
-// `setup` row; "Hooks route, skills teach, leases and lanes keep agents from colliding", the three
-// layers). It is idempotent: a second run rewrites only what changed, and says what it did to each
-// file.
-var setupCommand = command{
-	usage: setupUsage,
-	setup: func(*flag.FlagSet) handler {
-		return func(inv *invocation) (any, []string, error) { return setupMachine(inv) }
-	},
-}
-
-// setupUsage is setup's usage line.
-const setupUsage = "setup [--json]"
+// The files init installs in a project beside the hooks it registers there: the upool skill and
+// the instruction blocks (A26; docs/design.md, "Hooks route, skills teach, leases and lanes keep
+// agents from colliding", the three layers), and the helpers that write them.
 
 // protectedFolders are the folders of a home directory that the desktop app's helper, which runs
 // the hooks, cannot read a file in: under ~/Documents, `bash` could not open a script and `head`
@@ -37,22 +21,19 @@ const setupUsage = "setup [--json]"
 // app behaviour"; spike §7, item 1, names all three).
 var protectedFolders = []string{"Documents", "Desktop", "Downloads"}
 
-// upoolName is the name setup looks for upool by on PATH.
+// upoolName is the name init looks for upool by on PATH.
 const upoolName = "upool"
 
 // skillMode is the mode of an installed SKILL.md.
 const skillMode fs.FileMode = 0o644
 
-// skillFiles are where setup installs the skill, relative to the home directory: Claude Code's
-// user skills, and the shared directory other agents read skills from (docs/design.md, "Hooks
-// route, skills teach, leases and lanes keep agents from colliding").
+// skillFiles are where init installs the skill, relative to the repository: Claude Code's project
+// skills, and the shared directory other agents read skills from (docs/design.md, "Hooks route,
+// skills teach, leases and lanes keep agents from colliding"). The confirm's agent-file copy
+// carries both into the slots.
 var skillFiles = []string{".claude/skills/upool/SKILL.md", ".agents/skills/upool/SKILL.md"}
 
-// instructionFiles are the user-scope instruction files setup upserts upool's block into,
-// relative to the home directory: Claude Code's and Codex's (the same section).
-var instructionFiles = []string{".claude/CLAUDE.md", ".codex/AGENTS.md"}
-
-// change is what setup did to one file or directory.
+// change is what init did to one file.
 type change string
 
 const (
@@ -61,128 +42,18 @@ const (
 	unchanged change = "unchanged"
 )
 
-// installed is one file or directory setup manages, and what it did to it.
+// installed is one file init manages, and what it did to it.
 type installed struct {
 	Path   string `json:"path"`
 	Change change `json:"change"`
 }
 
-// upserted is an instruction file setup upserts upool's block into, and what that did.
-type upserted struct {
-	Path   string       `json:"path"`
-	Action block.Action `json:"action"`
-}
-
-// setupReport is what setup did: the data of its --json envelope and, in human form, one line per
-// file.
-type setupReport struct {
-	// Upool is the path the hooks run upool by: the one setup found this binary through on PATH,
-	// symlinks kept.
-	Upool string `json:"upool"`
-	// Settings is ~/.claude/settings.json, where setup registers the hooks.
-	Settings installed `json:"settings"`
-	// Backup is the copy of settings.json that setup keeps before its first change to the file,
-	// when this run made it; "" otherwise.
-	Backup string `json:"backup,omitempty"`
-	// Skills are the copies of the skill, in skillFiles' order.
-	Skills []installed `json:"skills"`
-	// Blocks are the instruction files, in instructionFiles' order.
-	Blocks []upserted `json:"blocks"`
-	// Config is ~/.config/upool/config.toml, which setup writes only when there is none.
-	Config installed `json:"config"`
-}
-
-// Human returns the path the hooks run upool by, and one line per file.
-func (r setupReport) Human() string {
-	lines := []string{"the hooks run " + r.Upool}
-	if r.Backup != "" {
-		lines = append(lines, "kept a copy of "+r.Settings.Path+" as "+r.Backup)
-	}
-	lines = append(lines, describeChange(r.Settings))
-	for _, s := range r.Skills {
-		lines = append(lines, describeChange(s))
-	}
-	for _, b := range r.Blocks {
-		lines = append(lines, describeBlock(b.Path, b.Action))
-	}
-	if r.Config.Change == created {
-		lines = append(lines, "created "+r.Config.Path)
-	} else {
-		lines = append(lines, "kept the existing "+r.Config.Path)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// describeChange says what setup did to i.
+// describeChange says what init did to i.
 func describeChange(i installed) string {
 	if i.Change == unchanged {
 		return i.Path + " is up to date"
 	}
 	return string(i.Change) + " " + i.Path
-}
-
-// setupMachine is setup's handler. It checks the home directory, finds upool on PATH, and reads
-// settings.json and the instruction files before it writes anything, so a refusal leaves the
-// machine as it was.
-func setupMachine(inv *invocation) (any, []string, error) {
-	if len(inv.args) > 0 {
-		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
-			setupUsage)
-	}
-	if err := checkHomeReachable(inv.home); err != nil {
-		return nil, nil, err
-	}
-	exe, err := inv.executable()
-	if err != nil {
-		return nil, nil, fmt.Errorf("finding upool's own binary: %w", err)
-	}
-	upool, err := findOnPath(inv.getenv("PATH"), exe)
-	if err != nil {
-		return nil, nil, err
-	}
-	r := setupReport{Upool: upool}
-	reg, err := planRegistration(settingsPath(inv.home), upool, true)
-	if err != nil {
-		return nil, nil, err
-	}
-	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
-	for _, name := range instructionFiles {
-		if err := checkBlock(filepath.Join(inv.home, filepath.FromSlash(name)), b); err != nil {
-			return nil, nil, err
-		}
-	}
-	if r.Settings, r.Backup, err = reg.apply(); err != nil {
-		return nil, nil, err
-	}
-	for _, name := range skillFiles {
-		file := filepath.Join(inv.home, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
-			return nil, nil, fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
-		}
-		s, err := installFile(file, assets.Skill, skillMode)
-		if err != nil {
-			return nil, nil, err
-		}
-		r.Skills = append(r.Skills, s)
-	}
-	for _, name := range instructionFiles {
-		file := filepath.Join(inv.home, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
-			return nil, nil, fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
-		}
-		action, err := block.Upsert(file, b)
-		if err != nil {
-			return nil, nil, err
-		}
-		r.Blocks = append(r.Blocks, upserted{Path: file, Action: action})
-	}
-	r.Config = installed{Path: config.UserPath(inv.home), Change: unchanged}
-	if written, err := config.WriteUserFile(inv.home); err != nil {
-		return nil, nil, err
-	} else if written {
-		r.Config.Change = created
-	}
-	return r, nil, nil
 }
 
 // checkHomeReachable refuses a home directory that is, or is inside, a folder named in
@@ -200,7 +71,7 @@ func checkHomeReachable(home string) error {
 	if dir, ok := protectedFolder(resolved); ok {
 		return fmt.Errorf("the home directory %s is in %s, which the desktop app's hook helper "+
 			"cannot read from, so the hooks could not read upool's state under ~/.upool: run "+
-			"upool setup with HOME outside %s", resolved, dir,
+			"upool init with HOME outside %s", resolved, dir,
 			strings.Join(protectedFolders, ", "))
 	}
 	return nil
@@ -227,7 +98,7 @@ func protectedFolder(path string) (string, bool) {
 // /opt/homebrew/bin/upool rather than a Cellar path, so `brew upgrade` keeps the hooks working
 // (#66); PATH under the helper is not the user's, which is why the hooks name a path at all
 // (docs/design.md, "Repository, CI and Homebrew distribution"). An entry that is not absolute is
-// skipped, since the helper does not run the hooks from the directory setup ran in.
+// skipped, since the helper does not run the hooks from the directory init ran in.
 func findOnPath(pathList, exe string) (string, error) {
 	self, err := os.Stat(exe)
 	if err != nil {

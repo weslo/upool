@@ -3,16 +3,21 @@ package main
 import (
 	"encoding/json"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/weslo/upool/internal/output"
 )
 
-// otherSettings is a user settings.json with other keys and another tool's hooks, some on the
+// The tests of the registration init writes into a project's .claude/settings.local.json (A26),
+// on a file in a temporary directory.
+
+// testUpool is the path the tests' registrations run upool by.
+const testUpool = "/opt/homebrew/bin/upool"
+
+// otherSettings is a project settings file with other keys and another tool's hooks, some on the
 // events upool registers. Its env value holds characters encoding/json escapes by default.
 const otherSettings = `{
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
@@ -48,15 +53,53 @@ func upoolEntries(t *testing.T, upool, doc string) string {
 	return doc
 }
 
-// writeSettings writes doc as e's ~/.claude/settings.json with mode.
-func writeSettings(t *testing.T, e setupEnv, doc string, mode fs.FileMode) {
+// events are the events `upool hook` handles, sorted.
+func events() []string {
+	return slices.Sorted(maps.Keys(hookTable))
+}
+
+// settingsFile returns the path of a project's .claude/settings.local.json in a new temporary
+// directory, which has no .claude yet.
+func settingsFile(t *testing.T) string {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(settingsPath(e.home)), 0o755); err != nil {
+	return filepath.Join(tempDir(t), ".claude", "settings.local.json")
+}
+
+// writeSettings writes doc to file with mode, creating its directory.
+func writeSettings(t *testing.T, file, doc string, mode fs.FileMode) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(settingsPath(e.home), []byte(doc), mode); err != nil {
+	if err := os.WriteFile(file, []byte(doc), mode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// checkMode fails the test unless path's permission bits are want.
+func checkMode(t *testing.T, path string, want os.FileMode) {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != want {
+		t.Errorf("%s mode = %v, want %v", path, got, want)
+	}
+}
+
+// register registers upool's hooks in file, as init does, and returns what that did.
+func register(t *testing.T, file string) installed {
+	t.Helper()
+	reg, err := planRegistration(file, testUpool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := reg.apply()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
 }
 
 // checkSettings fails the test unless the JSON document in file holds the same value as want.
@@ -71,19 +114,19 @@ func checkSettings(t *testing.T, file, want string) {
 	}
 }
 
-// The acceptance test of #67: an existing settings.json keeps its other keys and another tool's
-// hooks, compared as JSON, and upool's three entries appear once each after two runs.
-func TestSetupRegistersHooks(t *testing.T) {
-	e := newSetupEnv(t)
-	writeSettings(t, e, otherSettings, 0o644)
-
-	setupData(t, e.setup(t, "--json"))
-	got := setupData(t, e.setup(t, "--json"))
-	if want := (installed{settingsPath(e.home), unchanged}); got.Settings != want {
-		t.Errorf("second run: settings = %+v, want %+v", got.Settings, want)
+// An existing settings file keeps its other keys and another tool's hooks, compared as JSON, and
+// its mode, and upool's three entries appear once each after two registrations; the second
+// changes nothing.
+func TestRegistrationKeepsOtherSettings(t *testing.T) {
+	file := settingsFile(t)
+	writeSettings(t, file, otherSettings, 0o644)
+	if got := register(t, file); got != (installed{file, updated}) {
+		t.Errorf("first: %+v, want %s updated", got, file)
 	}
-
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{
+	if got := register(t, file); got != (installed{file, unchanged}) {
+		t.Errorf("second: %+v, want %s unchanged", got, file)
+	}
+	checkSettings(t, file, upoolEntries(t, testUpool, `{
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "model": "opus",
   "cleanupPeriodDays": 30,
@@ -105,18 +148,16 @@ func TestSetupRegistersHooks(t *testing.T) {
   },
   "statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}
 }`))
-	checkMode(t, settingsPath(e.home), 0o644)
-	checkSettings(t, settingsPath(e.home)+backupSuffix, otherSettings)
+	checkMode(t, file, 0o644)
 }
 
 // The rewrite keeps the file's keys in the order written and leaves <, > and & as they were, so
 // that the only difference a person sees is upool's entries.
-func TestSetupKeepsTheSettingsLayout(t *testing.T) {
-	e := newSetupEnv(t)
-	writeSettings(t, e, otherSettings, 0o600)
-	setupData(t, e.setup(t, "--json"))
-
-	b, err := os.ReadFile(settingsPath(e.home))
+func TestRegistrationKeepsTheSettingsLayout(t *testing.T) {
+	file := settingsFile(t)
+	writeSettings(t, file, otherSettings, 0o600)
+	register(t, file)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,110 +179,36 @@ func TestSetupKeepsTheSettingsLayout(t *testing.T) {
 		t.Errorf("hooks keys = %q, want %q", hooks.keys, want)
 	}
 	if !strings.Contains(string(b), `"<on> & off"`) {
-		t.Errorf("settings.json = %s, want the env value written as it was", b)
+		t.Errorf("settings = %s, want the env value written as it was", b)
 	}
 }
 
-// With no settings.json, setup creates one holding only the hooks, private to the user, and
-// keeps no copy, since there was nothing to keep. It writes nothing into the project it runs
-// in: hooks registered from a project's settings are not vouched for (docs/contracts.md (a)).
-func TestSetupCreatesSettings(t *testing.T) {
-	e := newSetupEnv(t)
-	project := tempDir(t)
-	local := filepath.Join(project, ".claude", "settings.local.json")
-	if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
-		t.Fatal(err)
+// With no settings file, the registration creates one holding only the hooks, private to the
+// user, in a .claude it creates, and keeps no copy of anything beside it.
+func TestRegistrationCreatesTheFile(t *testing.T) {
+	file := settingsFile(t)
+	if got := register(t, file); got != (installed{file, created}) {
+		t.Errorf("register = %+v, want %s created", got, file)
 	}
-	if err := os.WriteFile(local, []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	e.env["PWD"] = project
-
-	got := setupData(t, e.setup(t, "--json"))
-	if want := (installed{settingsPath(e.home), created}); got.Settings != want ||
-		got.Backup != "" {
-		t.Errorf("settings = %+v, backup %q, want %+v and none", got.Settings, got.Backup, want)
-	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"hooks": {
+	checkSettings(t, file, upoolEntries(t, testUpool, `{"hooks": {
   "WorktreeCreate": ["@worktree-create@"],
   "WorktreeRemove": ["@worktree-remove@"],
   "SessionStart": ["@session-start@"]
 }}`))
-	checkMode(t, settingsPath(e.home), settingsMode)
-	checkMode(t, filepath.Dir(settingsPath(e.home)), agentDirMode)
-	if _, err := os.Lstat(settingsPath(e.home) + backupSuffix); err == nil {
-		t.Errorf("setup kept a copy of a settings.json that did not exist")
+	checkMode(t, file, settingsMode)
+	checkMode(t, filepath.Dir(file), agentDirMode)
+	entries, err := os.ReadDir(filepath.Dir(file))
+	if err != nil || len(entries) != 1 {
+		t.Errorf("%s holds %v, %v; want the settings file alone", filepath.Dir(file), entries, err)
 	}
-
-	var files []string
-	for _, root := range []string{e.home, project} {
-		err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-			if err == nil && !d.IsDir() {
-				files = append(files, path)
-			}
-			return err
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	want := []string{filepath.Join(e.home, ".claude", "settings.json"),
-		filepath.Join(e.home, ".config", "upool", "config.toml")}
-	want = append(append(append(want, e.skills()...), e.instructions()...), local)
-	slices.Sort(files)
-	slices.Sort(want)
-	if !slices.Equal(files, want) {
-		t.Errorf("files after setup = %q, want %q", files, want)
-	}
-	if b, err := os.ReadFile(local); err != nil || string(b) != "{}\n" {
-		t.Errorf("%s = %q, %v, want it unchanged", local, b, err)
-	}
-}
-
-// The copy is made once, of settings.json as it was before upool's first change, and a later run
-// that changes the file again leaves it alone.
-func TestSetupKeepsOneBackup(t *testing.T) {
-	e := newSetupEnv(t)
-	writeSettings(t, e, otherSettings, 0o640)
-	r := e.setup(t)
-	if r.code != output.ExitOK {
-		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
-	}
-	backup := settingsPath(e.home) + backupSuffix
-	for _, line := range []string{"kept a copy of " + settingsPath(e.home) + " as " + backup,
-		"updated " + settingsPath(e.home)} {
-		if !strings.Contains(r.stdout, line+"\n") {
-			t.Errorf("stdout = %q, want a line %q", r.stdout, line)
-		}
-	}
-	if b, err := os.ReadFile(backup); err != nil || string(b) != otherSettings {
-		t.Errorf("%s = %q, %v, want settings.json as it was", backup, b, err)
-	}
-	checkMode(t, backup, 0o640)
-
-	writeSettings(t, e, `{"model": "sonnet"}`, 0o640)
-	got := setupData(t, e.setup(t, "--json"))
-	if want := (installed{settingsPath(e.home), updated}); got.Settings != want ||
-		got.Backup != "" {
-		t.Errorf("second run: settings = %+v, backup %q, want %+v and none", got.Settings,
-			got.Backup, want)
-	}
-	if b, err := os.ReadFile(backup); err != nil || string(b) != otherSettings {
-		t.Errorf("second run: %s = %q, %v, want the first copy", backup, b, err)
-	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"model": "sonnet", "hooks": {
-  "WorktreeCreate": ["@worktree-create@"],
-  "WorktreeRemove": ["@worktree-remove@"],
-  "SessionStart": ["@session-start@"]
-}}`))
 }
 
 // upool's earlier entries, in exec or shell form and whichever upool they run, are replaced where
 // the first of them was, not duplicated, and an event left with no handlers goes; a handler that
 // runs another program, or upool but not `upool hook`, is not upool's.
-func TestSetupReplacesItsEarlierEntries(t *testing.T) {
-	e := newSetupEnv(t)
-	writeSettings(t, e, upoolEntries(t, e.upool, `{"hooks": {
+func TestRegistrationReplacesItsEarlierEntries(t *testing.T) {
+	file := settingsFile(t)
+	writeSettings(t, file, upoolEntries(t, testUpool, `{"hooks": {
   "WorktreeCreate": [
     {"hooks": [{"type": "command", "command": "first"}]},
     {"hooks": [{"type": "command", "command": "/old/bin/upool", "args": ["hook", "worktree-create"]}]},
@@ -261,11 +228,10 @@ func TestSetupReplacesItsEarlierEntries(t *testing.T) {
   ]}],
   "Notification": "not an array"
 }}`), 0o600)
-	got := setupData(t, e.setup(t, "--json"))
-	if got.Settings.Change != updated {
-		t.Errorf("settings change = %q, want %q", got.Settings.Change, updated)
+	if got := register(t, file); got.Change != updated {
+		t.Errorf("change = %q, want %q", got.Change, updated)
 	}
-	checkSettings(t, settingsPath(e.home), upoolEntries(t, e.upool, `{"hooks": {
+	checkSettings(t, file, upoolEntries(t, testUpool, `{"hooks": {
   "WorktreeCreate": [
     {"hooks": [{"type": "command", "command": "first"}]},
     "@worktree-create@",
@@ -309,44 +275,34 @@ func TestRunsUpoolHook(t *testing.T) {
 	}
 }
 
-// A settings.json that is a link, as a dotfiles repository leaves it, stays a link: the file it
-// links to gets the registration, and the copy goes beside the link.
-func TestSetupWritesThroughALinkedSettingsFile(t *testing.T) {
-	e := newSetupEnv(t)
+// A settings file that is a link, as a dotfiles repository leaves it, stays a link: the file it
+// links to gets the registration.
+func TestRegistrationWritesThroughALink(t *testing.T) {
+	file := settingsFile(t)
 	target := filepath.Join(tempDir(t), "claude-settings.json")
 	if err := os.WriteFile(target, []byte(otherSettings), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Dir(settingsPath(e.home)), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(target, settingsPath(e.home)); err != nil {
+	if err := os.Symlink(target, file); err != nil {
 		t.Fatal(err)
 	}
-	got := setupData(t, e.setup(t, "--json"))
-	if want := (installed{settingsPath(e.home), updated}); got.Settings != want {
-		t.Errorf("settings = %+v, want %+v", got.Settings, want)
+	if got := register(t, file); got != (installed{file, updated}) {
+		t.Errorf("register = %+v, want %s updated", got, file)
 	}
-	if link, err := os.Readlink(settingsPath(e.home)); err != nil || link != target {
-		t.Errorf("settings.json links to %q, %v, want %q", link, err, target)
+	if link, err := os.Readlink(file); err != nil || link != target {
+		t.Errorf("%s links to %q, %v, want %q", file, link, err, target)
 	}
-	b, err := os.ReadFile(target)
-	if err != nil {
-		t.Fatal(err)
+	if b, err := os.ReadFile(target); err != nil || !strings.Contains(string(b), testUpool) {
+		t.Errorf("%s = %s, %v; want the hooks registered in it", target, b, err)
 	}
-	var doc jsonObject
-	if err := json.Unmarshal(b, &doc); err != nil {
-		t.Fatal(err)
-	}
-	if raw, _ := doc.get("hooks"); !strings.Contains(string(raw), e.upool) {
-		t.Errorf("%s = %s, want the hooks registered in it", target, b)
-	}
-	checkSettings(t, settingsPath(e.home)+backupSuffix, otherSettings)
 }
 
-// A settings.json that setup cannot parse, or whose hooks are not where Claude Code keeps them,
-// is refused before anything is written, and left as it was.
-func TestSetupRefusesSettingsItCannotRegisterIn(t *testing.T) {
+// A settings file that cannot be parsed, or whose hooks are not where Claude Code keeps them, is
+// refused before anything is written, and left as it was.
+func TestRegistrationRefusesWhatItCannotParse(t *testing.T) {
 	for name, doc := range map[string]string{
 		"not JSON":              `{"hooks": `,
 		"not an object":         `[]`,
@@ -355,23 +311,14 @@ func TestSetupRefusesSettingsItCannotRegisterIn(t *testing.T) {
 		"trailing data":         `{} {}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			e := newSetupEnv(t)
-			writeSettings(t, e, doc, 0o600)
-			r := e.setup(t)
-			if r.code != output.ExitFailure {
-				t.Errorf("exit = %d, want %d", r.code, output.ExitFailure)
+			file := settingsFile(t)
+			writeSettings(t, file, doc, 0o600)
+			if _, err := planRegistration(file, testUpool); err == nil ||
+				!strings.Contains(err.Error(), file) {
+				t.Errorf("planRegistration = %v, want an error naming %s", err, file)
 			}
-			if !strings.Contains(r.stderr, settingsPath(e.home)) {
-				t.Errorf("stderr = %q, want it to name %s", r.stderr, settingsPath(e.home))
-			}
-			if b, err := os.ReadFile(settingsPath(e.home)); err != nil || string(b) != doc {
-				t.Errorf("settings.json = %q, %v, want it unchanged", b, err)
-			}
-			for _, path := range []string{filepath.Join(e.home, ".upool"),
-				settingsPath(e.home) + backupSuffix} {
-				if _, err := os.Lstat(path); err == nil {
-					t.Errorf("%s exists after a refusal", path)
-				}
+			if b, err := os.ReadFile(file); err != nil || string(b) != doc {
+				t.Errorf("%s = %q, %v, want it unchanged", file, b, err)
 			}
 		})
 	}

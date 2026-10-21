@@ -60,7 +60,7 @@ type invocation struct {
 	// ppid is upool's parent's process ID: for a hook, the Claude Code process that ran it, which
 	// a subagent's worktree records as its parent_pid ((e), Agent worktree).
 	ppid int
-	// executable returns the path of upool's own binary, which `upool setup` looks for on PATH.
+	// executable returns the path of upool's own binary, which `upool init` looks for on PATH.
 	executable func() (string, error)
 }
 
@@ -276,7 +276,7 @@ func jsonRequested(args []string) bool {
 
 // usage is what upool prints on stderr for a command line it cannot dispatch. It lists only the
 // commands in the table, the implemented ones, and not `upool hook`, which only the hooks that
-// `upool setup` registers run (docs/design.md, "Repository, CI and Homebrew distribution").
+// `upool init` registers run (docs/design.md, "Repository, CI and Homebrew distribution").
 func usage(commands map[string]command) string {
 	var b strings.Builder
 	b.WriteString("usage: upool --version\n")
