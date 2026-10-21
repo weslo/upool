@@ -178,6 +178,7 @@ func TestWhichJSONGivesTheSlotItsLeaseAndThePoolsRepo(t *testing.T) {
 			"state": "leased",
 			"lease": map[string]any{
 				"holder":      "issue-51",
+				"lane":        "script",
 				"lease_id":    "a1b2c3d4",
 				"confirmed":   true,
 				"acquired_at": "2026-10-19T11:00:00Z",
@@ -190,6 +191,7 @@ func TestWhichJSONGivesTheSlotItsLeaseAndThePoolsRepo(t *testing.T) {
 			"state": "leased-unconfirmed",
 			"lease": map[string]any{
 				"holder":      "session-10",
+				"lane":        "script",
 				"lease_id":    "e5f6a7b8",
 				"confirmed":   false,
 				"acquired_at": "2026-10-19T11:00:00Z",

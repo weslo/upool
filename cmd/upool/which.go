@@ -39,10 +39,11 @@ type whichReport struct {
 }
 
 // leaseReport is the part of a lease which and status report: who holds it, its lease_id for
-// `release --if-lease-id`, whether it is confirmed, and when it was taken.
+// `release --if-lease-id`, its lane, whether it is confirmed, and when it was taken.
 type leaseReport struct {
 	Holder     string    `json:"holder"`
 	LeaseID    string    `json:"lease_id"`
+	Lane       string    `json:"lane"`
 	Confirmed  bool      `json:"confirmed"`
 	AcquiredAt time.Time `json:"acquired_at"`
 }
@@ -52,8 +53,8 @@ func newLeaseReport(l *pool.Lease) *leaseReport {
 	if l == nil {
 		return nil
 	}
-	return &leaseReport{Holder: l.Holder, LeaseID: l.LeaseID, Confirmed: l.Confirmed,
-		AcquiredAt: l.AcquiredAt.UTC()}
+	return &leaseReport{Holder: l.Holder, LeaseID: l.LeaseID, Lane: l.Lane,
+		Confirmed: l.Confirmed, AcquiredAt: l.AcquiredAt.UTC()}
 }
 
 // Human returns the slot's path alone, so that `cd "$(upool which)"` works.
