@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -41,12 +42,23 @@ func TestStartRefreshRunsRefreshDetached(t *testing.T) {
 			return []string{"PATH=/usr/bin:/bin", "UPOOL_TEST_FIFO=" + fifo}
 		}}
 
+	// The test's end of the FIFO is open, read and write, before the script starts: such an open
+	// never blocks, and the script's open for writing then finds a reader at once. Opening it only
+	// after the script had written and exited could leave the reader waiting in open(2) for a
+	// writer that had gone (#195).
+	reader, err := os.OpenFile(fifo, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }() // read-only use; closing loses nothing
+
 	if err := startRefresh(inv, checkout, key); err != nil {
 		t.Fatalf("startRefresh: %v", err)
 	}
 	done := make(chan error, 1)
 	go func() {
-		_, err := os.ReadFile(fifo) // blocks until the script opens the FIFO and writes
+		// Blocks until the script writes its line; the test's own write end means no end of file.
+		_, err := io.ReadFull(reader, make([]byte, len("written\n")))
 		done <- err
 	}()
 	select {
