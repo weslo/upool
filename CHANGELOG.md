@@ -87,6 +87,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     fails `doctor`.
   - `upool init` runs none of Unity's VCS set-up. The verb table and docs/contracts.md (c) gain
     `vcs doctor`, with the repository positional.
+- `upool open [--headless|--gui]`, from inside a slot, opens the slot's Editor, headless unless
+  `--gui` (A36).
+  - It charges the Editor ledger first, as a cold import when the slot has no `Library/` or its
+    `reimport_pending` is set (A20).
+  - A refusal by `max_editors` or `editor_ram_budget_gb` fails at once, naming the limit, and
+    launches nothing. A refusal by `max_cold_imports` waits for the running cold import, up to
+    300 s (A38).
+  - It runs `unity open <slot>`, with `--args -batchmode` when headless (A33), and records the
+    Editor under the `launchedPid` the CLI reports.
+  - It waits with `unity status --until-ready`, 120 s or 300 s for a cold import (A37), while it
+    checks that the Editor is still running. An Editor that exits fails at once, and one not
+    ready in time fails with exit 6; either way its ledger entry is taken out.
+  - Once the Editor is ready, a cold import ends: its charge drops to `editor_ram_gb` and
+    `reimport_pending` is cleared (A39).
+- docs/contracts.md records A36 to A39, the answers #89 raised. docs/manual-gates/M3.md gains the
+  check "Open".
 
 ## [0.2.0] - 2026-10-21
 

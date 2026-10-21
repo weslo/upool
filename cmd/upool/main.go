@@ -19,6 +19,7 @@ var version = "dev"
 var commandTable = map[string]command{
 	"doctor":  doctorCommand,
 	"init":    initCommand,
+	"open":    openCommand,
 	"path":    pathCommand,
 	"release": releaseCommand,
 	"refresh": refreshCommand,

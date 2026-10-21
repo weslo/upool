@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/proc"
 )
 
 // invocation is what a handler gets: one call's arguments and parsed flags, and the process
@@ -62,6 +63,18 @@ type invocation struct {
 	ppid int
 	// executable returns the path of upool's own binary, which `upool init` looks for on PATH.
 	executable func() (string, error)
+	// procs tells whether processes are alive; nil is the operating system, proc.System. Tests of
+	// a command that watches a process it did not start, such as the Editor `upool open`
+	// launches, inject their own.
+	procs proc.Checker
+}
+
+// checker is inv.procs, or proc.System when it is nil.
+func (inv *invocation) checker() proc.Checker {
+	if inv.procs == nil {
+		return proc.System{}
+	}
+	return inv.procs
 }
 
 // handler runs a command and returns its data, its warnings and its error, which output.Render
@@ -107,6 +120,8 @@ type dispatcher struct {
 	executable func() (string, error)
 	// notify and stopNotify are as in invocation.
 	notify, stopNotify func(c chan<- os.Signal)
+	// procs is as in invocation.
+	procs proc.Checker
 }
 
 // run dispatches args, the command line after the program name, and returns the exit code.
@@ -227,6 +242,7 @@ func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 		pid:        d.pid,
 		ppid:       d.ppid,
 		executable: d.executable,
+		procs:      d.procs,
 	}
 }
 
