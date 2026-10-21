@@ -155,8 +155,8 @@ func checkName(name string) error {
 // <cwd>/.claude/worktrees/<name> on a branch named <name>, so that the user's other projects keep
 // working under a hook they cannot opt out of (docs/design.md, "Route Claude Code's worktrees
 // through the pool: three branches in one hook"). The desktop app runs a session's hook in a helper
-// that, under ~/Documents, could run only git and stat paths (docs/contracts.md (a)), so the
-// branch opens no file in the repository: git does all of it.
+// that, under ~/Documents, could run git and stat paths but not read a file (docs/contracts.md
+// (a)), so the branch opens no file in the repository: git does all of it.
 func passThroughWorktree(ctx context.Context, env Env, req Request) (string, error) {
 	if err := checkName(req.Name); err != nil {
 		return "", err

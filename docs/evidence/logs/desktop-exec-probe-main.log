@@ -1,0 +1,9 @@
+2026-10-20 16:42:44 [info] Creating worktree for session local_fa9bda41-788e-4010-8220-dfbd987ec64e from ${home}/Documents/Personal/upool
+2026-10-20 16:42:44 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8
+2026-10-20 16:42:44 [info] Copied 2 files from gitignored .claude
+2026-10-20 16:42:44 [info] Created hook-based worktree "pwd-8a80a8" at ${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8
+2026-10-20 16:42:44 [info] Using worktree "pwd-8a80a8" at ${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8 for session local_fa9bda41-788e-4010-8220-dfbd987ec64e
+2026-10-20 16:42:44 [info] [GitWorktreeManager] recorded origin's URL for this repository: https://github.com/weslo/upool.git { baseRepo: '${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8' }
+2026-10-20 16:42:44 [info] Saved workspace trust for ${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8
+2026-10-20 16:42:44 [info] Auto-trusted worktree with key "${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8" (inherited from ${home}/Documents/Personal/upool)
+2026-10-20 16:42:44 [info] Starting local session local_fa9bda41-788e-4010-8220-dfbd987ec64e in ${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8

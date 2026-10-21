@@ -2,24 +2,17 @@ package main
 
 import (
 	"encoding/json"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/output"
 )
 
-// hookScript is the path of the hook script for event on p's machine.
-func (p harnessPool) hookScript(event string) string {
-	return filepath.Join(p.Home, ".upool", "hooks", event+".sh")
-}
-
-// The acceptance test of #69: after a fresh setup the hook checks pass; a deleted script, a
-// written path that no longer exists and a missing settings entry each fail, as does every other
-// way a script or the registration can be wrong; and a registered repository whose own settings
-// register upool's hooks warns.
+// The acceptance test of #69, as #163 left it: after a fresh setup the hook checks pass, and an
+// upool under a Documents folder is fine; a registered upool that no longer exists, one that is not
+// executable and a missing settings entry each fail, as does every other way the registration can
+// be wrong; and a registered repository whose own settings register upool's hooks warns.
 func TestDoctorHooks(t *testing.T) {
 	tests := []struct {
 		name string
@@ -31,24 +24,47 @@ func TestDoctorHooks(t *testing.T) {
 	}{
 		{name: "fresh setup"},
 		{
-			name: "deleted script",
+			name: "upool in Documents",
 			breakIt: func(t *testing.T, p harnessPool) {
-				if err := os.Remove(p.hookScript("worktree-remove")); err != nil {
+				moved := filepath.Join(tempDir(t), "Documents", "upool", "bin", upoolName)
+				if err := os.MkdirAll(filepath.Dir(moved), 0o755); err != nil {
 					t.Fatal(err)
 				}
+				if err := os.Rename(registeredUpool(t, p), moved); err != nil {
+					t.Fatal(err)
+				}
+				editSettings(t, p, func(hooks map[string]any) {
+					for _, h := range hookEvents {
+						hooks[h.event] = []any{map[string]any{"hooks": []any{map[string]any{
+							"type": "command", "command": moved,
+							"args": []string{"hook", h.hook}}}}}
+					}
+				})
 			},
-			check: checkHookScripts, result: checkFail,
-			reason: "worktree-remove.sh is missing: run upool setup",
 		},
 		{
-			name: "written path gone",
+			name: "registered upool gone",
 			breakIt: func(t *testing.T, p harnessPool) {
-				if err := os.Remove(scriptedUpool(t, p, "worktree-create")); err != nil {
+				if err := os.Remove(registeredUpool(t, p)); err != nil {
 					t.Fatal(err)
 				}
 			},
-			check: checkHookScripts, result: checkFail,
+			check: checkHookSettings, result: checkFail,
 			reason: ", which does not exist: run upool setup as the upool on PATH",
+		},
+		{
+			name: "registered upool not executable",
+			breakIt: func(t *testing.T, p harnessPool) {
+				upool := registeredUpool(t, p)
+				if err := os.Remove(upool); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(upool, []byte("not a binary\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			check: checkHookSettings, result: checkFail,
+			reason: ", which is not an executable file",
 		},
 		{
 			name: "missing settings entry",
@@ -56,18 +72,32 @@ func TestDoctorHooks(t *testing.T) {
 				editSettings(t, p, func(hooks map[string]any) { delete(hooks, "WorktreeRemove") })
 			},
 			check: checkHookSettings, result: checkFail,
-			reason: "does not register worktree-remove.sh for WorktreeRemove: run upool setup",
+			reason: "does not register upool hook worktree-remove for WorktreeRemove: run upool " +
+				"setup",
 		},
 		{
-			name: "entry for another script",
+			name: "entry for another hook",
 			breakIt: func(t *testing.T, p harnessPool) {
 				editSettings(t, p, func(hooks map[string]any) {
 					hooks["SessionStart"] = []any{map[string]any{"hooks": []any{map[string]any{
-						"type": "command", "command": p.hookScript("worktree-create")}}}}
+						"type": "command", "command": registeredUpool(t, p),
+						"args": []string{"hook", "worktree-create"}}}}}
 				})
 			},
 			check: checkHookSettings, result: checkFail,
-			reason: "does not register session-start.sh for SessionStart",
+			reason: "does not register upool hook session-start for SessionStart",
+		},
+		{
+			name: "relative upool",
+			breakIt: func(t *testing.T, p harnessPool) {
+				editSettings(t, p, func(hooks map[string]any) {
+					hooks["SessionStart"] = []any{map[string]any{"hooks": []any{map[string]any{
+						"type": "command", "command": upoolName,
+						"args": []string{"hook", "session-start"}}}}}
+				})
+			},
+			check: checkHookSettings, result: checkFail,
+			reason: "does not register upool hook session-start for SessionStart",
 		},
 		{
 			name: "no settings file",
@@ -80,49 +110,11 @@ func TestDoctorHooks(t *testing.T) {
 			reason: "settings.json does not exist, so no hook is registered",
 		},
 		{
-			name: "not executable",
-			breakIt: func(t *testing.T, p harnessPool) {
-				if err := os.Chmod(p.hookScript("session-start"), 0o644); err != nil {
-					t.Fatal(err)
-				}
-			},
-			check: checkHookScripts, result: checkFail,
-			reason: "session-start.sh is not executable",
-		},
-		{
-			name: "edited script",
-			breakIt: func(t *testing.T, p harnessPool) {
-				if err := os.WriteFile(p.hookScript("worktree-create"),
-					[]byte("#!/bin/sh\nexec upool hook worktree-create\n"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-			},
-			check: checkHookScripts, result: checkFail,
-			reason: "worktree-create.sh is not the script upool setup writes",
-		},
-		{
-			name: "scripts in Documents",
-			breakIt: func(t *testing.T, p harnessPool) {
-				hooks := filepath.Dir(p.hookScript("worktree-create"))
-				moved := filepath.Join(tempDir(t), "Documents", "hooks")
-				if err := os.MkdirAll(filepath.Dir(moved), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Rename(hooks, moved); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.Symlink(moved, hooks); err != nil {
-					t.Fatal(err)
-				}
-			},
-			check: checkHookScripts, result: checkFail,
-			reason: "which the desktop app's hook helper cannot read from",
-		},
-		{
-			name: "project settings register a script",
+			name: "project settings register upool",
 			breakIt: func(t *testing.T, p harnessPool) {
 				p.WriteFile(".claude/settings.local.json", `{"hooks": {"WorktreeCreate": [`+
-					`{"hooks": [{"type": "command", "command": "~/.upool/hooks/worktree-create.sh"}]}]}}`)
+					`{"hooks": [{"type": "command", "command": "/opt/homebrew/bin/upool", `+
+					`"args": ["hook", "worktree-create"]}]}]}}`)
 			},
 			check: checkHookProvenance, result: checkWarn,
 			reason: "settings.local.json registers upool's hooks",
@@ -131,7 +123,7 @@ func TestDoctorHooks(t *testing.T) {
 			name: "project settings run upool hook",
 			breakIt: func(t *testing.T, p harnessPool) {
 				p.WriteFile(".claude/settings.json", `{"hooks": {"SessionStart": [`+
-					`{"hooks": [{"type": "command", "command": "upool", "args": ["hook", "session-start"]}]}]}}`)
+					`{"hooks": [{"type": "command", "command": "upool hook session-start"}]}]}}`)
 			},
 			check: checkHookProvenance, result: checkWarn,
 			reason: "settings.json registers upool's hooks, which ~/.claude/settings.json " +
@@ -157,22 +149,24 @@ func TestDoctorHooks(t *testing.T) {
 	}
 }
 
-// scriptedUpool returns the upool p's script for event runs, as setup wrote it.
-func scriptedUpool(t *testing.T, p harnessPool, event string) string {
+// registeredUpool returns the upool p's settings.json registers for WorktreeCreate, as setup
+// wrote it.
+func registeredUpool(t *testing.T, p harnessPool) string {
 	t.Helper()
-	script, err := os.ReadFile(p.hookScript(event))
+	b, err := os.ReadFile(settingsPath(p.Home))
 	if err != nil {
 		t.Fatal(err)
 	}
-	template, err := fs.ReadFile(assets.Hooks, "hooks/"+event+".sh")
+	registered, err := registeredHooks(b)
 	if err != nil {
 		t.Fatal(err)
 	}
-	upool, ok := scriptUpool(string(script), string(template))
-	if !ok {
-		t.Fatalf("%s is not the script setup writes: %q", p.hookScript(event), script)
+	if h := registered["WorktreeCreate"]; len(h) == 1 && filepath.IsAbs(h[0].Command) {
+		return h[0].Command
 	}
-	return upool
+	t.Fatalf("%s registers %+v for WorktreeCreate, want setup's one handler",
+		settingsPath(p.Home), registered["WorktreeCreate"])
+	return ""
 }
 
 // editSettings changes the hooks in p's ~/.claude/settings.json with f.
@@ -189,30 +183,5 @@ func editSettings(t *testing.T, p harnessPool, f func(hooks map[string]any)) {
 	f(settings["hooks"].(map[string]any))
 	if err := os.WriteFile(settingsPath(p.Home), mustJSON(t, settings), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// shellUnquote reads back what shellQuote writes, a path with a single quote in it included, and
-// refuses what shellQuote would not write; scriptUpool takes only an absolute path.
-func TestShellUnquoteReversesShellQuote(t *testing.T) {
-	for _, s := range []string{"/opt/homebrew/bin/upool", "/tmp/it's here/upool", "", "'"} {
-		if got, ok := shellUnquote(shellQuote(s)); !ok || got != s {
-			t.Errorf("shellUnquote(shellQuote(%q)) = %q, %v; want %q, true", s, got, ok, s)
-		}
-	}
-	for _, q := range []string{"upool", "'a'b'", "'a", `"a"`} {
-		if got, ok := shellUnquote(q); ok {
-			t.Errorf("shellUnquote(%q) = %q, true; want false", q, got)
-		}
-	}
-	template := "exec " + assets.HookUpool + " hook x\n"
-	if got, ok := scriptUpool("exec 'bin/upool' hook x\n", template); ok {
-		t.Errorf("scriptUpool with a relative path = %q, true; want false", got)
-	}
-	if got, ok := scriptUpool("exec '/bin/upool' hook x\n", template); !ok || got != "/bin/upool" {
-		t.Errorf("scriptUpool = %q, %v; want /bin/upool, true", got, ok)
-	}
-	if _, ok := scriptUpool("exec '/bin/upool' hook y\n", template); ok {
-		t.Error("scriptUpool accepted a script for another event")
 	}
 }

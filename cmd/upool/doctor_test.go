@@ -86,7 +86,7 @@ func wantChecks() []string {
 	if runtime.GOOS == "darwin" {
 		names = append(names, checkCloneSharing)
 	}
-	return append(names, checkStateVolume, checkLeases, checkHookScripts, checkHookSettings,
+	return append(names, checkStateVolume, checkLeases, checkHookSettings,
 		checkHookProvenance, "unity-cli", "claude-code")
 }
 

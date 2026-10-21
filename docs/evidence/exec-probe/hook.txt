@@ -1,0 +1,31 @@
+== ~/.upool-exec-probe/create.sh, registered for WorktreeCreate in ~/.claude/settings.json as
+== {"type": "command", "command": "${home}/.upool-exec-probe/create.sh", "args": []}
+#!/bin/sh
+# Exec probe: does the desktop app's hook helper run a binary under ~/Documents?
+here="$HOME/.upool-exec-probe"
+bin="${home}/Documents/Personal/upool/bin/upool"
+echo "start $(date '+%Y-%m-%d %H:%M:%S') ppid=$PPID" >>"$here/probe.log"
+cat >"$here/stdin.json"
+"$bin" hook worktree-create <"$here/stdin.json" >"$here/stdout" 2>"$here/stderr"
+status=$?
+echo "exit $status" >>"$here/probe.log"
+cat "$here/stdout"
+cat "$here/stderr" >&2
+exit $status
+
+== probe.log
+start 2026-10-20 16:42:44 ppid=71350
+exit 0
+
+== stdin.json (jq -c)
+{"session_id":"fa9bda41-788e-4010-8220-dfbd987ec64e","transcript_path":"","cwd":"${home}/Documents/Personal/upool","hook_event_name":"WorktreeCreate","name":"pwd-8a80a8"}
+
+== stdout
+${home}/Documents/Personal/upool/.claude/worktrees/pwd-8a80a8
+
+== stderr
+(empty)
+
+== ps -o pid,ppid,command -p 71350
+  PID  PPID COMMAND
+71350     1 /Applications/Claude.app/Contents/MacOS/Claude

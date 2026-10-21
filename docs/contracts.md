@@ -5,7 +5,7 @@ The external behaviour `upool` depends on, extracted from [design.md](design.md)
 the spike report wins and a footnote says so. Fixture names refer to files under
 [`testdata/captures/`](../testdata/README.md), except those starting `evidence/`, which are under
 [`docs/evidence/`](evidence/README.md). Nothing here is new design except the maintainer's answers
-to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A23: they settle what both
+to open questions, cited A4 to A7, A10, A11, A13 to A15 and A17 to A24: they settle what both
 documents leave open, and the tables follow them. Every other gap is listed under
 [Open questions](#open-questions), not filled.
 
@@ -42,7 +42,7 @@ Citation keys:
 | `scratchpad_dir` | absent | absent | present | S§9 F.3 |
 | `prompt_id` | absent | absent | present; equal across subagents of one prompt | S§9 F.3 |
 | `agent_id`, `agent_type`, `worktree_name` | absent | absent | absent | S§2 T7.5; S§9 F.3 |
-| Process running the hook | parent `Claude.app/Contents/Helpers/disclaimer`, grandparent `Claude.app/Contents/MacOS/Claude`; under `~/Documents` only `ls -d` and `git` worked | the CLI | the bundled CLI binary (`…/claude.app/Contents/MacOS/claude`), full file access | S§2 TB; S§9 F.2–3 |
+| Process running the hook | parent `Claude.app/Contents/Helpers/disclaimer`, grandparent `Claude.app/Contents/MacOS/Claude`; under `~/Documents` only `ls -d` and `git` worked. A binary there runs, upool's included; a file there cannot be read, so a script there fails (A24). With desktop app 3.1623.0 the hook's parent was `Claude.app/Contents/MacOS/Claude` itself | the CLI | the bundled CLI binary (`…/claude.app/Contents/MacOS/claude`), full file access | S§2 TB; S§9 F.2–3; A24; `evidence/exec-probe/hook.txt` |
 | `CLAUDE_ENV_FILE` | unset | not recorded | not recorded | S§7 (desktop probe log) |
 | Fixtures | `hooks/desktop-session-create.json`, `-refused`, `-reuse`; `hooks/sibling-*-create.json`; `hooks/desktop-probe-create.json` | `hooks/cli-session-create.json` | `hooks/subagent-create.json`, `hooks/subagent-create-2.json` | testdata/README.md |
 
@@ -77,7 +77,7 @@ by `session_id` (S§7 item 3; D-route).
 | Only a path inside `<repo>/.claude/worktrees` gets the config overlay and auto-trust ("Auto-trusted worktree … (inherited from <repo>)"); elsewhere the log says "hook returned a path outside the managed worktree directory" | S§8 A.5; S§9 E.5; `evidence/logs/managed-slot-main.log`, `evidence/logs/sibling-slot-main.log` |
 | The overlay copies only files the slot lacks ("Skipped 3 gitignored .claude files already present") and skips links to directories (21 under `.claude/skills`) | S§9 E.5; S§10 |
 | The hook must be registered at user scope (`~/.claude/settings.json`, exec form); from a project settings file the app logs "hook came from a repo-committed settings tier … (provenance not vouched)" | S§2 TB; S§8 A.2–3, A.5; `evidence/logs/desktop-probe-main.log` |
-| The hook script must live outside `~/Documents`: under it, `getcwd` and `bash` failed with `Operation not permitted` | S§2 T7.6; S§7 |
+| A hook script must live outside `~/Documents`: under it, `getcwd` and `bash` failed with `Operation not permitted`. A binary under it runs as the hook command, so upool registers itself, with no script (A24) | S§2 T7.6; S§7; A24; `evidence/exec-probe/helper.txt`; `evidence/logs/desktop-exec-probe-main.log` |
 | Handing out a pre-made slot took `worktree=36ms` to `112ms`, against `4634ms` for a `git worktree add` inside the hook | S§8 A.5; S§9 E.5; `evidence/logs/sibling-slot-main.log`; `evidence/logs/desktop-probe-main.log` |
 | A user-scope create hook runs for every repository and every subagent; there is no matcher | S§9 "What this changes (updated)", blast radius row; D-route |
 | The desktop app waited the whole 30 s for a create hook that slept that long, and used the path it printed (`worktree=30210ms`): its limit is above 30 s, so the pooled branch's wait, the smaller of 20 s and that limit less 5 s, is 20 s | A11; `hooks/desktop-create-timeout.txt` (desktop app 3.1623.0; #148) |
@@ -647,6 +647,24 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   reads it to run the deferred reset and clears it, and an expiry reads it to send the slot back to
   `needs-reset` rather than `ready` (transition 7). It needs no git call, and `schema_version` stays
   1, as it did for `reimport_pending` (A20) (maintainer decision, 2026-10-20; (e) Lease; (f)).
+
+- **24. Whether the hooks need scripts**
+  ([#163](https://github.com/weslo/upool/issues/163)). The design put a script in
+  `~/.upool/hooks` between each hook and upool, because the spike saw a script under `~/Documents`
+  fail from the desktop app's helper (S§2 T7.6). No one had tried a binary there. A desktop worktree
+  session ran a user-scope create hook whose script, outside `~/Documents`, ran a upool built in a
+  checkout under it: upool exited 0 and the app logged `Created hook-based worktree`. From the
+  checkout, through `Claude.app/Contents/Helpers/disclaimer`, the helper the spike found running the
+  hooks, `head` on a file and `sh` on a script both failed with `Operation not permitted`, but upool
+  ran, directly and from `sh -c` (desktop app 3.1623.0, macOS 15.7.3;
+  `evidence/exec-probe/hook.txt`, `evidence/exec-probe/helper.txt`,
+  `evidence/logs/desktop-exec-probe-main.log`).
+
+  **A24.** The helper cannot read a file under `~/Documents`, but it can run a binary there, so
+  upool is its own hook command. `setup` registers `upool hook <event>` in exec form, by the path
+  `PATH` finds upool at, and installs no scripts. A handler that runs `upool hook`, by any path, is
+  upool's, so a later `setup` replaces it. What the hooks read still lives outside the protected
+  folders, under `~/.upool/` (maintainer decision, 2026-10-20; (a); (e)).
 
 ### Other open questions
 

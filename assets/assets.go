@@ -6,19 +6,7 @@
 // an issue (AGENTS.md, "This repository's agent files are not upool's").
 package assets
 
-import "embed"
-
-// Hooks holds the hook scripts `upool setup` installs to ~/.upool/hooks, hooks/<event>.sh for
-// each event `upool hook` handles (docs/design.md, "Repository, CI and Homebrew distribution":
-// "Hook scripts stay trivial on purpose"). Each is POSIX sh, since the desktop app's restricted
-// helper runs it (CONTRIBUTING.md, "Scripts"), and ends in `exec HookUpool hook <event>`.
-//
-//go:embed hooks/*.sh
-var Hooks embed.FS
-
-// HookUpool stands in each hook script for the upool it runs. setup replaces it with the path it
-// found upool through on PATH, quoted for sh, because PATH under the helper is not the user's.
-const HookUpool = "'@UPOOL@'"
+import _ "embed"
 
 // Skill is the upool skill, which `upool setup` installs to ~/.claude/skills/upool/SKILL.md and
 // ~/.agents/skills/upool/SKILL.md (docs/design.md, "Hooks route, skills teach, leases and lanes

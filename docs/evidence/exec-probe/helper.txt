@@ -1,0 +1,23 @@
+$ pwd -P
+${home}/Documents/Personal/upool
+$ head -c 8 README.md
+# upool
+[exit 0]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer /usr/bin/head -c 8 README.md
+head: README.md: Operation not permitted
+[exit 1]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer /bin/sh -c 'head -c 8 README.md'
+head: README.md: Operation not permitted
+[exit 1]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer bin/upool --version
+upool dev
+[exit 0]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer /bin/sh -c 'bin/upool --version'
+upool dev
+[exit 0]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer /bin/sh bin/probe.sh
+/bin/sh: bin/probe.sh: Operation not permitted
+[exit 126]
+$ /Applications/Claude.app/Contents/Helpers/disclaimer bin/probe.sh
+/bin/sh: bin/probe.sh: Operation not permitted
+[exit 126]

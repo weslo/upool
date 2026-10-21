@@ -6,135 +6,32 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
-	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/registry"
 )
 
 // The names of the checks of what `upool setup` installs for the hooks (#69).
 const (
-	checkHookScripts    = "hook-scripts"
 	checkHookSettings   = "hook-settings"
 	checkHookProvenance = "hook-provenance"
 )
 
-// hookChecks checks the hook installation: the scripts in ~/.upool/hooks, their registration in
-// ~/.claude/settings.json, and that no registered repository registers them in its own settings
-// as well (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `doctor`
-// row; docs/contracts.md (a), "WorktreeCreate output and app behaviour").
+// hookChecks checks the hook installation: its registration in ~/.claude/settings.json, and that no
+// registered repository registers upool's hooks in its own settings as well (docs/design.md, "One
+// binary, a dozen commands, one JSON file per pool", the `doctor` row; docs/contracts.md (a),
+// "WorktreeCreate output and app behaviour").
 func hookChecks(home string) []doctorCheck {
-	hooksDir := filepath.Join(home, ".upool", "hooks")
-	return []doctorCheck{hookScriptsCheck(hooksDir), hookSettingsCheck(home, hooksDir),
-		hookProvenanceCheck(home)}
+	return []doctorCheck{hookSettingsCheck(home), hookProvenanceCheck(home)}
 }
 
-// hookScriptsCheck fails unless each hook script setup installs is in hooksDir, executable,
-// outside the folders the desktop app's hook helper cannot read from, and runs an upool that
-// exists.
-func hookScriptsCheck(hooksDir string) doctorCheck {
-	names, err := fs.Glob(assets.Hooks, "hooks/*.sh")
-	if err != nil {
-		return failedCheck(checkHookScripts, fmt.Errorf("listing the hook scripts: %w", err))
-	}
-	var problems, upools []string
-	for _, name := range names {
-		template, err := fs.ReadFile(assets.Hooks, name)
-		if err != nil {
-			return failedCheck(checkHookScripts, fmt.Errorf("reading the hook script %s: %w",
-				name, err))
-		}
-		upool, problem := checkHookScript(filepath.Join(hooksDir, path.Base(name)),
-			string(template))
-		if problem != "" {
-			problems = append(problems, problem)
-		} else if !slices.Contains(upools, upool) {
-			upools = append(upools, upool)
-		}
-	}
-	if len(problems) > 0 {
-		return doctorCheck{checkHookScripts, checkFail, strings.Join(problems, "; ")}
-	}
-	return doctorCheck{checkHookScripts, checkPass, fmt.Sprintf("the %d hook scripts in %s are "+
-		"executable, outside %s, and run %s", len(names), hooksDir,
-		strings.Join(protectedFolders, ", "), strings.Join(upools, ", "))}
-}
-
-// checkHookScript checks one hook script, file, against the template setup fills in to write it.
-// It returns the upool the script runs, or what is wrong with it.
-func checkHookScript(file, template string) (upool, problem string) {
-	info, err := os.Stat(file)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return "", file + " is missing: run upool setup"
-	case err != nil:
-		return "", fmt.Sprintf("checking %s: %v", file, err)
-	case !info.Mode().IsRegular():
-		return "", file + " is not a file"
-	case info.Mode().Perm()&0o100 == 0:
-		return "", file + " is not executable: run upool setup"
-	}
-	resolved, err := filepath.EvalSymlinks(file)
-	if err != nil {
-		return "", fmt.Sprintf("resolving %s: %v", file, err)
-	}
-	if dir, ok := protectedFolder(resolved); ok {
-		return "", fmt.Sprintf("%s is in %s, which the desktop app's hook helper cannot read "+
-			"from", resolved, dir)
-	}
-	script, err := os.ReadFile(file)
-	if err != nil {
-		return "", fmt.Sprintf("reading %s: %v", file, err)
-	}
-	upool, ok := scriptUpool(string(script), template)
-	if !ok {
-		return "", file + " is not the script upool setup writes: run upool setup"
-	}
-	info, err = os.Stat(upool)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return "", fmt.Sprintf("%s runs %s, which does not exist: run upool setup as the upool "+
-			"on PATH", file, upool)
-	case err != nil:
-		return "", fmt.Sprintf("checking %s, which %s runs: %v", upool, file, err)
-	case !info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0:
-		return "", fmt.Sprintf("%s runs %s, which is not an executable file", file, upool)
-	}
-	return upool, ""
-}
-
-// scriptUpool returns the upool script runs, if script is template with assets.HookUpool replaced
-// by an absolute path quoted for sh, as setup writes it.
-func scriptUpool(script, template string) (string, bool) {
-	prefix, suffix, ok := strings.Cut(template, assets.HookUpool)
-	if !ok || len(script) < len(prefix)+len(suffix) || !strings.HasPrefix(script, prefix) ||
-		!strings.HasSuffix(script, suffix) {
-		return "", false
-	}
-	upool, ok := shellUnquote(script[len(prefix) : len(script)-len(suffix)])
-	return upool, ok && filepath.IsAbs(upool)
-}
-
-// shellUnquote reverses shellQuote: it returns the string q quotes, if q is in that form.
-func shellUnquote(q string) (string, bool) {
-	if len(q) < 2 || q[0] != '\'' || q[len(q)-1] != '\'' {
-		return "", false
-	}
-	parts := strings.Split(q[1:len(q)-1], `'\''`)
-	for _, part := range parts {
-		if strings.Contains(part, "'") {
-			return "", false
-		}
-	}
-	return strings.Join(parts, "'"), true
-}
-
-// hookSettingsCheck fails unless ~/.claude/settings.json registers each script in hooksDir for
-// its event, the only scope the desktop app vouches for (docs/contracts.md (a)).
-func hookSettingsCheck(home, hooksDir string) doctorCheck {
+// hookSettingsCheck fails unless ~/.claude/settings.json, the only scope the desktop app vouches
+// for (docs/contracts.md (a)), registers upool for each event as setup writes it, `upool hook
+// <event>` in exec form with upool an absolute path, and each upool it registers is an executable
+// file.
+func hookSettingsCheck(home string) doctorCheck {
 	file := settingsPath(home)
 	b, err := os.ReadFile(file)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -148,22 +45,40 @@ func hookSettingsCheck(home, hooksDir string) doctorCheck {
 	if err != nil {
 		return failedCheck(checkHookSettings, fmt.Errorf("reading %s: %w", file, err))
 	}
-	var missing, events []string
+	var missing, events, upools []string
 	for _, h := range hookEvents {
-		script := filepath.Join(hooksDir, h.script)
 		events = append(events, h.event)
-		if !slices.ContainsFunc(registered[h.event], func(c hookCommand) bool {
-			return c.Type == "command" && filepath.Clean(c.Command) == script
-		}) {
-			missing = append(missing, fmt.Sprintf("%s for %s", h.script, h.event))
+		i := slices.IndexFunc(registered[h.event], func(c commandHook) bool {
+			return c.Type == "command" && filepath.IsAbs(c.Command) &&
+				filepath.Base(c.Command) == upoolName &&
+				slices.Equal(c.Args, []string{"hook", h.hook})
+		})
+		if i < 0 {
+			missing = append(missing, fmt.Sprintf("upool hook %s for %s", h.hook, h.event))
+		} else if upool := registered[h.event][i].Command; !slices.Contains(upools, upool) {
+			upools = append(upools, upool)
 		}
 	}
 	if len(missing) > 0 {
 		return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s does not register %s: "+
 			"run upool setup", file, strings.Join(missing, ", "))}
 	}
-	return doctorCheck{checkHookSettings, checkPass, fmt.Sprintf("%s registers the hook "+
-		"scripts for %s", file, strings.Join(events, ", "))}
+	for _, upool := range upools {
+		info, err := os.Stat(upool)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s registers %s, which "+
+				"does not exist: run upool setup as the upool on PATH", file, upool)}
+		case err != nil:
+			return failedCheck(checkHookSettings, fmt.Errorf("checking %s, which %s registers: %w",
+				upool, file, err))
+		case !info.Mode().IsRegular() || info.Mode().Perm()&0o100 == 0:
+			return doctorCheck{checkHookSettings, checkFail, fmt.Sprintf("%s registers %s, which "+
+				"is not an executable file: run upool setup as the upool on PATH", file, upool)}
+		}
+	}
+	return doctorCheck{checkHookSettings, checkPass, fmt.Sprintf("%s registers %s for %s", file,
+		strings.Join(upools, ", "), strings.Join(events, ", "))}
 }
 
 // hookProvenanceCheck warns about each registered repository whose own .claude/settings*.json
@@ -222,24 +137,17 @@ func hookProvenanceCheck(home string) doctorCheck {
 		"repositories registers upool's hooks in its own .claude/settings*.json", len(repos))}
 }
 
-// hookCommand is the part of a hook handler the hook checks read.
-type hookCommand struct {
-	Type    string   `json:"type"`
-	Command string   `json:"command"`
-	Args    []string `json:"args"`
-}
-
 // registeredHooks returns the handlers a settings file registers, by event. A group or handler
 // of a shape it does not recognise is passed over; only a file that is not a JSON object, or
 // whose hooks are not one, is an error.
-func registeredHooks(settings []byte) (map[string][]hookCommand, error) {
+func registeredHooks(settings []byte) (map[string][]commandHook, error) {
 	var doc struct {
 		Hooks map[string]json.RawMessage `json:"hooks"`
 	}
 	if err := json.Unmarshal(settings, &doc); err != nil {
 		return nil, err
 	}
-	registered := map[string][]hookCommand{}
+	registered := map[string][]commandHook{}
 	for event, raw := range doc.Hooks {
 		var groups []json.RawMessage
 		if json.Unmarshal(raw, &groups) != nil {
@@ -253,7 +161,7 @@ func registeredHooks(settings []byte) (map[string][]hookCommand, error) {
 				continue
 			}
 			for _, h := range group.Hooks {
-				var c hookCommand
+				var c commandHook
 				if json.Unmarshal(h, &c) == nil {
 					registered[event] = append(registered[event], c)
 				}
@@ -263,20 +171,11 @@ func registeredHooks(settings []byte) (map[string][]hookCommand, error) {
 	return registered, nil
 }
 
-// registersUpool says whether any of the handlers runs upool's hooks: a script in a .upool/hooks
-// directory, however its path is spelled, or `upool hook`.
-func registersUpool(registered map[string][]hookCommand) bool {
+// registersUpool says whether any of the handlers runs `upool hook`.
+func registersUpool(registered map[string][]commandHook) bool {
 	for _, handlers := range registered {
-		for _, c := range handlers {
-			words := append(strings.Fields(c.Command), c.Args...)
-			for _, w := range words {
-				if strings.Contains(w, "/.upool/hooks/") {
-					return true
-				}
-			}
-			if len(words) > 1 && filepath.Base(words[0]) == upoolName && words[1] == "hook" {
-				return true
-			}
+		if slices.ContainsFunc(handlers, runsUpoolHook) {
+			return true
 		}
 	}
 	return false
