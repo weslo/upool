@@ -351,3 +351,53 @@ func TestSessionStartExportsOnce(t *testing.T) {
 		t.Errorf("sourcing it sets UNITY_PROJECT_PATH to %q, %v; want %q", out, err, slot)
 	}
 }
+
+// starts records the top-ups a hook started, standing in for the detached `upool refresh`.
+type starts struct {
+	calls []string
+	err   error
+}
+
+// start records a top-up of the pool key in checkout, and fails with s.err.
+func (s *starts) start(checkout, key string) error {
+	s.calls = append(s.calls, checkout+" "+key)
+	return s.err
+}
+
+// The top-up follows a handout, so it starts only after a startup's confirm: not on resume, not
+// when the confirm fails, and not for a session in no slot (A14; #79).
+func TestSessionStartSpawnsRefreshOnlyAfterAHandout(t *testing.T) {
+	for name, run := range map[string]func(t *testing.T, h harness){
+		"resume": func(t *testing.T, h harness) {
+			h.readySlot(t, "slot-1", h.slotPath("slot-1"))
+			h.hookLease(t)
+			req := h.capture(t, "session-start-resume.json")
+			req.Cwd = h.slotPath("slot-1")
+			if err := h.start(t, req); err != nil {
+				t.Fatalf("SessionStart: %v", err)
+			}
+		},
+		"failed confirm": func(t *testing.T, h harness) {
+			h.readySlot(t, "slot-1", h.slotPath("slot-1"))
+			if err := h.start(t, h.capture(t, "session-start.json")); err == nil {
+				t.Fatal("SessionStart: no error, want the confirm's refusal")
+			}
+		},
+		"no slot": func(t *testing.T, h harness) {
+			req := h.capture(t, "desktop-no-worktree-session-start.json")
+			if err := h.start(t, req); err != nil {
+				t.Fatalf("SessionStart: %v", err)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := startHarness(t, true, "session")
+			var s starts
+			h.env.StartRefresh = s.start
+			run(t, h)
+			if len(s.calls) != 0 {
+				t.Errorf("top-ups started = %q, want none", s.calls)
+			}
+		})
+	}
+}

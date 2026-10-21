@@ -469,7 +469,7 @@ func cloneSlots(ctx context.Context, inv *invocation, g git.Client, key, repo st
 		MaxSlots: maxSlots, Keys: clone.KeyCheck{Env: inv.environ()},
 		Warn: func(line string) { warnings = append(warnings, line) }}
 	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
-		Key: key}
+		Key: key, Keys: clone.KeyCheck{Env: inv.environ()}}
 	slots := make([]clonedSlot, 0, n)
 	for i := range n {
 		seed := clone.Seed{Path: repo}

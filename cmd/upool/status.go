@@ -21,8 +21,8 @@ const statusUsage = "status [--all] [--json]"
 // statusCommand is `upool status`: the slots of the pool containing the working directory, their
 // states and their leases, or with --all those of every registered pool (docs/design.md, "One
 // binary, a dozen commands, one JSON file per pool", the `status` row). It reports what state.json
-// records and changes nothing. The refresh job and agent worktrees join it in M2, Editors in M3
-// and disk in M4.
+// records and changes nothing, and announces the pool's refresh job while it runs (#79). Agent
+// worktrees join it in M2, Editors in M3 and disk in M4.
 var statusCommand = command{
 	usage: statusUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -44,6 +44,9 @@ type poolStatus struct {
 	Repo  string       `json:"repo"`
 	Base  string       `json:"base"`
 	Slots []slotStatus `json:"slots"`
+	// RefreshJob is the pool's detached `upool refresh` while its process is alive, and nil
+	// otherwise (docs/contracts.md (e) `refresh_job`).
+	RefreshJob *pool.RefreshJob `json:"refresh_job"`
 }
 
 // slotStatus is one slot, with its state as docs/contracts.md (f) names it and its lease as which
@@ -58,7 +61,8 @@ type slotStatus struct {
 
 // Human returns each pool as a line naming its main checkout and base, then a table of its slots:
 // name, state, lease holder, lease age and whether the lease is confirmed, with "-" for a slot
-// that has no lease. Pools are separated by a blank line.
+// that has no lease, after a line announcing the refresh job while it runs. Pools are separated
+// by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -69,6 +73,10 @@ func (r statusReport) Human() string {
 			b.WriteString("\n")
 		}
 		fmt.Fprintf(&b, "%s (base %s)\n", p.Repo, p.Base)
+		if j := p.RefreshJob; j != nil {
+			fmt.Fprintf(&b, "refreshing: upool refresh is running as process %d, since %s\n",
+				j.PID, j.PIDStart.Local().Format(time.DateTime))
+		}
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		// tw writes to b, a strings.Builder, which never fails, so neither can tw.
 		_, _ = fmt.Fprintln(tw, "SLOT\tSTATE\tHOLDER\tAGE\tCONFIRMED")
@@ -154,7 +162,11 @@ func status(inv *invocation, all bool) (any, []string, error) {
 	}
 	r := statusReport{Pools: make([]poolStatus, 0, len(pools)), now: inv.now()}
 	for _, rp := range pools {
-		r.Pools = append(r.Pools, newPoolStatus(rp))
+		ps := newPoolStatus(rp)
+		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
+			return nil, nil, err
+		}
+		r.Pools = append(r.Pools, ps)
 	}
 	return r, notes, nil
 }

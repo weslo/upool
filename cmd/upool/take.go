@@ -147,7 +147,9 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 					_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
 				}},
 			seeder: clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
-				Key: key},
+				Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: func(line string) {
+					_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
+				}},
 			maxSlots: cfg.MaxSlots.Value,
 		}
 	}

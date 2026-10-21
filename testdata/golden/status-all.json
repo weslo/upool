@@ -70,7 +70,8 @@
               "acquired_at": "2026-10-17T09:00:00Z"
             }
           }
-        ]
+        ],
+        "refresh_job": null
       },
       {
         "repo": "${home}/Documents/castle",
@@ -93,7 +94,8 @@
               "acquired_at": "2026-10-19T11:56:40Z"
             }
           }
-        ]
+        ],
+        "refresh_job": null
       }
     ]
   },
