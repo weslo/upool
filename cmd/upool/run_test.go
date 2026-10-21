@@ -239,7 +239,9 @@ func (w *readyWriter) Write(b []byte) (int, error) {
 }
 
 // SIGINT and SIGTERM that reach upool while the command runs go to the command, and run stops
-// taking them once it is done.
+// taking them once it is done. The command loops on short sleeps rather than `wait`ing on a
+// background job: bash 3.2, macOS's /bin/sh, runs the trap for a signal that lands just before
+// `wait` begins only when the job exits, which a 60 s job turned into a test timeout (#195).
 func TestRunForwardsSignals(t *testing.T) {
 	for _, tt := range []struct {
 		sig  syscall.Signal
@@ -252,12 +254,10 @@ func TestRunForwardsSignals(t *testing.T) {
 			done := make(chan result, 1)
 			go func() {
 				done <- runUpool(t, p, p.Repo, w, src, "run", "feature", "--", sh, "-c",
-					`trap 'kill $p; exit 7' TERM
-trap 'kill $p; exit 8' INT
-/bin/sleep 60 >/dev/null 2>&1 &
-p=$!
+					`trap 'exit 7' TERM
+trap 'exit 8' INT
 echo ready
-wait $p`)
+while :; do /bin/sleep 0.1; done`)
 			}()
 			timeout := time.After(30 * time.Second)
 			var signals chan<- os.Signal
