@@ -94,8 +94,16 @@ type Slot struct {
 	Lease *Lease `json:"lease"`
 }
 
-// Lease is a slot's current lease. It is also held as a `git worktree lock` on the slot, which
-// lives in git, not here (docs/contracts.md (e)).
+// The lanes a lease is in (docs/design.md, "Lanes: scripts in parallel, scenes one at a time,
+// `.meta` never regenerated"): LaneScript, the default, for any number of leases, and LaneScene,
+// held by one lease of a project at a time.
+const (
+	LaneScript = "script"
+	LaneScene  = "scene"
+)
+
+// Lease is a slot's current lease: this entry alone, with no `git worktree lock` (docs/contracts.md
+// (e); A27).
 type Lease struct {
 	// LeaseID is random, the identity `release --if-lease-id` checks.
 	LeaseID string `json:"lease_id"`
@@ -117,7 +125,7 @@ type Lease struct {
 	// (transition 10), whose deferred reset has not run: `take --confirm` runs it, and an expiry
 	// before then returns the slot to needs-reset rather than ready (A23).
 	ResetPending bool `json:"reset_pending"`
-	// Lane is "script" or "scene"; a project has at most one scene lease.
+	// Lane is LaneScript or LaneScene; a project has at most one scene lease.
 	Lane string `json:"lane"`
 	// NameHint is the create stdin's name, kept for display and never used as a key.
 	NameHint string `json:"name_hint"`

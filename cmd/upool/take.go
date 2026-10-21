@@ -20,9 +20,8 @@ import (
 )
 
 // takeUsage is take's usage line, which its handler also names when it refuses its arguments.
-// --lane arrives with its own issue.
-const takeUsage = "take <name> [--base REF] [--holder ID] [--timeout S] [--no-create] [--json] " +
-	"| take --confirm <path> [--json]"
+const takeUsage = "take <name> [--base REF] [--lane script|scene] [--holder ID] [--timeout S] " +
+	"[--no-create] [--json] | take --confirm <path> [--json]"
 
 // takeCommand is `upool take <name>`: it leases a ready slot of the pool containing the working
 // directory, or with none ready clones one up to max_slots unless --no-create, checks the branch
@@ -35,6 +34,8 @@ var takeCommand = command{
 	setup: func(fs *flag.FlagSet) handler {
 		base := fs.String("base", "", "the ref to create the branch from, if it does not exist; "+
 			"default the pool's base")
+		lane := fs.String("lane", pool.LaneScript, "the lease's lane: script, or scene, which "+
+			"one lease of the project holds at a time")
 		holder := fs.String("holder", "", "who holds the lease, recorded with it")
 		timeout := fs.Int("timeout", 0, "seconds to wait for a ready slot, retrying once a second")
 		noCreate := fs.Bool("no-create", false, "never clone a slot; only wait for a ready one")
@@ -43,14 +44,14 @@ var takeCommand = command{
 		return func(inv *invocation) (any, []string, error) {
 			if *confirmPath != "" {
 				return confirm(inv, *confirmPath, *base != "" || *holder != "" ||
-					*timeout != 0 || *noCreate)
+					*timeout != 0 || *noCreate || *lane != pool.LaneScript)
 			}
 			if len(inv.args) != 1 || inv.args[0] == "" {
 				return nil, nil, fmt.Errorf("take needs one branch name; usage: upool %s",
 					takeUsage)
 			}
-			r, err := takeSlot(inv, inv.args[0], takeOptions{base: *base, holder: *holder,
-				timeout: *timeout, noCreate: *noCreate})
+			r, err := takeSlot(inv, inv.args[0], takeOptions{base: *base, lane: *lane,
+				holder: *holder, timeout: *timeout, noCreate: *noCreate})
 			if err != nil {
 				return nil, nil, err
 			}
@@ -62,6 +63,8 @@ var takeCommand = command{
 // takeOptions are take's flags, and the holder process `upool run` records.
 type takeOptions struct {
 	base, holder string
+	// lane is the lease's: pool.LaneScript, also when empty, or pool.LaneScene.
+	lane string
 	// timeout is how many seconds take waits for a ready slot.
 	timeout int
 	// noCreate keeps take from cloning a slot when none is ready.
@@ -100,6 +103,14 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 		return takeReport{}, fmt.Errorf("--timeout %d is negative; usage: upool %s",
 			opts.timeout, takeUsage)
 	}
+	switch opts.lane {
+	case "":
+		opts.lane = pool.LaneScript
+	case pool.LaneScript, pool.LaneScene:
+	default:
+		return takeReport{}, fmt.Errorf("--lane %q is neither script nor scene; usage: upool %s",
+			opts.lane, takeUsage)
+	}
 	ctx := context.Background()
 	wd, err := inv.getwd()
 	if err != nil {
@@ -133,8 +144,8 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 		return takeReport{}, err
 	}
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
-		holder: opts.holder, holderPID: opts.holderPID, holderStart: opts.holderStart,
-		confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
+		lane: opts.lane, holder: opts.holder, holderPID: opts.holderPID,
+		holderStart: opts.holderStart, confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
 		reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home, Key: key,
 			Now: inv.now}}
 	if !opts.noCreate {
@@ -194,7 +205,9 @@ type leaser struct {
 	// repo is the main checkout, and base the pool's base, which a new branch starts from unless
 	// --base names another ref.
 	repo, base string
-	holder     string
+	// lane is the lane the lease is taken in.
+	lane   string
+	holder string
 	// holderPID and holderStart go into the lease, as takeOptions has them.
 	holderPID   *int
 	holderStart *time.Time
@@ -219,13 +232,16 @@ type cloner struct {
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.
 // Each try first reclaims the leases whose holder died ((f) transitions 13 and 14), saying so on
 // stderr. While no slot is ready it prints each slot's skip reason to stderr, again whenever they
-// change.
+// change. A scene take while another lease holds the scene lane waits the same way, cloning
+// nothing, since a new slot would not free the lane (docs/design.md, "Lanes: scripts in parallel,
+// scenes one at a time, `.meta` never regenerated").
 func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	timeout time.Duration) (pool.Slot, string, error) {
 	deadline := l.now().Add(timeout)
 	var said string
 	failed := map[string]bool{}
 	told := map[string]bool{}
+	var scene *pool.Slot // the slot whose lease holds the scene lane, at the last try
 	for {
 		done, err := l.reclaimer.Reclaim(ctx)
 		if err != nil {
@@ -234,7 +250,11 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 		for _, rc := range done {
 			sayReclaimed(inv, rc, failed)
 		}
-		s, leaseID, skipped, expired, err := l.lease(ctx)
+		var s pool.Slot
+		var leaseID string
+		var skipped []string
+		var expired []pool.Slot
+		s, leaseID, skipped, expired, scene, err = l.lease(ctx)
 		for _, line := range pool.EndExpired(ctx, l.g, l.repo, expired, l.confirmTimeout) {
 			_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
 		}
@@ -250,19 +270,29 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 				_, _ = fmt.Fprintln(inv.stderr, "upool: the pool has no slots") // progress only
 			}
 		}
-		cloned, err := l.cloneSlot(ctx, inv, skipped, told)
-		if err != nil {
-			return pool.Slot{}, "", err
-		}
-		if cloned {
-			continue // lease the new slot at once
+		if scene == nil {
+			cloned, err := l.cloneSlot(ctx, inv, skipped, told)
+			if err != nil {
+				return pool.Slot{}, "", err
+			}
+			if cloned {
+				continue // lease the new slot at once
+			}
 		}
 		if !l.now().Before(deadline) {
 			break
 		}
 		time.Sleep(retryInterval)
 	}
-	if timeout == 0 {
+	switch {
+	case scene != nil && timeout == 0:
+		return pool.Slot{}, "", output.Fail(output.CodeCommandFailed,
+			"the scene lane of %s is taken: %s", l.repo, sceneHeld(*scene))
+	case scene != nil:
+		return pool.Slot{}, "", output.Fail(output.CodeCommandFailed,
+			"the scene lane of %s was still taken after %s: %s", l.repo, timeout,
+			sceneHeld(*scene))
+	case timeout == 0:
 		return pool.Slot{}, "", output.Fail(output.CodeCommandFailed, "no slot of %s is ready",
 			l.repo)
 	}
@@ -344,18 +374,23 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // each slot was skipped). A ready slot qualifies only while its directory exists, git lists it
 // and its backlink checks out; otherwise it is skipped as missing-from-worktree-list
 // ((f) transition 17). First it ends the unconfirmed leases older than confirm_timeout, and
-// returns the slots they were on, whose leases the caller finishes (#75).
+// returns the slots they were on, whose leases the caller finishes (#75). A scene lease is taken
+// only while no other lease holds the scene lane: otherwise every slot that could be handed out is
+// skipped, naming the lease that holds it, and that lease's slot is returned as scene.
 func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, skipped []string,
-	expired []pool.Slot, err error) {
+	expired []pool.Slot, scene *pool.Slot, err error) {
 	id, err := pool.NewLeaseID()
 	if err != nil {
-		return pool.Slot{}, "", nil, nil, err
+		return pool.Slot{}, "", nil, nil, nil, err
 	}
 	err = pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
-		skipped = nil
+		skipped, scene = nil, nil
 		var err error
 		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout); err != nil {
 			return err
+		}
+		if l.lane == pool.LaneScene {
+			scene = sceneLease(*p)
 		}
 		listed, err := worktreeKeys(ctx, l.g, l.repo)
 		if err != nil {
@@ -364,6 +399,9 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 		for i := range p.Slots {
 			s := &p.Slots[i]
 			reason := skipReason(*s, listed, l.repo)
+			if reason == "" && scene != nil {
+				reason = sceneHeld(*scene)
+			}
 			if reason != "" {
 				skipped = append(skipped, s.Name+": "+reason)
 				continue
@@ -375,16 +413,37 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 			s.State = state
 			s.Lease = &pool.Lease{LeaseID: id, Holder: l.holder, WorktreePath: s.Path,
 				HolderPID: l.holderPID, HolderPIDStart: l.holderStart,
-				AcquiredAt: l.now().UTC(), Confirmed: true, Lane: "script"}
+				AcquiredAt: l.now().UTC(), Confirmed: true, Lane: l.lane}
 			taken, leaseID = *s, id
 			return nil
 		}
 		return nil
 	})
 	if err != nil {
-		return pool.Slot{}, "", nil, nil, err
+		return pool.Slot{}, "", nil, nil, nil, err
 	}
-	return taken, leaseID, skipped, expired, nil
+	return taken, leaseID, skipped, expired, scene, nil
+}
+
+// sceneLease returns a copy of the slot of p whose lease holds the scene lane, or nil when no
+// lease does.
+func sceneLease(p pool.Pool) *pool.Slot {
+	for _, s := range p.Slots {
+		if s.Lease != nil && s.Lease.Lane == pool.LaneScene {
+			return &s
+		}
+	}
+	return nil
+}
+
+// sceneHeld says which lease holds the scene lane, s being its slot: the reason a scene take skips
+// a slot it could otherwise have, and what it fails with.
+func sceneHeld(s pool.Slot) string {
+	who := "lease " + s.Lease.LeaseID
+	if s.Lease.Holder != "" {
+		who = s.Lease.Holder + "'s lease " + s.Lease.LeaseID
+	}
+	return fmt.Sprintf("the scene lane is held by %s in %s", who, s.Name)
 }
 
 // skipReason is why take does not hand s out, or "" when it may: the reasons are the design's

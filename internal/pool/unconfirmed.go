@@ -65,7 +65,7 @@ func (t UnconfirmedTake) Take(ctx context.Context, home, repoKey string) (taken 
 		s.State = state
 		s.Lease = &Lease{LeaseID: id, Holder: t.Holder, WorktreePath: s.Path,
 			AcquiredAt: t.Now.UTC(), Confirmed: false, ResetPending: from == StateNeedsReset,
-			Lane: "script", NameHint: t.NameHint}
+			Lane: LaneScript, NameHint: t.NameHint}
 		taken = *s
 		return nil
 	})

@@ -15,7 +15,7 @@ import (
 )
 
 // runUsage is run's usage line, which its handler also names when it refuses its arguments.
-const runUsage = "run <name> [--json] -- <cmd...>"
+const runUsage = "run <name> [--lane script|scene] [--json] -- <cmd...>"
 
 // runCommand is `upool run <name> -- <cmd...>`, the agent-agnostic launcher: it takes a slot as
 // `take <name>` does, with its own process as the lease's holder, runs the command in the slot
@@ -23,10 +23,15 @@ const runUsage = "run <name> [--json] -- <cmd...>"
 // command's exit status (docs/design.md, "One binary, a dozen commands, one JSON file per pool",
 // the `run` row; docs/contracts.md (f), transition 5 or 19, then 11 or 12). For `claude -p`
 // sessions, which fire no WorktreeRemove, and for agents with no worktree event at all, its
-// release is the only one (docs/design.md, "Environment, confirmation and release").
+// release is the only one (docs/design.md, "Environment, confirmation and release"). --lane is
+// take's, passed on.
 var runCommand = command{
 	usage: runUsage,
-	setup: func(*flag.FlagSet) handler { return runInSlot },
+	setup: func(fs *flag.FlagSet) handler {
+		lane := fs.String("lane", pool.LaneScript, "the lease's lane: script, or scene, which "+
+			"one lease of the project holds at a time")
+		return func(inv *invocation) (any, []string, error) { return runInSlot(inv, *lane) }
+	},
 }
 
 // signalStatusBase is what run adds to the number of the signal that ended its command to make the
@@ -53,15 +58,16 @@ type runReport struct {
 // Human returns nothing: the command's output is what stdout holds.
 func (runReport) Human() string { return "" }
 
-// runInSlot is run's handler. Whatever becomes of the command, it releases the slot afterwards,
-// with --if-lease-id of its own lease, so that it never releases a lease another process holds.
-func runInSlot(inv *invocation) (any, []string, error) {
+// runInSlot is run's handler, taking the slot in lane. Whatever becomes of the command, it
+// releases the slot afterwards, with --if-lease-id of its own lease, so that it never releases a
+// lease another process holds.
+func runInSlot(inv *invocation, lane string) (any, []string, error) {
 	if inv.dash != 1 || len(inv.args) < 2 || inv.args[0] == "" {
 		return nil, nil, fmt.Errorf("run needs a branch name, then -- and the command to run; "+
 			"usage: upool %s", runUsage)
 	}
 	name, argv := inv.args[0], inv.args[1:]
-	var opts takeOptions
+	opts := takeOptions{lane: lane}
 	pid := inv.pid
 	switch start, err := (proc.System{}).Start(pid); {
 	case err == nil:

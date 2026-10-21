@@ -44,6 +44,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - the exit codes the spike did not record.
 
   The hook classification test now checks a `pretooluse-<tool>` capture's event and tool.
+- Lanes (docs/design.md, "Lanes: scripts in parallel, scenes one at a time, `.meta` never
+  regenerated"). `take --lane script|scene` puts the lease in a lane, `script` by default, and
+  `run --lane` passes it on.
+  - Any number of script leases coexist.
+  - A project has one scene lease at a time. While one is held, another `--lane scene` take waits
+    as for a full pool until `--timeout`, cloning nothing, and its skip reasons name the holder's
+    lease. It then fails naming that lease again.
+  - `status` gains a LANE column, and `which --json` and `status --json` give each lease's `lane`.
 
 ## [0.2.0] - 2026-10-21
 

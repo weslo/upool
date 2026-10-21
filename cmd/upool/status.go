@@ -60,9 +60,9 @@ type slotStatus struct {
 }
 
 // Human returns each pool as a line naming its main checkout and base, then a table of its slots:
-// name, state, lease holder, lease age and whether the lease is confirmed, with "-" for a slot
-// that has no lease, after a line announcing the refresh job while it runs. Pools are separated
-// by a blank line.
+// name, state, lease lane, lease holder, lease age and whether the lease is confirmed, with "-"
+// for a slot that has no lease, after a line announcing the refresh job while it runs. Pools are
+// separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -79,10 +79,13 @@ func (r statusReport) Human() string {
 		}
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		// tw writes to b, a strings.Builder, which never fails, so neither can tw.
-		_, _ = fmt.Fprintln(tw, "SLOT\tSTATE\tHOLDER\tAGE\tCONFIRMED")
+		_, _ = fmt.Fprintln(tw, "SLOT\tSTATE\tLANE\tHOLDER\tAGE\tCONFIRMED")
 		for _, s := range p.Slots {
-			holder, age, confirmed := "-", "-", "-"
+			lane, holder, age, confirmed := "-", "-", "-", "-"
 			if l := s.Lease; l != nil {
+				if l.Lane != "" {
+					lane = l.Lane
+				}
 				if l.Holder != "" {
 					holder = l.Holder
 				}
@@ -92,7 +95,8 @@ func (r statusReport) Human() string {
 					confirmed = "yes"
 				}
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\n", s.Name, s.State, holder, age, confirmed)
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.State, lane, holder,
+				age, confirmed)
 		}
 		_ = tw.Flush()
 	}
