@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
@@ -38,7 +37,8 @@ func newHarnessPool(t *testing.T) harnessPool {
 	return harnessPoolIn(t, newInitEnv(t))
 }
 
-// harnessPoolIn makes e's repository a harness pool, as newHarnessPool does, and runs setup. Only
+// harnessPoolIn makes e's repository a harness pool, as newHarnessPool does, with upool's hooks
+// registered in its settings as init registers them. Only
 // git and upool, this test binary, are on its PATH, so doctor runs neither this machine's unity
 // and claude nor, at the cost of a process each, the fakes; installTools (doctor_test.go) puts the
 // fakes there.
@@ -53,7 +53,7 @@ func harnessPoolIn(t *testing.T, e *testenv.Env) harnessPool {
 		t.Fatal(err)
 	}
 	e.Setenv("PATH", bin)
-	runSetup(t, e)
+	registerProjectHooks(t, e)
 	p := harnessPool{Env: e}
 	p.WriteFile(".gitignore", readFile(t, p.Env, ".gitignore")+worktreesLine+"\n")
 	var slots []pool.Slot
@@ -73,21 +73,27 @@ func harnessPoolIn(t *testing.T, e *testenv.Env) harnessPool {
 	return p
 }
 
-// runSetup runs `upool setup` in e, as a machine with a pool has had it run, through a link to this
-// test binary that it puts in a directory of its own at the end of e's PATH.
-func runSetup(t *testing.T, e *testenv.Env) {
+// registerProjectHooks registers upool's hooks in the project's .claude/settings.local.json, as
+// init's last step does (A26), to run a link to this test binary that it puts in a directory of its
+// own at the end of e's PATH.
+func registerProjectHooks(t *testing.T, e *testenv.Env) {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	bin := tempDir(t)
-	if err := os.Symlink(exe, filepath.Join(bin, upoolName)); err != nil {
+	upool := filepath.Join(bin, upoolName)
+	if err := os.Symlink(exe, upool); err != nil {
 		t.Fatal(err)
 	}
 	e.Setenv("PATH", e.Getenv("PATH")+string(os.PathListSeparator)+bin)
-	if r := runIn(t, e, e.Repo, "setup"); r.code != output.ExitOK {
-		t.Fatalf("upool setup: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	reg, err := planRegistration(e.Path(projectSettings), upool, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := reg.apply(); err != nil {
+		t.Fatal(err)
 	}
 }
 

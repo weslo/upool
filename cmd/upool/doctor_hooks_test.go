@@ -9,20 +9,21 @@ import (
 	"github.com/weslo/upool/internal/output"
 )
 
-// The acceptance test of #69, as #163 left it: after a fresh setup the hook checks pass, and an
-// upool under a Documents folder is fine; a registered upool that no longer exists, one that is not
-// executable and a missing settings entry each fail, as does every other way the registration can
-// be wrong; and a registered repository whose own settings register upool's hooks warns.
+// The acceptance test of #175: after init's registration in the project the hook checks pass,
+// and an upool under a Documents folder is fine; a registered upool that no longer exists, one
+// that is not executable and a missing project entry each fail, as does every other way the
+// registration can be wrong; and a registration in the user's own settings, or in a registered
+// repository's committed settings, warns.
 func TestDoctorHooks(t *testing.T) {
 	tests := []struct {
 		name string
-		// breakIt changes p's machine after setup; a nil one leaves it as setup made it.
+		// breakIt changes p's machine after the registration; a nil one leaves it as init made it.
 		breakIt func(t *testing.T, p harnessPool)
 		check   string
 		result  checkResult
 		reason  string
 	}{
-		{name: "fresh setup"},
+		{name: "fresh registration"},
 		{
 			name: "upool in Documents",
 			breakIt: func(t *testing.T, p harnessPool) {
@@ -50,7 +51,7 @@ func TestDoctorHooks(t *testing.T) {
 				}
 			},
 			check: checkHookSettings, result: checkFail,
-			reason: ", which does not exist: run upool setup as the upool on PATH",
+			reason: ", which does not exist: run upool init as the upool on PATH",
 		},
 		{
 			name: "registered upool not executable",
@@ -73,7 +74,7 @@ func TestDoctorHooks(t *testing.T) {
 			},
 			check: checkHookSettings, result: checkFail,
 			reason: "does not register upool hook worktree-remove for WorktreeRemove: run upool " +
-				"setup",
+				"init",
 		},
 		{
 			name: "entry for another hook",
@@ -102,20 +103,28 @@ func TestDoctorHooks(t *testing.T) {
 		{
 			name: "no settings file",
 			breakIt: func(t *testing.T, p harnessPool) {
-				if err := os.Remove(settingsPath(p.Home)); err != nil {
+				if err := os.Remove(p.Path(projectSettings)); err != nil {
 					t.Fatal(err)
 				}
 			},
 			check: checkHookSettings, result: checkFail,
-			reason: "settings.json does not exist, so no hook is registered",
+			reason: "settings.local.json does not exist, so no hook is registered",
 		},
 		{
-			name: "the project's settings.local.json registers upool",
+			name: "user settings register upool",
 			breakIt: func(t *testing.T, p harnessPool) {
-				p.WriteFile(".claude/settings.local.json", `{"hooks": {"WorktreeCreate": [`+
-					`{"hooks": [{"type": "command", "command": "/opt/homebrew/bin/upool", `+
-					`"args": ["hook", "worktree-create"]}]}]}}`)
+				user := filepath.Join(p.Home, ".claude", "settings.json")
+				if err := os.MkdirAll(filepath.Dir(user), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(user, []byte(`{"hooks": {"WorktreeCreate": [{"hooks": `+
+					`[{"type": "command", "command": "/opt/homebrew/bin/upool", "args": `+
+					`["hook", "worktree-create"]}]}]}}`), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			},
+			check: checkHookProvenance, result: checkWarn,
+			reason: "settings.json registers upool's hooks",
 		},
 		{
 			name: "project settings run upool hook",
@@ -147,11 +156,11 @@ func TestDoctorHooks(t *testing.T) {
 	}
 }
 
-// registeredUpool returns the upool p's settings.json registers for WorktreeCreate, as setup
-// wrote it.
+// registeredUpool returns the upool p's .claude/settings.local.json registers for WorktreeCreate,
+// as init wrote it.
 func registeredUpool(t *testing.T, p harnessPool) string {
 	t.Helper()
-	b, err := os.ReadFile(settingsPath(p.Home))
+	b, err := os.ReadFile(p.Path(projectSettings))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,15 +171,15 @@ func registeredUpool(t *testing.T, p harnessPool) string {
 	if h := registered["WorktreeCreate"]; len(h) == 1 && filepath.IsAbs(h[0].Command) {
 		return h[0].Command
 	}
-	t.Fatalf("%s registers %+v for WorktreeCreate, want setup's one handler",
-		settingsPath(p.Home), registered["WorktreeCreate"])
+	t.Fatalf("%s registers %+v for WorktreeCreate, want init's one handler",
+		p.Path(projectSettings), registered["WorktreeCreate"])
 	return ""
 }
 
 // editSettings changes the hooks in p's ~/.claude/settings.json with f.
 func editSettings(t *testing.T, p harnessPool, f func(hooks map[string]any)) {
 	t.Helper()
-	b, err := os.ReadFile(settingsPath(p.Home))
+	b, err := os.ReadFile(p.Path(projectSettings))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +188,7 @@ func editSettings(t *testing.T, p harnessPool, f func(hooks map[string]any)) {
 		t.Fatal(err)
 	}
 	f(settings["hooks"].(map[string]any))
-	if err := os.WriteFile(settingsPath(p.Home), mustJSON(t, settings), 0o600); err != nil {
+	if err := os.WriteFile(p.Path(projectSettings), mustJSON(t, settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }

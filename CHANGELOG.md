@@ -22,8 +22,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   running. It registers them last, after the registry, and on an already registered repository it
   registers them again and does nothing else. It never writes `~/.claude/settings.json`. The desktop
   app runs hooks a project registers, skipping only its config overlay and auto-trust
-  (docs/contracts.md A26; #172). `doctor`'s `hook-provenance` passes over that file and warns only
-  about a committed `.claude/settings*.json` that registers upool's hooks.
+  (docs/contracts.md A26; #172).
 - `upool setup` registers upool itself at user scope in `~/.claude/settings.json`, for
   `WorktreeCreate`, `WorktreeRemove` and `SessionStart`: one matcher group each, with no matcher,
   whose handler runs `upool hook <event>` in exec form (`"args": ["hook", "<event>"]`, so no shell
@@ -48,12 +47,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   takes its own slot with `upool take` and releases it. A copy of the skill that differs is
   rewritten. The block is upserted as `init` does it, every byte outside its markers kept, and an
   instruction file whose markers do not pair is refused before setup writes anything.
-- `upool doctor` checks the hook installation, which belongs to the machine rather than the pool:
-  `hook-settings` fails unless `~/.claude/settings.json` registers `upool hook <event>` for each
-  event, in exec form with upool an absolute path, and each upool it registers is an executable
-  file, wherever it is; and `hook-provenance` warns about each registered repository whose
-  own `.claude/settings*.json` also registers upool's hooks, which the desktop app does not vouch
-  for there.
+- `upool doctor` checks the hook installation of the pool it runs in: `hook-settings` fails unless
+  the project's `.claude/settings.local.json` registers `upool hook <event>` for each event, in exec
+  form with upool an absolute path, and each upool it registers is an executable file, wherever it
+  is; and `hook-provenance` warns when `~/.claude/settings.json` registers upool's hooks, which
+  would run for every repository and twice in a pool, or when a registered repository's committed
+  `.claude/settings*.json` does (A26).
 - `upool run <name> -- <cmd...>`, the agent-agnostic launcher: it takes a slot as `take <name>`
   does, runs the command in it with the slot as its working directory and `UNITY_PROJECT_PATH`
   (and `PWD`) set to it, forwards SIGINT and SIGTERM to it, releases the slot when it exits with

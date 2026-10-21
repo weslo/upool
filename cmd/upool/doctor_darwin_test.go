@@ -8,12 +8,11 @@ import (
 	"github.com/weslo/upool/internal/output"
 )
 
-// After a real init, which clones slot-1 with cp -cR, and setup, every check passes, the
-// clone-sharing check among them, and its scratch files are gone.
+// After a real init, which clones slot-1 with cp -cR and registers the hooks in the project,
+// every check passes, the clone-sharing check among them, and its scratch files are gone.
 func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 	e := newInitEnv(t)
 	mustInit(t, e)
-	runSetup(t, e)
 	unity, claude := capturedTools(t)
 	fakeTools(t, e, unity, claude)
 	r := runIn(t, e, e.Repo, "doctor", "--json")
