@@ -26,9 +26,9 @@ archives:
 checksum:
   name_template: checksums.txt
 
-# Release notes come from CHANGELOG.md (see .github/workflows/release.yml).
-changelog:
-  disable: true
+# Release notes come from CHANGELOG.md (see .github/workflows/release.yml), passed as
+# --release-notes. The changelog step must stay enabled: it is where GoReleaser loads that file,
+# and given the file it generates nothing from git (#150).
 
 brews:
   - name: upool

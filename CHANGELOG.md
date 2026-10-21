@@ -134,6 +134,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   confirm fails, prints nothing on stdout, which Claude Code adds to the session's context, and
   exits 0 on every path, with any failure on stderr.
 
+### Fixed
+
+- A release's notes are its section of this file. v0.1.0 was published with an empty body,
+  because `.goreleaser.yaml` disabled GoReleaser's changelog step, which is where the notes file the
+  release workflow passes with `--release-notes` is loaded (#150).
+
 ## [0.1.0] - 2026-10-20
 
 ### Added
