@@ -2,17 +2,17 @@
 
 [![ci](https://github.com/weslo/upool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weslo/upool/actions/workflows/ci.yml?query=branch%3Amain)
 
-**Status: pre-alpha.** v0.2.0, the pool core and its Claude Code integration, is on
-[GitHub Releases](https://github.com/weslo/upool/releases); Homebrew comes with M4. The
+**Status: pre-alpha.** v0.3.0, the pool core, its Claude Code integration and Editor governance,
+is on [GitHub Releases](https://github.com/weslo/upool/releases); Homebrew comes with M4. The
 [roadmap](#-roadmap) shows where the build stands.
 
-To try v0.2.0 now, download the archive for your Mac with `gh` or `curl`; a browser quarantines the
+To try v0.3.0 now, download the archive for your Mac with `gh` or `curl`; a browser quarantines the
 download, and the binary is not signed. Put the `upool` in it on your `PATH`, then follow the
 Quickstart from `upool init` on:
 
 ```bash
-gh release download v0.2.0 -R weslo/upool -p 'upool_0.2.0_darwin_arm64.tar.gz'   # or darwin_amd64
-tar -xzf upool_0.2.0_darwin_arm64.tar.gz upool
+gh release download v0.3.0 -R weslo/upool -p 'upool_0.3.0_darwin_arm64.tar.gz'   # or darwin_amd64
+tar -xzf upool_0.3.0_darwin_arm64.tar.gz upool
 ```
 
 upool keeps a small pool of pre-warmed Unity workspaces for each project and hands one to every
@@ -64,8 +64,8 @@ passes.
 | ✅ Done | [M0 Scaffold](https://github.com/weslo/upool/milestone/1) | Foundations with no user-facing commands: config, state files under one lock, the output package and the test harness | — |
 | ✅ Done | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
 | ✅ Done | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `init`'s per-project hooks that hand each session a slot, the background top-up, the skill and `run` | v0.2.0 |
-| 🚧 In progress | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
-| ⬜ Planned | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, the disk budget and `.upool.toml`, then the Homebrew release the Quickstart uses | v0.4.0 |
+| ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
+| 🚧 In progress | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, the disk budget and `.upool.toml`, then the Homebrew release the Quickstart uses | v0.4.0 |
 
 ## 📚 Documentation
 
