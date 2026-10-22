@@ -79,6 +79,14 @@ func (p *editorProcs) Alive(pid int, _ time.Time) (bool, error) {
 func runOpen(t *testing.T, p harnessPool, procs proc.Checker, now func() time.Time,
 	args ...string) result {
 	t.Helper()
+	return runInSlot1(t, p, procs, now, append([]string{"open"}, args...)...)
+}
+
+// runInSlot1 runs upool with args in slot-1 of p, as runAt does, with procs as the process table
+// and now as the clock.
+func runInSlot1(t *testing.T, p harnessPool, procs proc.Checker, now func() time.Time,
+	args ...string) result {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	d := dispatcher{
 		commands:   commandTable,
@@ -95,7 +103,7 @@ func runOpen(t *testing.T, p harnessPool, procs proc.Checker, now func() time.Ti
 		executable: os.Executable,
 		procs:      procs,
 	}
-	code := d.run(append([]string{"open"}, args...))
+	code := d.run(args)
 	return result{code, out.String(), errOut.String()}
 }
 

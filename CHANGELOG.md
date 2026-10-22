@@ -103,6 +103,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     `reimport_pending` is cleared (A39).
 - docs/contracts.md records A36 to A39, the answers #89 raised. docs/manual-gates/M3.md gains the
   check "Open".
+- `upool close`, from inside a slot, saves every open scene of the slot's Editor with `save_all`,
+  and only then closes it with `unity close <slot>`, which on its own discards unsaved scenes.
+  - If the save fails, close stops there and exits 1, closing nothing. A first-call timeout is
+    re-queried once (A29).
+  - After the close, it waits for the Editor's process to be gone, up to 30 s, then takes the
+    slot's Editor out of the ledger. An Editor still running fails close and stays charged.
+  - docs/manual-gates/M3.md gains the check "Save then close".
 
 ## [0.2.0] - 2026-10-21
 
