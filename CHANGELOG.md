@@ -9,6 +9,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool status --du` (#99): each slot's disk use, its private size beside its apparent size, and
+  each pool's sums, with `--all` for every pool and `--json` (`disk.private_bytes` and
+  `disk.apparent_bytes`). The private size is the sum over the slot's regular files of APFS's
+  `ATTR_CMNEXT_PRIVATESIZE`, the bytes no other clone shares, which deleting the slot frees; `du`
+  counts a clone's shared blocks in full (docs/contracts.md A32). A slot whose directory is gone
+  shows `-`. Off macOS, `--du` fails.
+
 - A stale seed is refreshed before it is cloned, rather than refused (#98; docs/contracts.md (g)
   step 1). The clone recipe opens the seed's Editor headless, charged in the ledger, waits until it
   is ready, closes it without `save_all`, puts back the scene list the headless Editor empties, and

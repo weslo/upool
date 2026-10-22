@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -15,21 +18,23 @@ import (
 )
 
 // statusUsage is status's usage line, which its handler also names when it refuses arguments.
-// --du arrives with disk reporting in M4.
-const statusUsage = "status [--all] [--json]"
+const statusUsage = "status [--all] [--du] [--json]"
 
 // statusCommand is `upool status`: the slots of the pool containing the working directory, their
 // states and their leases, or with --all those of every registered pool (docs/design.md, "One
 // binary, a dozen commands, one JSON file per pool", the `status` row). It reports what state.json
 // records, and announces the pool's refresh job while it runs (#79). It changes only what
 // docs/contracts.md (f) has every read of the pool settle: an unconfirmed lease past
-// confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). Agent
-// worktrees join it in M2, Editors in M3 and disk in M4.
+// confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). With
+// --du it reports each slot's disk use, its private size beside its apparent size, and each
+// pool's sum (docs/contracts.md A32; #99).
 var statusCommand = command{
 	usage: statusUsage,
 	setup: func(fs *flag.FlagSet) handler {
 		all := fs.Bool("all", false, "show every registered pool")
-		return func(inv *invocation) (any, []string, error) { return status(inv, *all) }
+		du := fs.Bool("du", false, "add each slot's disk use: the bytes no other clone shares, "+
+			"which deleting it frees, and its apparent size")
+		return func(inv *invocation) (any, []string, error) { return status(inv, *all, *du) }
 	},
 }
 
@@ -39,6 +44,8 @@ type statusReport struct {
 	Pools []poolStatus `json:"pools"`
 	// now is when status ran, from which Human reckons each lease's age.
 	now time.Time
+	// du is whether the slots' disk use was measured, which Human adds to its table.
+	du bool
 }
 
 // poolStatus is one pool: its main checkout, its base and its slots, in state.json's order.
@@ -49,6 +56,16 @@ type poolStatus struct {
 	// RefreshJob is the pool's detached `upool refresh` while its process is alive, and nil
 	// otherwise (docs/contracts.md (e) `refresh_job`).
 	RefreshJob *pool.RefreshJob `json:"refresh_job"`
+	// Disk is the sum of its slots' disk use, with --du.
+	Disk *diskReport `json:"disk,omitempty"`
+}
+
+// diskReport is disk use as status --du reports it (A32): the private size, the bytes no other
+// clone shares, which deleting the slot frees, and the apparent size, the sum of its files'
+// sizes, which `du` and Finder show and which says nothing of what a clone costs.
+type diskReport struct {
+	PrivateBytes  int64 `json:"private_bytes"`
+	ApparentBytes int64 `json:"apparent_bytes"`
 }
 
 // slotStatus is one slot, with its state as docs/contracts.md (f) names it and its lease as which
@@ -59,12 +76,15 @@ type slotStatus struct {
 	State pool.State `json:"state"`
 	// Lease is the slot's current lease, or nil when it has none.
 	Lease *leaseReport `json:"lease"`
+	// Disk is the slot's disk use, with --du; nil without it, or when its directory is gone.
+	Disk *diskReport `json:"disk,omitempty"`
 }
 
 // Human returns each pool as a line naming its main checkout and base, then a table of its slots:
 // name, state, lease lane, lease holder, lease age and whether the lease is confirmed, with "-"
-// for a slot that has no lease, after a line announcing the refresh job while it runs. Pools are
-// separated by a blank line.
+// for a slot that has no lease, after a line announcing the refresh job while it runs. With --du
+// the table adds each slot's private and apparent size, "-" for a slot whose directory is gone,
+// and a line after it gives the pool's sums. Pools are separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -81,7 +101,11 @@ func (r statusReport) Human() string {
 		}
 		tw := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
 		// tw writes to b, a strings.Builder, which never fails, so neither can tw.
-		_, _ = fmt.Fprintln(tw, "SLOT\tSTATE\tLANE\tHOLDER\tAGE\tCONFIRMED")
+		header := "SLOT\tSTATE\tLANE\tHOLDER\tAGE\tCONFIRMED"
+		if r.du {
+			header += "\tPRIVATE\tAPPARENT"
+		}
+		_, _ = fmt.Fprintln(tw, header)
 		for _, s := range p.Slots {
 			lane, holder, age, confirmed := "-", "-", "-", "-"
 			if l := s.Lease; l != nil {
@@ -97,12 +121,39 @@ func (r statusReport) Human() string {
 					confirmed = "yes"
 				}
 			}
-			_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n", s.Name, s.State, lane, holder,
-				age, confirmed)
+			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s", s.Name, s.State, lane, holder, age,
+				confirmed)
+			if r.du {
+				private, apparent := "-", "-"
+				if d := s.Disk; d != nil {
+					private, apparent = bytesSize(d.PrivateBytes), bytesSize(d.ApparentBytes)
+				}
+				row += "\t" + private + "\t" + apparent
+			}
+			_, _ = fmt.Fprintln(tw, row)
 		}
 		_ = tw.Flush()
+		if d := p.Disk; d != nil {
+			fmt.Fprintf(&b, "disk: %s private, %s apparent\n", bytesSize(d.PrivateBytes),
+				bytesSize(d.ApparentBytes))
+		}
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// bytesSize is n bytes in the largest unit it fills, GB, MB or KB counted in powers of 1024 as
+// the RAM settings count a gigabyte, with one decimal, or in bytes below a kilobyte.
+func bytesSize(n int64) string {
+	units := []struct {
+		size   int64
+		suffix string
+	}{{1 << 30, "GB"}, {1 << 20, "MB"}, {1 << 10, "KB"}}
+	for _, u := range units {
+		if n >= u.size {
+			return fmt.Sprintf("%.1f %s", float64(n)/float64(u.size), u.suffix)
+		}
+	}
+	return fmt.Sprintf("%d B", n)
 }
 
 // leaseAge is d in its two largest units, such as 45s, 1m30s, 1h or 2d3h: fine enough to tell an
@@ -133,7 +184,7 @@ func leaseAge(d time.Duration) string {
 // <repo>/.claude/worktrees; anywhere else it fails. Paths are compared as canonical keys, as which
 // compares them (docs/design.md, "Repository, CI and Homebrew distribution", the first of the five
 // rules after the layout).
-func status(inv *invocation, all bool) (any, []string, error) {
+func status(inv *invocation, all, du bool) (any, []string, error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
 			statusUsage)
@@ -171,15 +222,45 @@ func status(inv *invocation, all bool) (any, []string, error) {
 		}
 		pools = []registeredPool{innermost(pools)}
 	}
-	r := statusReport{Pools: make([]poolStatus, 0, len(pools)), now: inv.now()}
+	r := statusReport{Pools: make([]poolStatus, 0, len(pools)), now: inv.now(), du: du}
 	for _, rp := range pools {
 		ps := newPoolStatus(rp)
 		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
 			return nil, nil, err
 		}
+		if du {
+			if err := ps.measure(); err != nil {
+				return nil, notes, err
+			}
+		}
 		r.Pools = append(r.Pools, ps)
 	}
 	return r, notes, nil
+}
+
+// measure gives each slot of p whose directory exists its disk use, and p their sum (A32). A
+// slot whose directory is gone has none. Off macOS, where no file system reports a private size,
+// it fails.
+func (p *poolStatus) measure() error {
+	sum := diskReport{}
+	for i := range p.Slots {
+		s := &p.Slots[i]
+		d, err := clone.DiskUse(s.Path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case errors.Is(err, errors.ErrUnsupported):
+			return output.Fail(output.CodeCommandFailed, "status --du reads APFS private sizes, "+
+				"which only macOS has: %v", err)
+		case err != nil:
+			return fmt.Errorf("measuring %s: %w", s.Name, err)
+		}
+		s.Disk = &diskReport{PrivateBytes: d.Private, ApparentBytes: d.Apparent}
+		sum.PrivateBytes += d.Private
+		sum.ApparentBytes += d.Apparent
+	}
+	p.Disk = &sum
+	return nil
 }
 
 // innermost is the pool among pools, which all contain one directory, whose main checkout lies

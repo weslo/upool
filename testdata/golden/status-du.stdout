@@ -1,0 +1,6 @@
+${home}/Documents/down (base main)
+SLOT    STATE   LANE  HOLDER  AGE  CONFIRMED  PRIVATE  APPARENT
+slot-1  ready   -     -       -    -          64.0 KB  2.0 MB
+slot-2  ready   -     -       -    -          0 B      0 B
+slot-3  parked  -     -       -    -          -        -
+disk: 64.0 KB private, 2.0 MB apparent
