@@ -6,12 +6,15 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
+	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/unity"
 )
@@ -56,6 +59,9 @@ type closeReport struct {
 	PID int `json:"pid"`
 	// Method is how `unity close` closed it, such as graceful.
 	Method string `json:"method"`
+	// SceneListRestored is whether close put back the scene list `upool open --headless` kept
+	// (A8).
+	SceneListRestored bool `json:"scene_list_restored"`
 }
 
 // Human returns one line saying which Editor was saved and closed.
@@ -71,9 +77,11 @@ func (r closeReport) Human() string {
 //  2. It runs `unity close <slot>`, the slot positional (docs/contracts.md (c)).
 //  3. It waits for the Editor's process to be gone, both the PID the ledger recorded and the one
 //     `unity close` reports, and then takes the slot's Editor out of the ledger.
+//  4. When that Editor was one `upool open --headless` opened, it puts back the scene list open
+//     kept, which the headless Editor emptied as it closed, and deletes the copy (A8).
 func closeEditor(inv *invocation) (any, []string, error) {
 	ctx := context.Background()
-	_, s, err := slotHere(ctx, inv, "close")
+	rp, s, err := slotHere(ctx, inv, "close")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -108,7 +116,7 @@ func closeEditor(inv *invocation) (any, []string, error) {
 	}
 
 	procs := inv.checker()
-	pids, err := editorPIDs(inv.home, s.Path, data.PID)
+	pids, headless, err := editorPIDs(inv.home, s.Path, data.PID)
 	if err != nil {
 		return nil, reply.Response.Warnings, err
 	}
@@ -118,35 +126,62 @@ func closeEditor(inv *invocation) (any, []string, error) {
 	if _, err := ledger.Remove(ctx, inv.home, procs, s.Path); err != nil {
 		return nil, reply.Response.Warnings, err
 	}
-	return closeReport{Slot: s.Name, Path: s.Path, PID: data.PID, Method: data.Method},
-		reply.Response.Warnings, nil
+	r := closeReport{Slot: s.Name, Path: s.Path, PID: data.PID, Method: data.Method}
+	if headless {
+		if r.SceneListRestored, err = restoreSceneList(ctx, inv.home, rp.repo.Key,
+			s); err != nil {
+			return nil, reply.Response.Warnings, err
+		}
+	}
+	return r, reply.Response.Warnings, nil
 }
 
 // editorPIDs returns the processes of slot's Editor: those the ledger records for it and reported,
-// the PID `unity close` reported, when it is one.
-func editorPIDs(home, slot string, reported int) ([]int, error) {
+// the PID `unity close` reported, when it is one. It also reports whether the ledger records a
+// headless Editor that upool opened in slot.
+func editorPIDs(home, slot string, reported int) ([]int, bool, error) {
 	l, err := ledger.Load(home)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	key, err := paths.Key(slot)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var pids []int
 	if reported > 0 {
 		pids = append(pids, reported)
 	}
+	headless := false
 	for _, e := range l.Editors {
 		ek, err := paths.Key(e.Project)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
-		if ek == key && !slices.Contains(pids, e.PID) {
+		if ek != key {
+			continue
+		}
+		if !slices.Contains(pids, e.PID) {
 			pids = append(pids, e.PID)
 		}
+		headless = headless || e.Mode == modeHeadless && e.OpenedByUpool
 	}
-	return pids, nil
+	return pids, headless, nil
+}
+
+// restoreSceneList writes the scene list `upool open --headless` kept for slot s back into its
+// Library/, now that the headless Editor has exited, and deletes the copy (A8). It reports whether
+// there was one to restore.
+func restoreSceneList(ctx context.Context, home, repoKey string, s pool.Slot) (bool, error) {
+	data, ok, err := pool.SavedSceneList(home, repoKey, s.Name)
+	if err != nil || !ok {
+		return false, err
+	}
+	path := filepath.Join(s.Path, "Library", pool.SceneListFile)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return false, fmt.Errorf("restoring %s: %w", path, err)
+	}
+	return true, pool.DropSceneList(ctx, home, repoKey, s.Name)
 }
 
 // waitGone waits for each of pids to be no process, checking every exitPollInterval for at most
