@@ -108,7 +108,7 @@ func (r openReport) Human() string {
 // that never became ready.
 func openEditor(inv *invocation, mode string) (any, []string, error) {
 	ctx := context.Background()
-	rp, s, err := slotHere(ctx, inv)
+	rp, s, err := slotHere(ctx, inv, "open")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -165,8 +165,10 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 	return r, warnings, nil
 }
 
-// slotHere finds the slot containing the working directory, which open acts on, and its pool.
-func slotHere(ctx context.Context, inv *invocation) (registeredPool, pool.Slot, error) {
+// slotHere finds the slot containing the working directory, which open and close act on, and its
+// pool. command names the command for the error when there is none.
+func slotHere(ctx context.Context, inv *invocation, command string) (registeredPool, pool.Slot,
+	error) {
 	wd, err := inv.getwd()
 	if err != nil {
 		return registeredPool{}, pool.Slot{}, fmt.Errorf("reading the working directory: %w", err)
@@ -193,7 +195,7 @@ func slotHere(ctx context.Context, inv *invocation) (registeredPool, pool.Slot, 
 		}
 	}
 	return registeredPool{}, pool.Slot{}, output.Fail(output.CodeNotInSlot,
-		"%s is not inside a slot; run upool open in the slot whose Editor to open", wd)
+		"%s is not inside a slot; run upool %s in the slot whose Editor it is for", wd, command)
 }
 
 // admitEditor admits e to the ledger. A refusal by max_cold_imports waits for the running cold
