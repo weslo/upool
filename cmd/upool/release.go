@@ -11,6 +11,7 @@ import (
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -25,9 +26,9 @@ const releaseUsage = "release [path|name] [--if-lease-id ID] [--force] [--json]"
 
 // releaseCommand is `upool release`: it returns a leased slot to the pool, reset and ready when it
 // is clean and parked when it is dirty (docs/design.md, "One binary, a dozen commands, one JSON
-// file per pool", the `release` row; docs/contracts.md (f) transitions 11 and 12), after
-// `unity projects verify --strict` has checked it (A34). Closing an Editor the tool opened arrives
-// with M3.
+// file per pool", the `release` row; docs/contracts.md (f) transitions 11 and 12), after saving
+// and closing any Editor upool opened in it and after `unity projects verify --strict` has
+// checked it (A34).
 var releaseCommand = command{
 	usage: releaseUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -50,21 +51,30 @@ type releaseReport struct {
 	// is on no branch.
 	Dirty []string `json:"dirty,omitempty"`
 
+	// Editor is the Editor upool opened in the slot, which release saved and closed first, or nil.
+	Editor *closeReport `json:"editor,omitempty"`
+
 	// base is what a ready slot was reset to, for the human form.
 	base string
 }
 
-// Human returns one line saying what became of the slot.
+// Human returns one line saying what became of the slot, after one saying which Editor release
+// closed, if it closed one.
 func (r releaseReport) Human() string {
+	line := fmt.Sprintf("released %s: ready, detached at %s", r.Slot, r.base)
 	if r.State == pool.StateParked {
-		return fmt.Sprintf("parked %s, which is dirty; nothing in it was changed", r.Slot)
+		line = fmt.Sprintf("parked %s, which is dirty; nothing in it was changed", r.Slot)
 	}
-	return fmt.Sprintf("released %s: ready, detached at %s", r.Slot, r.base)
+	if r.Editor != nil {
+		line = r.Editor.Human() + "\n" + line
+	}
+	return line
 }
 
 // release is release's handler. It finds the slot, refuses a live holder's lease and a lease
-// --if-lease-id does not name, verifies the slot (verifySlot), reverts define-order noise, and
-// then resets a clean slot to base or parks a dirty one. Either way it unlocks a worktree an
+// --if-lease-id does not name, saves and closes the Editor upool opened in it (releaseEditor),
+// verifies the slot (verifySlot), reverts define-order noise, and then resets a clean slot to base
+// or parks a dirty one. Either way it unlocks a worktree an
 // earlier upool locked (pool.Unlock) and clears the lease, writing state.json last and only if the
 // lease is still the one it read.
 func release(inv *invocation, ifLeaseID string, force bool) (any, []string, error) {
@@ -86,7 +96,11 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		return nil, nil, err
 	}
 
-	warnings := verifySlot(ctx, inv, s)
+	editor, warnings, err := releaseEditor(ctx, inv, rp, s)
+	if err != nil {
+		return nil, warnings, err
+	}
+	warnings = append(warnings, verifySlot(ctx, inv, s)...)
 	if _, err := pool.RevertNoise(ctx, g, s.Path); err != nil {
 		return nil, nil, err
 	}
@@ -119,7 +133,8 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	r := releaseReport{Slot: s.Name, Path: s.Path, State: state, Repo: repo, base: rp.pool.Base}
+	r := releaseReport{Slot: s.Name, Path: s.Path, State: state, Repo: repo, Editor: editor,
+		base: rp.pool.Base}
 	if !clean {
 		r.Dirty = dirty
 		for _, d := range dirty {
@@ -127,6 +142,58 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		}
 	}
 	return r, warnings, nil
+}
+
+// releaseEditor saves and closes the Editor upool opened in slot s, through close's own steps,
+// before release judges the slot clean, so that the Editor's unsaved work lands in the slot and
+// nothing holds it open across the reset (docs/design.md, "One binary, a dozen commands, one JSON
+// file per pool", the `release` row; docs/contracts.md (e), editors[].opened_by_upool). It looks
+// only at the ledger's Editors in the slot whose process is still running. One upool did not open
+// fails release, which closes only Editors the tool opened; a failed close fails it too, and
+// either way the slot stays leased.
+func releaseEditor(ctx context.Context, inv *invocation, rp registeredPool,
+	s pool.Slot) (*closeReport, []string, error) {
+	l, err := ledger.Load(inv.home)
+	if err != nil {
+		return nil, nil, err
+	}
+	key, err := paths.Key(s.Path)
+	if err != nil {
+		return nil, nil, err
+	}
+	procs := inv.checker()
+	ours := false
+	for _, e := range l.Editors {
+		ek, err := paths.Key(e.Project)
+		if err != nil {
+			return nil, nil, err
+		}
+		if ek != key {
+			continue
+		}
+		_, err = procs.Start(e.PID)
+		if errors.Is(err, proc.ErrNoProcess) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("checking the Editor of %s, process %d: %w", s.Name,
+				e.PID, err)
+		}
+		if !e.OpenedByUpool {
+			return nil, nil, output.Fail(output.CodeCommandFailed, "%s has an Editor upool did "+
+				"not open, process %d, which release does not close: close it, then release "+
+				"the slot", s.Name, e.PID)
+		}
+		ours = true
+	}
+	if !ours {
+		return nil, nil, nil
+	}
+	r, warnings, err := closeSlotEditor(ctx, inv, rp, s)
+	if err != nil {
+		return nil, warnings, fmt.Errorf("releasing %s: %w", s.Name, err)
+	}
+	return &r, warnings, nil
 }
 
 // verifySlot runs `unity projects verify --strict` on the slot before release resets or parks it,
