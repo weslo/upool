@@ -108,7 +108,7 @@ func TestDoctorVCSNeverFails(t *testing.T) {
 	t.Run("a failed call", func(t *testing.T) {
 		p := newHarnessPool(t)
 		version := capturedVersion(t, "unity", "version.raw.txt")
-		u := fake.Install(t, version, version)
+		u := fake.Install(t, version, licenceReply, version)
 		p.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+p.Getenv("PATH"))
 		r := runIn(t, p.Env, p.Repo, "doctor", "--json")
 		got := vcsChecksOf(doctorChecks(t, r))

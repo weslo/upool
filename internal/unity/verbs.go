@@ -53,12 +53,16 @@ var (
 	// VerbVCSDoctor checks a repository's VCS set-up for Unity: its ignore rules, LFS and package
 	// pinning (testdata/captures/unity/vcs-doctor.json).
 	VerbVCSDoctor = Verb{Words: []string{"vcs", "doctor"}, Positional: true}
+	// VerbLicenseStatus reports the machine's Unity licence, which belongs to no project
+	// (testdata/captures/unity/license-status.json).
+	VerbLicenseStatus = Verb{Words: []string{"license", "status"}}
 )
 
 // Verbs is the table: every verb upool may run, in docs/contracts.md (c)'s order. A call goes
 // through Client.Call with one of them, so no call can miss the targeting rules.
 var Verbs = []Verb{VerbCommand, VerbStatus, VerbRecompile, VerbList, VerbJob, VerbMCP, VerbOpen,
-	VerbTest, VerbRun, VerbBuild, VerbClose, VerbCacheKey, VerbProjectsVerify, VerbVCSDoctor}
+	VerbTest, VerbRun, VerbBuild, VerbClose, VerbCacheKey, VerbProjectsVerify, VerbVCSDoctor,
+	VerbLicenseStatus}
 
 // Name is the verb as (c) writes it, such as "cache key".
 func (v Verb) Name() string { return strings.Join(v.Words, " ") }

@@ -68,12 +68,17 @@ func vcsLines(t *testing.T) int {
 	return len(reply.Data.Findings) + 1
 }
 
+// licenceReply is the fake unity's reply to `unity license status`: an active licence
+// (testdata/captures/unity/license-status.json).
+var licenceReply = fake.Reply{Capture: "license-status.json"}
+
 // fakeTools installs a fake unity and a fake claude first on e's PATH, so that doctor never runs
 // this machine's own. Each answers doctorRuns doctor runs: claude its reply, and unity its reply,
-// to `--version`, then vcsDoctorReply, to `vcs doctor`.
+// to `--version`, then licenceReply, to `license status`, then vcsDoctorReply, to `vcs doctor`.
 func fakeTools(t *testing.T, e *testenv.Env, unity, claude fake.Reply) (u, c *fake.Unity) {
 	t.Helper()
-	u = fake.Install(t, slices.Repeat([]fake.Reply{unity, vcsDoctorReply(e)}, doctorRuns)...)
+	u = fake.Install(t, slices.Repeat([]fake.Reply{unity, licenceReply, vcsDoctorReply(e)},
+		doctorRuns)...)
 	c = fake.InstallClaude(t, slices.Repeat([]fake.Reply{claude}, doctorRuns)...)
 	e.Setenv("PATH", c.Dir()+string(os.PathListSeparator)+u.PATH)
 	return u, c
@@ -117,13 +122,13 @@ func wantChecks() []string {
 		names = append(names, checkCloneSharing)
 	}
 	return append(names, checkStateVolume, checkLeases, checkHookSettings,
-		checkHookProvenance, "unity-cli", "claude-code", checkVCS)
+		checkHookProvenance, "unity-cli", "claude-code", checkLedgerEditors, checkLicence, checkVCS)
 }
 
 // checkResults fails the test unless checks are wantChecks, in order, each passing but the one
 // named in odd, which has that result and a reason containing reason. Without p's tools on PATH
-// the version checks warn instead, and the vcs check always warns: unity is not on PATH, or the
-// capture fakeTools replays has findings.
+// the version checks and the licence check warn instead, and the vcs check always warns: unity is
+// not on PATH, or the capture fakeTools replays has findings.
 func (p harnessPool) checkResults(t *testing.T, checks []doctorCheck, odd string,
 	result checkResult, reason string) {
 	t.Helper()
@@ -131,8 +136,8 @@ func (p harnessPool) checkResults(t *testing.T, checks []doctorCheck, odd string
 	for _, c := range checks {
 		names = append(names, c.Name)
 		want := checkPass
-		if !p.tools && (c.Name == "unity-cli" || c.Name == "claude-code") ||
-			c.Name == checkVCS {
+		if !p.tools && (c.Name == "unity-cli" || c.Name == "claude-code" ||
+			c.Name == checkLicence) || c.Name == checkVCS {
 			want = checkWarn
 		}
 		switch {

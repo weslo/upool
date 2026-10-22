@@ -67,12 +67,12 @@ func TestDoctorVersions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := newHarnessPool(t)
 			dirs := []string{p.Getenv("PATH")} // git alone
-			// Each fake's calls: --version, then for unity the vcs check's.
+			// Each fake's calls: --version, then for unity the licence and vcs checks'.
 			calls := map[*fake.Unity][][]string{}
 			if tt.unity != nil {
-				u := fake.Install(t, *tt.unity(t), vcsDoctorReply(p.Env))
+				u := fake.Install(t, *tt.unity(t), licenceReply, vcsDoctorReply(p.Env))
 				dirs = append([]string{u.Dir()}, dirs...)
-				calls[u] = [][]string{{"--version"},
+				calls[u] = [][]string{{"--version"}, {"license", "status", "--format", "json"},
 					{"vcs", "doctor", p.Repo, "--format", "json"}}
 			}
 			if tt.claude != nil {
