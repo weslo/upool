@@ -338,14 +338,20 @@ func TestRefreshRewarmFailures(t *testing.T) {
 				t.Errorf("unity calls = %q, want %q: no save_all", got, want)
 			}
 			if !tt.closed {
-				if s := p.loadPool(t).Slots[0]; s.State != pool.StateWarming {
-					t.Errorf("slot-1 = %s, want warming while its Editor runs", s.State)
+				if s := p.loadPool(t).Slots[0]; s.State != pool.StateWarming || !s.ReimportPending {
+					t.Errorf("slot-1 = %s, reimport_pending %t; want warming while its Editor "+
+						"runs, and pending", s.State, s.ReimportPending)
 				}
-				checkEditors(t, p, ledger.Editor{Project: slot, PID: capturedPID, Mode: modeHeadless,
-					OpenedByUpool: true, ChargeGB: 2.5})
+				checkEditors(t, p, ledger.Editor{Project: slot, PID: capturedPID,
+					Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 				if strings.Contains(r.stdout, "moved") {
 					t.Errorf("stdout = %q, want no move reported", r.stdout)
 				}
+				// Once refresh and the Editor are gone, transition 22 returns the slot, still
+				// pending.
+				runProcs(t, p.Env, p.Repo, procsAlive(), func() time.Time { return clock },
+					"status")
+				checkSlot1(t, p, upstream, true)
 				return
 			}
 			wantOut := "the pool has 1 ready, as ready = 1 asks\nmoved slot-1 to origin/main (" +
