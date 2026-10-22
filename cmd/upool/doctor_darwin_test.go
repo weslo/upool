@@ -38,7 +38,8 @@ func TestDoctorPassesThePoolInitMakes(t *testing.T) {
 	}
 	want := append([]string{checkGitignore, checkLibrary, "slot-1", checkCloneSharing,
 		checkStateVolume, checkLeases, checkHookSettings, checkHookProvenance, "unity-cli",
-		"claude-code"}, slices.Repeat([]string{checkVCS}, vcsLines(t))...)
+		"claude-code", checkLedgerEditors, checkLicence},
+		slices.Repeat([]string{checkVCS}, vcsLines(t))...)
 	if strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Errorf("checks = %v, want %v", names, want)
 	}

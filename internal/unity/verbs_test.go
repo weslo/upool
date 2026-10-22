@@ -77,6 +77,7 @@ var replies = map[string]fake.Reply{
 	"cache key":       {Capture: "cache-key.json"},
 	"projects verify": {Capture: "projects-verify-pass.json"},
 	"vcs doctor":      {Capture: "vcs-doctor.json", Exit: 4},
+	"license status":  {Capture: "license-status.json"},
 }
 
 // slotDir is a slot for the calls to target: a directory with symlinks resolved, as the fake

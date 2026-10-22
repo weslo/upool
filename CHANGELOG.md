@@ -125,6 +125,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `--json` gives the closed Editor as `editor`.
 - `upool take` skips a slot whose Editor the ledger records as running (`editor-running`).
   docs/manual-gates/M3.md gains the check "Release with an Editor".
+- `upool doctor` checks the ledger's Editors against the process table, as `editors` lines. An
+  Editor whose process is gone fails, since the ledger still charges it.
+  - With `--fix`, doctor takes it out of the ledger. It deletes its slot's `Temp/`, whose leftover
+    lock file makes Unity refuse the project, only when `unity status` lists no Editor in the slot.
+  - doctor also reports `unity license status` as a `unity-licence` line: information, which warns
+    only when the licence is not active.
+  - The verb table and docs/contracts.md (c) gain `license status`. docs/manual-gates/M3.md gains
+    the check "Crash recovery".
 
 ## [0.2.0] - 2026-10-21
 

@@ -31,13 +31,16 @@ const doctorUsage = "doctor [--fix] [--json]"
 // the scratch files the clone-sharing check writes and removes and, as take and status do, the
 // end of unconfirmed leases that outlived confirm_timeout (#75); with --fix it also repairs what
 // is safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks
-// the hook registration `upool init` makes in the project (#69; A26), and reports the
-// repository's VCS set-up as `unity vcs doctor` sees it, which init leaves to the repository's
-// owner (A35). It exits 1 if any check fails. The Editor checks arrive in M3.
+// the hook registration `upool init` makes in the project (#69; A26), checks the ledger's Editors
+// against the process table, reports the Unity licence, and reports the repository's VCS set-up
+// as `unity vcs doctor` sees it, which init leaves to the repository's owner (A35). With --fix it
+// also takes a dead Editor out of the ledger and, when no Editor has its slot open, deletes the
+// slot's Temp/ (#93). It exits 1 if any check fails.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
-		fix := fs.Bool("fix", false, "remove interrupted clones and drop missing ready slots")
+		fix := fs.Bool("fix", false, "remove interrupted clones, drop missing ready slots, and "+
+			"clear dead Editors and their Temp/")
 		return func(inv *invocation) (any, []string, error) { return doctor(inv, *fix) }
 	},
 }
@@ -150,6 +153,8 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 		leaseCheck(rp.pool.Slots, inv.now(), cfg.AgentTTL.Value))
 	r.Checks = append(r.Checks, hookChecks(inv.home, repo)...)
 	r.Checks = append(r.Checks, versionChecks(ctx, inv)...)
+	r.Checks = append(r.Checks, editorChecks(ctx, inv, repo, rp.pool.Slots, fix)...)
+	r.Checks = append(r.Checks, licenceCheck(ctx, inv, repo))
 	r.Checks = append(r.Checks, vcsChecks(ctx, inv, repo)...)
 
 	var failed []string

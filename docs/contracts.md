@@ -162,6 +162,7 @@ desktop worktree session's `/clear` does the same was not tried.
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
 | `projects verify` | not tested with the variable | positional: `unity projects verify --strict <slot>` reported that slot as its `project` | #86; `unity/projects-verify-pass.json`, `unity/projects-verify-fail.json` |
 | `vcs doctor` | not tested with the variable | positional `[path]`, defaults to cwd: `unity vcs doctor <repo>` reported that repository; upool never passes `--fix`, which repairs (A35) | #88; `unity/vcs-doctor.json`, `unity/vcs-doctor-fix.json` |
+| `license status` | not a project's command: it reports the machine's licence | none; upool runs it in the main checkout | #86; `unity/license-status.json` |
 
 Resolution without the variable:
 
