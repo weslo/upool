@@ -151,6 +151,9 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 		{"CheckoutDetach", func(c Client) error {
 			return c.CheckoutDetach(context.Background(), "/work/slot", "main")
 		}, []string{"checkout", "-q", "--detach", "main"}},
+		{"Fetch", func(c Client) error {
+			return c.Fetch(context.Background(), "/work/slot", "origin", "main")
+		}, []string{"fetch", "-q", "origin", "main"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -397,6 +400,9 @@ func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 		},
 		"CheckoutDetach": func(c Client) error {
 			return c.CheckoutDetach(context.Background(), "/work/none", "main")
+		},
+		"Fetch": func(c Client) error {
+			return c.Fetch(context.Background(), "/work/none", "origin", "main")
 		},
 	}
 	for name, read := range reads {

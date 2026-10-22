@@ -18,25 +18,32 @@ import (
 )
 
 // refreshUsage is refresh's usage line, which its handler also names when it refuses arguments.
-// --fetch arrives in M4 (#97).
-const refreshUsage = "refresh [--json]"
+const refreshUsage = "refresh [--fetch] [--json]"
 
-// refreshCommand is `upool refresh` without --fetch: the top-up that the session-start hook
-// spawns detached after each handout, in the pool's main checkout (docs/design.md, "Environment,
-// confirmation and release"; "Build in four phases, with the clone recipe first", the one detached
-// job). It resets each needs-reset slot ((f) transition 20), then clones, as (g) step 0 seeds,
-// until the pool has `ready` slots ready, counting creating and warming slots as ready (A4), or
-// max_slots slots. While it runs it is the pool's refresh_job, which status announces; a refresh
-// that finds another live one leaves the work to it and exits 0 ((e)).
+// refreshCommand is `upool refresh [--fetch]`, run in the pool's main checkout; without --fetch it
+// is also the top-up that the session-start hook spawns detached after each handout
+// (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `refresh` row;
+// "Environment, confirmation and release"; "Build in four phases, with the clone recipe first",
+// the one detached job). It resets each needs-reset slot ((f) transition 20), then clones, as
+// (g) step 0 seeds, until the pool has `ready` slots ready, counting creating and warming slots as
+// ready (A4), or max_slots slots. Then it moves each idle ready slot that is not at base to base,
+// `origin/<base>` after a `git fetch` with --fetch, and re-warms its Library with a headless
+// Editor, so that the next open imports nothing ((f) transitions 3 and 18; docs/design.md, "Slot
+// lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`";
+// #97). While it runs it is the pool's refresh_job, which status announces; a refresh that finds
+// another live one leaves the work to it and exits 0 ((e)).
 var refreshCommand = command{
 	usage: refreshUsage,
-	setup: func(*flag.FlagSet) handler {
-		return func(inv *invocation) (any, []string, error) { return refreshPool(inv) }
+	setup: func(fs *flag.FlagSet) handler {
+		fetch := fs.Bool("fetch", false, "fetch the base branch from origin first, and move "+
+			"the ready slots to origin/<base>")
+		return func(inv *invocation) (any, []string, error) { return refreshPool(inv, *fetch) }
 	},
 }
 
 // refreshReport is what refresh did: the data of its --json envelope and, in human form, a line
-// for each slot it reset or cloned and one for why it stopped.
+// for each slot it reset or cloned, one for why it stopped cloning, and one for each slot it moved
+// to base.
 type refreshReport struct {
 	Repo string `json:"repo"`
 	// Running is the process ID of the refresh already running, which this one left the work to,
@@ -47,9 +54,26 @@ type refreshReport struct {
 	Cloned []string `json:"cloned"`
 	// Stopped is why it cloned no more.
 	Stopped string `json:"stopped,omitempty"`
+	// Base is where the ready slots belong, the pool's base or, with --fetch, origin/<base>, and
+	// Commit the commit it named.
+	Base   string `json:"base,omitempty"`
+	Commit string `json:"commit,omitempty"`
+	// Moved are the slots this refresh moved to Commit and returned to ready.
+	Moved []movedSlot `json:"moved"`
 }
 
-// Human returns a line for each slot reset and each slot cloned, then why the refresh stopped.
+// movedSlot is a ready slot refresh moved to base.
+type movedSlot struct {
+	Slot string `json:"slot"`
+	// Rewarmed is whether its Editor was opened headless, made ready and closed after the move. A
+	// slot whose re-warm failed is ready all the same, and its next open does the import.
+	Rewarmed bool `json:"rewarmed"`
+	// RewarmSeconds is how long the re-warm took, from the open to the close.
+	RewarmSeconds float64 `json:"rewarm_seconds,omitempty"`
+}
+
+// Human returns a line for each slot reset and each slot cloned, then why the refresh stopped
+// cloning, then a line for each slot moved to base.
 func (r refreshReport) Human() string {
 	if r.Running != 0 {
 		return fmt.Sprintf("a refresh of %s is already running as process %d", r.Repo, r.Running)
@@ -61,11 +85,29 @@ func (r refreshReport) Human() string {
 	for _, s := range r.Cloned {
 		lines = append(lines, "cloned "+s)
 	}
-	return strings.Join(append(lines, r.Stopped), "\n")
+	lines = append(lines, r.Stopped)
+	for _, m := range r.Moved {
+		line := fmt.Sprintf("moved %s to %s (%s)", m.Slot, r.Base, shortCommit(r.Commit))
+		if m.Rewarmed {
+			line += fmt.Sprintf(" and re-warmed it in %.1f s", m.RewarmSeconds)
+		} else {
+			line += " but did not re-warm it"
+		}
+		lines = append(lines, line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// shortCommit is commit's first seven characters, as git abbreviates it.
+func shortCommit(commit string) string {
+	if len(commit) > 7 {
+		return commit[:7]
+	}
+	return commit
 }
 
 // refreshPool is refresh's handler.
-func refreshPool(inv *invocation) (_ any, warnings []string, err error) {
+func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
 			refreshUsage)
@@ -97,7 +139,7 @@ func refreshPool(inv *invocation) (_ any, warnings []string, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	r := refreshReport{Repo: repo, Reset: []string{}, Cloned: []string{}}
+	r := refreshReport{Repo: repo, Reset: []string{}, Cloned: []string{}, Moved: []movedSlot{}}
 	job, running, err := claimRefreshJob(ctx, inv, key)
 	if err != nil || running != 0 {
 		r.Running = running
@@ -164,6 +206,11 @@ func refreshPool(inv *invocation) (_ any, warnings []string, err error) {
 			return nil, warnings, err
 		}
 		r.Cloned = append(r.Cloned, s.Name)
+	}
+
+	mv := mover{inv: inv, rp: rp, repo: repo, g: g, keys: keys, warn: warn}
+	if err := mv.moveReady(ctx, fetch, &r); err != nil {
+		return nil, warnings, err
 	}
 	return r, warnings, nil
 }

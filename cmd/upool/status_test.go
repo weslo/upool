@@ -75,6 +75,9 @@ func newStatusHome(t *testing.T) statusHome {
 			Lane: "script"}
 	}
 	owner, ownerStart := 4100, clock.Add(-time.Minute)
+	// slot-7's owner is alive, so that status, which checks a warming slot again once its owner
+	// has died (#97), leaves it warming.
+	warmer, warmerStart := liveOwner(t)
 	lastUsed := clock.Add(-24 * time.Hour)
 	pools := []struct {
 		repo, base string
@@ -90,8 +93,8 @@ func newStatusHome(t *testing.T) statusHome {
 			{Name: "slot-5", State: pool.StateNeedsReset},
 			{Name: "slot-6", State: pool.StateCreating, OwnerPID: &owner,
 				OwnerPIDStart: &ownerStart},
-			{Name: "slot-7", State: pool.StateWarming, OwnerPID: &owner,
-				OwnerPIDStart: &ownerStart},
+			{Name: "slot-7", State: pool.StateWarming, OwnerPID: &warmer,
+				OwnerPIDStart: &warmerStart},
 			{Name: "slot-10", State: pool.StateLeased,
 				Lease: lease(h.down, "slot-10", "run-4242", 51*time.Hour, true)},
 		}},

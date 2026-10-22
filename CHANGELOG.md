@@ -7,6 +7,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `upool refresh --fetch`, and the move to base in every `upool refresh` (#97). After the top-up,
+  refresh moves each ready slot that no lease holds, no Editor has open and whose HEAD is not at
+  base to base: the pool's base or, with `--fetch`, `origin/<base>` after `git fetch origin
+  <base>`. Each such slot is marked `warming` with refresh as its owner, so that `take` skips it;
+  checked out with `git checkout --detach`, the cache key compared across the checkout; re-warmed
+  with a headless Editor, opened, made ready and saved and closed as `upool open` and `upool
+  close` do, charged in the ledger, as a cold import when the key changed; and returned to
+  `ready`. stdout says which slots were moved and how long each re-warm took. A failed checkout or
+  re-warm is a warning and the slot is ready all the same; a failed fetch fails the refresh.
+- `take`, `status` and `doctor` check a `warming` slot again once its owner, the refresh or the
+  clone holding it, is gone and no live Editor in the ledger has it open: a clean slot goes back to
+  `ready` and a dirty one is parked, each with a line on stderr (docs/contracts.md (f) transition
+  22).
+
 ## [0.3.0] - 2026-10-22
 
 ### Added

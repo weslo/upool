@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"regexp"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/testenv"
 )
 
@@ -187,6 +189,22 @@ func TestTakeRefusesBranchCheckedOutElsewhere(t *testing.T) {
 	}
 }
 
+// liveOwner is an owner for a warming slot that is alive throughout the test: this process, with
+// its real start time. Off macOS, where internal/proc reads no start times and so no owner can be
+// shown dead, the start time is the test clock's.
+func liveOwner(t *testing.T) (int, time.Time) {
+	t.Helper()
+	pid := os.Getpid()
+	start, err := (proc.System{}).Start(pid)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return pid, clock
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pid, start
+}
+
 // With no slot to hand out, take names each slot's skip reason on stderr and, given --no-create,
 // exits 1; a ready slot that left the disk, git's list or its backlink is skipped as
 // missing-from-worktree-list.
@@ -215,8 +233,9 @@ func TestTakeSkipsLeasedAndParked(t *testing.T) {
 		{"creating", func(_ *testing.T, _ harnessPool, s *pool.Slot) {
 			s.State, s.OwnerPID, s.OwnerPIDStart = pool.StateCreating, &pid, &clock
 		}, "creating"},
-		{"warming", func(_ *testing.T, _ harnessPool, s *pool.Slot) {
-			s.State, s.OwnerPID, s.OwnerPIDStart = pool.StateWarming, &pid, &clock
+		{"warming", func(t *testing.T, _ harnessPool, s *pool.Slot) {
+			owner, start := liveOwner(t)
+			s.State, s.OwnerPID, s.OwnerPIDStart = pool.StateWarming, &owner, &start
 		}, "warming"},
 		{"needs-reset", func(_ *testing.T, _ harnessPool, s *pool.Slot) {
 			s.State = pool.StateNeedsReset

@@ -93,7 +93,22 @@ func (r openReport) Human() string {
 		r.Mode, r.PID, r.ChargeGB)
 }
 
-// openEditor is open's handler.
+// openEditor is open's handler: it opens the Editor of the slot containing the working directory.
+func openEditor(inv *invocation, mode string) (any, []string, error) {
+	ctx := context.Background()
+	rp, s, err := slotHere(ctx, inv, "open")
+	if err != nil {
+		return nil, nil, err
+	}
+	r, warnings, err := openSlotEditor(ctx, inv, rp, s, mode)
+	if err != nil {
+		return nil, warnings, err
+	}
+	return r, warnings, nil
+}
+
+// openSlotEditor is open's work on slot s of the pool rp, which refresh also does to re-warm a
+// slot it moved to base (#97): it returns what it did and the CLI's warnings.
 //
 //  1. It admits the Editor to the ledger under upool's own PID, as a cold import when the slot has
 //     no Library/ or its reimport_pending is set (A20). A refusal by max_cold_imports waits; any
@@ -109,19 +124,15 @@ func (r openReport) Human() string {
 // (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
 // reset without `-x`"; A8). A failure after admission withdraws the entry, so that the ledger
 // charges nothing for an Editor that never became ready, and drops the kept scene list.
-func openEditor(inv *invocation, mode string) (any, []string, error) {
-	ctx := context.Background()
-	rp, s, err := slotHere(ctx, inv, "open")
-	if err != nil {
-		return nil, nil, err
-	}
+func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s pool.Slot,
+	mode string) (openReport, []string, error) {
 	repo := rp.pool.Repo
 	if repo == "" {
 		repo = rp.repo.Path
 	}
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
 	if err != nil {
-		return nil, nil, err
+		return openReport{}, nil, err
 	}
 	budget := ledger.NewBudget(cfg)
 	procs := inv.checker()
@@ -137,18 +148,18 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 	e, err := admitEditor(ctx, inv, procs, budget, ledger.Editor{Project: s.Path, PID: inv.pid,
 		Mode: mode, OpenedByUpool: true, ColdImport: cold})
 	if err != nil {
-		return nil, nil, err
+		return openReport{}, nil, err
 	}
 	var warnings []string
 	// fail undoes the admission of the Editor recorded under pid, and the kept scene list.
-	fail := func(pid int, err error) (any, []string, error) {
+	fail := func(pid int, err error) (openReport, []string, error) {
 		err = withdrawEditor(ctx, inv, s.Path, pid, err)
 		if mode == modeHeadless {
 			if dropErr := pool.DropSceneList(ctx, inv.home, rp.repo.Key, s.Name); dropErr != nil {
 				err = errors.Join(err, dropErr)
 			}
 		}
-		return nil, warnings, err
+		return openReport{}, warnings, err
 	}
 	if mode == modeHeadless {
 		if err := keepSceneList(ctx, inv.home, rp.repo.Key, s); err != nil {
@@ -172,13 +183,13 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 		ChargeGB: e.ChargeGB}
 	if cold {
 		if err := ledger.EndColdImport(ctx, inv.home, procs, budget, s.Path); err != nil {
-			return nil, warnings, err
+			return openReport{}, warnings, err
 		}
 		r.ChargeGB = budget.EditorGB
 	}
 	if s.ReimportPending {
 		if err := clearReimportPending(ctx, inv.home, rp.repo.Key, s.Name); err != nil {
-			return nil, warnings, err
+			return openReport{}, warnings, err
 		}
 	}
 	return r, warnings, nil
