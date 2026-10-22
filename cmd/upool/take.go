@@ -377,9 +377,9 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // ((f) transition 17). One whose Editor the ledger records with a running process is skipped as
 // editor-running (docs/contracts.md (f), the conditions take skips for). First it ends the
 // unconfirmed leases older than confirm_timeout, and returns the slots they were on, whose leases
-// the caller finishes (#75). A scene lease is taken
-// only while no other lease holds the scene lane: otherwise every slot that could be handed out is
-// skipped, naming the lease that holds it, and that lease's slot is returned as scene.
+// the caller finishes (#75). A scene lease is taken only while no other lease holds the scene
+// lane: otherwise every slot that could be handed out is skipped, naming the lease that holds it,
+// and that lease's slot is returned as scene.
 func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, skipped []string,
 	expired []pool.Slot, scene *pool.Slot, err error) {
 	id, err := pool.NewLeaseID()
