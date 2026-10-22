@@ -110,6 +110,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - After the close, it waits for the Editor's process to be gone, up to 30 s, then takes the
     slot's Editor out of the ledger. An Editor still running fails close and stays charged.
   - docs/manual-gates/M3.md gains the check "Save then close".
+- A headless session keeps the slot's scene list (A8). A headless Editor closed gracefully empties
+  `Library/LastSceneManagerSetup.txt`, so the slot's next GUI Editor would open an Untitled scene.
+  - `upool open --headless` keeps the file in `~/.upool/pools/<repo-key>/`, named after the slot,
+    and drops the copy if the open fails.
+  - `upool close` puts it back once a headless Editor upool opened has exited, then deletes the
+    copy, and says so in `scene_list_restored`. GUI sessions do neither.
+  - docs/manual-gates/M3.md gains the check "Scene list".
 
 ## [0.2.0] - 2026-10-21
 

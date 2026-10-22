@@ -104,8 +104,11 @@ func (r openReport) Human() string {
 //     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout.
 //  4. Once the Editor is ready, it ends a cold import and clears reimport_pending (A39).
 //
-// A failure after admission withdraws the entry, so that the ledger charges nothing for an Editor
-// that never became ready.
+// Before a headless launch it keeps the slot's Library/LastSceneManagerSetup.txt in upool's state
+// directory, since a headless Editor closed gracefully empties it, for `upool close` to restore
+// (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
+// reset without `-x`"; A8). A failure after admission withdraws the entry, so that the ledger
+// charges nothing for an Editor that never became ready, and drops the kept scene list.
 func openEditor(inv *invocation, mode string) (any, []string, error) {
 	ctx := context.Background()
 	rp, s, err := slotHere(ctx, inv, "open")
@@ -136,6 +139,22 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	var warnings []string
+	// fail undoes the admission of the Editor recorded under pid, and the kept scene list.
+	fail := func(pid int, err error) (any, []string, error) {
+		err = withdrawEditor(ctx, inv, s.Path, pid, err)
+		if mode == modeHeadless {
+			if dropErr := pool.DropSceneList(ctx, inv.home, rp.repo.Key, s.Name); dropErr != nil {
+				err = errors.Join(err, dropErr)
+			}
+		}
+		return nil, warnings, err
+	}
+	if mode == modeHeadless {
+		if err := keepSceneList(ctx, inv.home, rp.repo.Key, s); err != nil {
+			return fail(inv.pid, err)
+		}
+	}
 
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
 	pid, warnings, err := launchEditor(ctx, client, s.Path, mode)
@@ -143,10 +162,10 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 		err = ledger.Launched(ctx, inv.home, s.Path, inv.pid, pid)
 	}
 	if err != nil {
-		return nil, warnings, withdrawEditor(ctx, inv, s.Path, inv.pid, err)
+		return fail(inv.pid, err)
 	}
 	if err := waitReady(ctx, procs, client, s.Path, pid, timeout); err != nil {
-		return nil, warnings, withdrawEditor(ctx, inv, s.Path, pid, err)
+		return fail(pid, err)
 	}
 
 	r := openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode, ColdImport: cold,
@@ -163,6 +182,19 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 		}
 	}
 	return r, warnings, nil
+}
+
+// keepSceneList keeps slot s's Library/LastSceneManagerSetup.txt for the slot's `upool close` to
+// restore, or with no such file drops any copy an earlier session left (A8).
+func keepSceneList(ctx context.Context, home, repoKey string, s pool.Slot) error {
+	data, err := os.ReadFile(filepath.Join(s.Path, "Library", pool.SceneListFile))
+	if errors.Is(err, os.ErrNotExist) {
+		return pool.DropSceneList(ctx, home, repoKey, s.Name)
+	}
+	if err != nil {
+		return err
+	}
+	return pool.SaveSceneList(ctx, home, repoKey, s.Name, data)
 }
 
 // slotHere finds the slot containing the working directory, which open and close act on, and its
