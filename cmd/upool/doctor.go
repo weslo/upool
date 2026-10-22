@@ -29,7 +29,8 @@ const doctorUsage = "doctor [--fix] [--json]"
 // directory, as status finds it, and reports each check (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `doctor` row). Without --fix it changes nothing, beyond
 // the scratch files the clone-sharing check writes and removes and, as take and status do, the
-// end of unconfirmed leases that outlived confirm_timeout (#75); with --fix it also repairs what
+// end of unconfirmed leases that outlived confirm_timeout (#75) and the return of warming slots
+// whose owner died, to ready or parked ((f) transition 22; #97); with --fix it also repairs what
 // is safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks
 // the hook registration `upool init` makes in the project (#69; A26), checks the ledger's Editors
 // against the process table, reports the Unity licence, and reports the repository's VCS set-up
@@ -121,6 +122,11 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	recovered, err := recoverWarming(ctx, inv, keep)
+	if err != nil {
+		return nil, nil, err
+	}
+	notes = append(notes, recovered...)
 	pools, err := readPools(ctx, inv.home, keep)
 	if err != nil {
 		return nil, nil, err

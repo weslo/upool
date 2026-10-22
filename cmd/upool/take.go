@@ -148,7 +148,8 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 		lane: opts.lane, holder: opts.holder, holderPID: opts.holderPID,
 		holderStart: opts.holderStart, confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
 		reclaimer: pool.Reclaimer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key,
-			Now: inv.now}}
+			Now: inv.now},
+		recoverer: pool.Recoverer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key}}
 	if !opts.noCreate {
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
@@ -216,8 +217,10 @@ type leaser struct {
 	// pool's unconfirmed leases older than that (#75).
 	confirmTimeout time.Duration
 	now            func() time.Time
-	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61).
+	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61),
+	// and recoverer checks again the warming slots whose owner died ((f) transition 22; #97).
 	reclaimer pool.Reclaimer
+	recoverer pool.Recoverer
 	// cloner clones a slot when none can be handed out; nil with --no-create.
 	cloner *cloner
 }
@@ -231,17 +234,20 @@ type cloner struct {
 }
 
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.
-// Each try first reclaims the leases whose holder died ((f) transitions 13 and 14), saying so on
-// stderr. While no slot is ready it prints each slot's skip reason to stderr, again whenever they
-// change. A scene take while another lease holds the scene lane waits the same way, cloning
-// nothing, since a new slot would not free the lane (docs/design.md, "Lanes: scripts in parallel,
-// scenes one at a time, `.meta` never regenerated").
+// Each try first reclaims the leases whose holder died ((f) transitions 13 and 14) and checks
+// again the warming slots whose owner died ((f) transition 22), saying so on stderr. While no
+// slot is ready it prints each slot's skip reason to stderr, again whenever they change. A scene
+// take while another lease holds the scene lane waits the same way, cloning nothing, since a new
+// slot would not free the lane (docs/design.md, "Lanes: scripts in parallel, scenes one at a time,
+// `.meta` never regenerated").
 func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	timeout time.Duration) (pool.Slot, string, error) {
 	deadline := l.now().Add(timeout)
 	var said string
 	failed := map[string]bool{}
 	told := map[string]bool{}
+	// unchecked are the warming slots that could not be checked again, told once.
+	unchecked := map[string]bool{}
 	var scene *pool.Slot // the slot whose lease holds the scene lane, at the last try
 	for {
 		done, err := l.reclaimer.Reclaim(ctx)
@@ -250,6 +256,19 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 		}
 		for _, rc := range done {
 			sayReclaimed(inv, rc, failed)
+		}
+		recovered, err := l.recoverer.Recover(ctx)
+		if err != nil {
+			return pool.Slot{}, "", err
+		}
+		for _, rc := range recovered {
+			if rc.Err != nil {
+				if unchecked[rc.Slot] {
+					continue
+				}
+				unchecked[rc.Slot] = true
+			}
+			_, _ = fmt.Fprintln(inv.stderr, "upool: "+recoveredLine(rc)) // progress only
 		}
 		var s pool.Slot
 		var leaseID string

@@ -151,6 +151,13 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 		{"CheckoutDetach", func(c Client) error {
 			return c.CheckoutDetach(context.Background(), "/work/slot", "main")
 		}, []string{"checkout", "-q", "--detach", "main"}},
+		{"Fetch", func(c Client) error {
+			return c.Fetch(context.Background(), "/work/slot", "origin", "main")
+		}, []string{"fetch", "-q", "origin", "main"}},
+		{"IsAncestor", func(c Client) error {
+			_, err := c.IsAncestor(context.Background(), "/work/slot", "0123abcd", "4567cdef")
+			return err
+		}, []string{"merge-base", "--is-ancestor", "0123abcd", "4567cdef"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -339,6 +346,10 @@ func TestExitOneIsAnAnswerNotAnError(t *testing.T) {
 			t.Errorf("exit %d: SymbolicRef = %q, %v, %v, want %q, %v, nil", code, ref, ok, err,
 				wantRef, want)
 		}
+		ancestor, err := c.IsAncestor(context.Background(), "/work/repo", "0123abcd", "4567cdef")
+		if err != nil || ancestor != want {
+			t.Errorf("exit %d: IsAncestor = %v, %v, want %v, nil", code, ancestor, err, want)
+		}
 	}
 }
 
@@ -397,6 +408,9 @@ func TestNonZeroExitIsAnErrorWithStderr(t *testing.T) {
 		},
 		"CheckoutDetach": func(c Client) error {
 			return c.CheckoutDetach(context.Background(), "/work/none", "main")
+		},
+		"Fetch": func(c Client) error {
+			return c.Fetch(context.Background(), "/work/none", "origin", "main")
 		},
 	}
 	for name, read := range reads {

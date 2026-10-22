@@ -356,7 +356,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 |---|---|---|---|---|
 | 1 | — | `creating` | `upool init` (first slot, from the main checkout with its Editor closed); `upool take` when no slot is `ready` or `needs-reset` and the pool is below `max_slots` (not with `--no-create`); `upool refresh` topping the pool up to `ready`, spawned detached by the `SessionStart` hook. After the first slot, only when a seed qualifies ((g) step 0) | D-commands; D-lifecycle; D-env; A4; A19 |
 | 2 | `creating` | `ready` | the clone recipe (g) completes and its step 8 checks pass | D-lifecycle; D-leases; A4 |
-| 3 | `ready` | `warming` | `upool refresh [--fetch]` moves an idle ready slot to the current base (`origin/<base>` with `--fetch`) and re-warms it under the cold-import semaphore | D-commands; D-lifecycle; A4 |
+| 3 | `ready` | `warming` | `upool refresh [--fetch]` moves an idle ready slot to the current base (`origin/<base>` with `--fetch`), forward only, and re-warms it under the cold-import semaphore | D-commands; D-lifecycle; A4; A41 |
 | 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20` | D-route |
 | 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; `take` checks out the branch `<name>`, creating it from `--base` (default `base`) when it does not exist, and the lease starts confirmed | D-commands; D-route; A6; A18 |
 | 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path; it records the holder PID | D-env; A6 |
@@ -371,7 +371,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 15 | `ready` | removed | `upool prune --yes`: idle, merged, clean slots beyond `ready`; LRU to `max_disk`; `shrink_after` | D-commands; D-disk |
 | 16 | `parked` | — | no automatic transition; `prune` lists it and a person resolves it | D-route |
 | 17 | any | missing | the slot left the disk or `git worktree list`; `take` skips it, `doctor` reports it and it is recreated | D-route; S§10 |
-| 18 | `warming` | `ready` | `refresh` finishes the move to base and the re-warm, or the clone that holds the slot as its seed finishes copying it, and the slot is clean | D-commands; A4; A19 |
+| 18 | `warming` | `ready` | `refresh` finishes the move to base and the re-warm, or a re-warm that failed with its Editor gone, or the clone that holds the slot as its seed finishes copying it, and the slot is clean | D-commands; A4; A19; A40 |
 | 19 | `needs-reset` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`, when no slot is `ready`; the reset runs, then `take` checks out the branch `<name>` as in transition 5, before the path is printed, and the lease starts confirmed | A5; A6; A18 |
 | 20 | `needs-reset` | `ready` | `upool refresh`, before it clones anything: checkout base detached, `git clean -fd` | A5 |
 | 21 | `creating` | removed | the owner PID is dead: `doctor --fix`, or the next `take` or `refresh`, removes the slot's worktree registration if `git worktree add` got that far (`git worktree remove --force`), then its directory and its entry | A4 |
@@ -942,6 +942,32 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   clone was rewritten, each reported 2 MB (`evidence/apfs-private-size/probe.txt`). It needs one
   call per file and no new dependency, so #99 times it on a real slot's `Library` (maintainer
   decision, 2026-10-21; D-disk).
+
+- **40. A re-warm whose Editor is not ready** ([#97](https://github.com/weslo/upool/issues/97)).
+  `refresh` re-warms a slot it moved to base with `upool open`'s steps. An open that is not ready
+  in time leaves its Editor out of the ledger, still running, which is harmless for a leased slot
+  but would hand out an idle one with a batch Editor holding `Temp/UnityLockfile` that nothing
+  closes. And the cache key misses asset changes, so a move that brings many assets in gets the
+  warm wait.
+
+  **A40.** A re-warm always waits A37's cold-import timeout, 300 s, whatever its charge. If its
+  Editor is still running when the wait runs out, refresh closes it with `unity close <slot>`,
+  without `save_all`, since an Editor that never became ready holds no work, and waits for it to
+  exit. A re-warm that fails for any reason leaves the slot at base with `reimport_pending` set, so
+  that its next `upool open` is charged as a cold import and waits 300 s, and the slot goes back to
+  `ready` ((f) transition 18), with a warning. If the close fails, the Editor stays in the ledger
+  and the slot stays `warming`, until refresh has exited and the Editor is gone ((f) transition
+  22) (maintainer decision, 2026-10-22; A20; A37; A39).
+
+- **41. Which way a refresh moves a slot** ([#97](https://github.com/weslo/upool/issues/97)). Every
+  `refresh` moves ready slots to the current base, the pool's base or `origin/<base>` with
+  `--fetch` ((f) transition 3), and the session-start hook spawns a plain `refresh` after every
+  handout. With the main checkout's base behind `origin/<base>`, each handout would move the slots
+  `refresh --fetch` had moved back to the older commit, and re-warm them.
+
+  **A41.** Forward only. A refresh moves a slot only when its HEAD is an ancestor of the target
+  commit (`git merge-base --is-ancestor`); a slot ahead of the target, or on another line of
+  history, is left where it is (maintainer decision, 2026-10-22; (f) transition 3).
 
 ### Other open questions
 

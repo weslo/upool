@@ -520,6 +520,23 @@ func (c Client) CheckoutDetach(ctx context.Context, dir, rev string) error {
 	return err
 }
 
+// IsAncestor reports whether the commit ancestor is an ancestor of descendant, or the same commit,
+// in the repository holding dir: `git merge-base --is-ancestor <ancestor> <descendant>`, which
+// exits 0 for yes and 1 for no. refresh moves a slot only forward, to a commit its HEAD is an
+// ancestor of (docs/contracts.md A41).
+func (c Client) IsAncestor(ctx context.Context, dir, ancestor, descendant string) (bool, error) {
+	_, yes, err := c.runStatus(ctx, dir, "merge-base", "--is-ancestor", ancestor, descendant)
+	return yes, err
+}
+
+// Fetch fetches branch from remote into the repository holding dir, which updates
+// <remote>/<branch>: `git fetch -q <remote> <branch>`. `refresh --fetch` moves ready slots to
+// `origin/<base>` after it (docs/contracts.md (f) transition 3).
+func (c Client) Fetch(ctx context.Context, dir, remote, branch string) error {
+	_, err := c.run(ctx, dir, "fetch", "-q", remote, branch)
+	return err
+}
+
 // The calls below lease a slot for `upool take`: the branch it names and the slot's checkout of it
 // (docs/contracts.md (f) transition 5; A18).
 

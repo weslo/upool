@@ -21,7 +21,9 @@ const statusUsage = "status [--all] [--json]"
 // statusCommand is `upool status`: the slots of the pool containing the working directory, their
 // states and their leases, or with --all those of every registered pool (docs/design.md, "One
 // binary, a dozen commands, one JSON file per pool", the `status` row). It reports what state.json
-// records and changes nothing, and announces the pool's refresh job while it runs (#79). Agent
+// records, and announces the pool's refresh job while it runs (#79). It changes only what
+// docs/contracts.md (f) has every read of the pool settle: an unconfirmed lease past
+// confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). Agent
 // worktrees join it in M2, Editors in M3 and disk in M4.
 var statusCommand = command{
 	usage: statusUsage,
@@ -153,6 +155,11 @@ func status(inv *invocation, all bool) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	recovered, err := recoverWarming(context.Background(), inv, keep)
+	if err != nil {
+		return nil, nil, err
+	}
+	notes = append(notes, recovered...)
 	pools, err := readPools(context.Background(), inv.home, keep)
 	if err != nil {
 		return nil, nil, err
