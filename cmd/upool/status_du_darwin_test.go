@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -80,7 +81,7 @@ func newDuHome(t *testing.T) (home, repo string) {
 // The acceptance test of #99: status --du gives each slot its private size, the bytes no other
 // clone shares, beside its apparent size, and the pool their sums: slot-1's two 1 MB clones cost
 // the 64 KB rewritten in one of them, though they are 2 MB apparent; slot-2 costs nothing; slot-3,
-// whose directory is gone, shows "-". --all sums each pool the same way.
+// whose directory is gone, shows "-".
 func TestStatusDu(t *testing.T) {
 	home, repo := newDuHome(t)
 	r := runStatus(t, home, repo, "--du")
@@ -89,8 +90,52 @@ func TestStatusDu(t *testing.T) {
 	r = runStatus(t, home, repo, "--du", "--json")
 	checkSucceeded(t, r)
 	checkGolden(t, "status-du.json", home, r.stdout)
+}
 
-	r = runStatus(t, home, tempDir(t), "--all", "--du")
+// --all --du measures every pool and sums each one on its own: a second pool, castle, whose one
+// slot holds a 512 KB file of its own, sums to that, while down's sum stays its own.
+func TestStatusDuAllSumsEachPool(t *testing.T) {
+	home, _ := newDuHome(t)
+	castle := filepath.Join(home, "Documents", "castle")
+	slot := filepath.Join(castle, ".claude", "worktrees", "slot-1")
+	if err := os.MkdirAll(slot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(slot, "own.bin"), bytes.Repeat([]byte{'c'}, 512<<10),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registry.Add(t.Context(), home, castle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = pool.Update(t.Context(), home, reg.Key, func(p *pool.Pool) error {
+		p.Repo, p.Base = castle, "trunk"
+		p.Slots = []pool.Slot{{Name: "slot-1", Path: slot, State: pool.StateReady,
+			LastUsed: clock}}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := runStatus(t, home, tempDir(t), "--all", "--du", "--json")
 	checkSucceeded(t, r)
-	checkGolden(t, "status-du.stdout", home, r.stdout)
+	var data statusReport
+	raw, err := json.Marshal(decode(t, r.stdout).Data)
+	if err == nil {
+		err = json.Unmarshal(raw, &data)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []diskReport{{PrivateBytes: 64 << 10, ApparentBytes: 2 << 20},
+		{PrivateBytes: 512 << 10, ApparentBytes: 512 << 10}}
+	if len(data.Pools) != len(want) {
+		t.Fatalf("pools = %+v, want down and castle", data.Pools)
+	}
+	for i, p := range data.Pools {
+		if p.Disk == nil || *p.Disk != want[i] {
+			t.Errorf("%s's disk = %+v, want %+v", p.Repo, p.Disk, want[i])
+		}
+	}
 }
