@@ -19,8 +19,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the next candidate if the refresh fails, leaves it stale or leaves it dirty; one left dirty, or
   with an Editor that could not be closed, stays `warming` until the cloner has exited and no
   Editor is in it. An Editor still running when the wait runs out is closed, and one whose close
-  fails stays in the ledger. Each seed is refreshed at most once a run, so that `take --timeout`
-  does not open Editor after Editor in a seed its refresh left stale.
+  fails stays in the ledger. An Editor is opened in each seed at most once a run, so that
+  `take --timeout` does not open Editor after Editor in a seed its refresh left stale; a refresh
+  the ledger refused opened none, and is tried again.
 
 - `upool refresh --fetch`, and the move to base in every `upool refresh` (#97). After the top-up,
   refresh moves each ready slot that no lease holds, no Editor has open and whose HEAD is not at

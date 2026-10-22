@@ -229,10 +229,11 @@ func TestSeedRefresherFailures(t *testing.T) {
 	}
 }
 
-// A refused admission launches nothing.
+// A refused admission launches nothing, and does not use up the seed's one refresh: once the
+// budget admits it, the same refresher refreshes the seed.
 func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
 	e := testenv.New(t, testenv.StaleLibrary())
-	u := fake.Install(t)
+	u := fake.Install(t, openHeadless(e.Repo), statusReady, closeHeadless)
 	r := newRefresher(e, u, newRefreshProcs(1, nil))
 	r.Budget.RAMGB = 1
 	if _, err := r.Refresh(t.Context(), e.Repo, false); err == nil {
@@ -242,6 +243,11 @@ func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
 	if got := editors(t, e.Home); len(got) != 0 {
 		t.Errorf("ledger = %+v, want empty", got)
 	}
+	r.Budget.RAMGB = 16
+	if _, err := r.Refresh(t.Context(), e.Repo, false); err != nil {
+		t.Fatalf("Refresh once the budget admits it: %v", err)
+	}
+	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, true))
 }
 
 // A refresh of a cold seed, a slot with reimport_pending or a checkout with no Library/, is

@@ -23,9 +23,10 @@ const headless = "headless"
 // `-x`": a stale source is refreshed before cloning; #98). It opens the seed's Editor headless
 // under the ledger, waits until it is ready, which an Editor is only once it has imported and
 // compiled what its scripts changed (A39), and closes it. A seed never has a live Editor ((g) step
-// 0), so the design's `unity recompile` case does not arise. It refreshes each seed at most once,
-// so that a take that retries for its timeout does not open one Editor after another in a seed
-// its refresh did not bring current.
+// 0), so the design's `unity recompile` case does not arise. It opens an Editor in each seed at
+// most once, so that a take that retries for its timeout does not open one Editor after another
+// in a seed its refresh did not bring current; a refresh the ledger refused, which opened none,
+// may be tried again.
 type SeedRefresher struct {
 	// Unity runs the Editor's calls; its environment's PATH is where unity is found.
 	Unity unity.Client
@@ -40,11 +41,11 @@ type SeedRefresher struct {
 	Now func() time.Time
 	// Say, when not nil, is told that a refresh starts, which takes a while.
 	Say func(line string)
-	// tried are the seeds Refresh has refreshed, or tried to, by path.
+	// tried are the seeds Refresh has opened an Editor in, or tried to once admitted, by path.
 	tried map[string]bool
 }
 
-// ErrRefreshedOnce is the error Refresh wraps for a seed it has refreshed, or tried to, before.
+// ErrRefreshedOnce is the error Refresh returns for a seed it has opened an Editor in before.
 var ErrRefreshedOnce = errors.New("it was refreshed once already")
 
 // ErrEditorLeft is the error Refresh wraps when its Editor could not be closed: the Editor stays
@@ -74,10 +75,6 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if r.tried[seed] {
 		return nil, ErrRefreshedOnce
 	}
-	if r.tried == nil {
-		r.tried = map[string]bool{}
-	}
-	r.tried[seed] = true
 	library, err := os.Stat(filepath.Join(seed, "Library"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -87,9 +84,6 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if cold {
 		timeout = unity.ColdReadyTimeout
 	}
-	if r.Say != nil {
-		r.Say("the Library in " + seed + " is stale; refreshing it with a headless Editor first")
-	}
 	scenes := filepath.Join(seed, "Library", pool.SceneListFile)
 	kept, err := os.ReadFile(scenes)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -98,6 +92,15 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if _, err := ledger.Admit(ctx, r.Home, r.Proc, r.Budget, ledger.Editor{Project: seed,
 		PID: r.OwnerPID, Mode: headless, OpenedByUpool: true, ColdImport: cold}); err != nil {
 		return nil, fmt.Errorf("opening the Editor of %s: %w", seed, err)
+	}
+	// A refusal launched nothing and may be tried again; an admitted Editor uses the seed's one
+	// refresh, whatever becomes of it.
+	if r.tried == nil {
+		r.tried = map[string]bool{}
+	}
+	r.tried[seed] = true
+	if r.Say != nil {
+		r.Say("the Library in " + seed + " is stale; refreshing it with a headless Editor first")
 	}
 	pid, warnings, err := r.Unity.Launch(ctx, seed, true)
 	if err == nil {
