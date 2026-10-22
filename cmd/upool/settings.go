@@ -15,11 +15,15 @@ import (
 
 // hookEvents are the Claude Code events init registers upool for, each with the `upool hook`
 // subcommand that handles it, in the order init adds them to a settings file that has none of them
-// (docs/design.md, "Build in four phases, with the clone recipe first", phase 2; A26).
-var hookEvents = []struct{ hook, event string }{
-	{"worktree-create", "WorktreeCreate"},
-	{"worktree-remove", "WorktreeRemove"},
-	{"session-start", "SessionStart"},
+// (docs/design.md, "Build in four phases, with the clone recipe first", phase 2; A26). PreToolUse,
+// the lane guard, matches only the tools that write a file, and blocks the call when the hook
+// fails, so that a failure denies rather than silently allowing (docs/design.md, "Lanes: scripts
+// in parallel, scenes one at a time, `.meta` never regenerated").
+var hookEvents = []struct{ hook, event, matcher, onFailure string }{
+	{"worktree-create", "WorktreeCreate", "", ""},
+	{"worktree-remove", "WorktreeRemove", "", ""},
+	{"session-start", "SessionStart", "", ""},
+	{"pre-tool-use", "PreToolUse", "Edit|Write|NotebookEdit", "block"},
 }
 
 // settingsMode is the mode of a settings.local.json that init creates, private to the user as
@@ -46,13 +50,20 @@ type commandHook struct {
 	Type    string   `json:"type"`
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// OnFailure is "block" for the lane guard, so that a hook that fails denies the tool call;
+	// the others leave it unset ([Claude Code hooks]).
+	//
+	// [Claude Code hooks]: https://code.claude.com/docs/en/hooks
+	OnFailure string `json:"onFailure,omitempty"`
 }
 
-// hookGroup is the matcher group init adds for each event. It has no matcher, so it runs on every
-// occurrence of the event: WorktreeCreate and WorktreeRemove take none, and SessionStart handles
-// every source (docs/contracts.md (b); A14).
+// hookGroup is the matcher group init adds for each event. The worktree and session events have no
+// matcher, so their group runs on every occurrence of the event: WorktreeCreate and WorktreeRemove
+// take none, and SessionStart handles every source (docs/contracts.md (b); A14). PreToolUse's
+// matches the tools that write a file.
 type hookGroup struct {
-	Hooks []commandHook `json:"hooks"`
+	Matcher string        `json:"matcher,omitempty"`
+	Hooks   []commandHook `json:"hooks"`
 }
 
 // registration is init's change to a project's .claude/settings.local.json, which registers upool's
@@ -179,8 +190,9 @@ func registerHooks(settings *jsonObject, upool string) error {
 		}
 	}
 	for _, h := range hookEvents {
-		group, err := marshalJSON(hookGroup{Hooks: []commandHook{{
+		group, err := marshalJSON(hookGroup{Matcher: h.matcher, Hooks: []commandHook{{
 			Type: "command", Command: upool, Args: []string{"hook", h.hook},
+			OnFailure: h.onFailure,
 		}}})
 		if err != nil {
 			return err

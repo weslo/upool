@@ -51,6 +51,17 @@ type Request struct {
 	WorktreePath string `json:"worktree_path"`
 	// Source is SessionStart's: startup, resume, clear or compact.
 	Source string `json:"source"`
+	// ToolName and ToolInput are PreToolUse's: the tool about to run, and the arguments that name
+	// the file it writes (testdata/captures/hooks/pretooluse-*.json).
+	ToolName  string    `json:"tool_name"`
+	ToolInput ToolInput `json:"tool_input"`
+}
+
+// ToolInput is the part of a PreToolUse request's tool_input that names the file the tool writes:
+// file_path for Edit and Write, notebook_path for NotebookEdit.
+type ToolInput struct {
+	FilePath     string `json:"file_path"`
+	NotebookPath string `json:"notebook_path"`
 }
 
 // Decode reads a hook's stdin.

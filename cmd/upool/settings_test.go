@@ -40,15 +40,20 @@ const otherSettings = `{
 }
 `
 
-// upoolEntries replaces each "@<event>@" in doc, a JSON document, with upool's matcher group for
-// that event: one handler, in exec form, running `upool hook <event>` by the path upool.
+// upoolEntries replaces each "@<hook>@" in doc, a JSON document, with upool's matcher group for
+// that hook: one handler, in exec form, running `upool hook <hook>` by the path upool, and for
+// pre-tool-use the matcher Edit|Write|NotebookEdit and "onFailure": "block".
 func upoolEntries(t *testing.T, upool, doc string) string {
 	t.Helper()
-	for _, event := range events() {
-		group := mustJSON(t, map[string]any{"hooks": []any{map[string]any{
-			"type": "command", "command": upool, "args": []string{"hook", event},
-		}}})
-		doc = strings.ReplaceAll(doc, `"@`+event+`@"`, string(group))
+	for _, h := range hookEvents {
+		handler := map[string]any{"type": "command", "command": upool,
+			"args": []string{"hook", h.hook}}
+		group := map[string]any{"hooks": []any{handler}}
+		if h.hook == "pre-tool-use" {
+			handler["onFailure"] = "block"
+			group["matcher"] = "Edit|Write|NotebookEdit"
+		}
+		doc = strings.ReplaceAll(doc, `"@`+h.hook+`@"`, string(mustJSON(t, group)))
 	}
 	return doc
 }
@@ -115,7 +120,7 @@ func checkSettings(t *testing.T, file, want string) {
 }
 
 // An existing settings file keeps its other keys and another tool's hooks, compared as JSON, and
-// its mode, and upool's three entries appear once each after two registrations; the second
+// its mode, and upool's four entries appear once each after two registrations; the second
 // changes nothing.
 func TestRegistrationKeepsOtherSettings(t *testing.T) {
 	file := settingsFile(t)
@@ -134,7 +139,8 @@ func TestRegistrationKeepsOtherSettings(t *testing.T) {
   "env": {"OTHER_TOOL": "<on> & off"},
   "hooks": {
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "other-tool guard"}]}
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "other-tool guard"}]},
+      "@pre-tool-use@"
     ],
     "SessionStart": [
       {"matcher": "startup", "hooks": [{"type": "command", "command": "other-tool start", "timeout": 30}]},
@@ -193,7 +199,8 @@ func TestRegistrationCreatesTheFile(t *testing.T) {
 	checkSettings(t, file, upoolEntries(t, testUpool, `{"hooks": {
   "WorktreeCreate": ["@worktree-create@"],
   "WorktreeRemove": ["@worktree-remove@"],
-  "SessionStart": ["@session-start@"]
+  "SessionStart": ["@session-start@"],
+  "PreToolUse": ["@pre-tool-use@"]
 }}`))
 	checkMode(t, file, settingsMode)
 	checkMode(t, filepath.Dir(file), agentDirMode)
@@ -248,7 +255,8 @@ func TestRegistrationReplacesItsEarlierEntries(t *testing.T) {
     ]},
     "@worktree-remove@"
   ],
-  "Notification": "not an array"
+  "Notification": "not an array",
+  "PreToolUse": ["@pre-tool-use@"]
 }}`))
 }
 

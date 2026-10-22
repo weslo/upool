@@ -44,6 +44,18 @@ func sessionStart(inv *invocation) (string, error) {
 	return hooks.SessionStart(context.Background(), hooksEnv(inv), req)
 }
 
+// preToolUse is `upool hook pre-tool-use`: it decodes the request on stdin and hands it to the lane
+// guard, which returns the decision the dispatcher prints: a denial for a scene, prefab, asset or
+// .meta file written in a script lane, and otherwise nothing (docs/design.md, "Lanes: scripts in
+// parallel, scenes one at a time, `.meta` never regenerated").
+func preToolUse(inv *invocation) (hooks.Decision, error) {
+	req, err := hooks.Decode(inv.stdin)
+	if err != nil {
+		return hooks.Decision{}, err
+	}
+	return hooks.LaneGuard(hooksEnv(inv), req)
+}
+
 // hooksEnv is what internal/hooks takes from the process, from inv.
 func hooksEnv(inv *invocation) hooks.Env {
 	return hooks.Env{Git: git.Client{Runner: git.Exec{}, Env: inv.environ()}, Home: inv.home,

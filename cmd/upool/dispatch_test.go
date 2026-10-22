@@ -407,13 +407,18 @@ func TestHookFailuresGoToStderr(t *testing.T) {
 		event, capture string
 		want           int
 		message        string
+		// stdin, when set, is the hook's stdin in place of the capture.
+		stdin string
 	}{
 		{"worktree-create", "desktop-session-create.json", output.ExitFailure,
-			"making the worktree "},
+			"making the worktree ", ""},
 		{"worktree-remove", "desktop-session-create.json", output.ExitOK,
-			`stdin is a "WorktreeCreate" request, not WorktreeRemove`},
+			`stdin is a "WorktreeCreate" request, not WorktreeRemove`, ""},
 		{"session-start", "desktop-session-create.json", output.ExitOK,
-			`stdin is a "WorktreeCreate" request, not SessionStart`},
+			`stdin is a "WorktreeCreate" request, not SessionStart`, ""},
+		// A request it cannot read fails the lane guard, exiting non-zero, which the
+		// registration's "onFailure": "block" makes a denial.
+		{"pre-tool-use", "", output.ExitFailure, "decoding the hook's stdin", "not json"},
 	}
 	if len(tests) != len(hookTable) {
 		t.Errorf("%d events tested, want all %d in the hook table", len(tests), len(hookTable))
@@ -421,7 +426,11 @@ func TestHookFailuresGoToStderr(t *testing.T) {
 	for _, tt := range tests {
 		var out, errOut bytes.Buffer
 		env := testEnv(t)
-		stdin := strings.NewReader(hookStdin(t, tt.capture))
+		input := tt.stdin
+		if input == "" {
+			input = hookStdin(t, tt.capture)
+		}
+		stdin := strings.NewReader(input)
 		code := run([]string{"hook", tt.event}, stdin, &out, &errOut,
 			func(key string) string { return env[key] })
 		if code != tt.want {
