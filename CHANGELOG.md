@@ -143,6 +143,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - A project registered earlier gets the guard from `upool init` run again; until then `doctor`
     fails `hook-settings` naming it.
   - docs/manual-gates/M3.md gains the check "Lane guard".
+- `docs/manual-gates/M3.md`, M3's manual gate, in run order, on the spike's Mac and project.
+  - "Before you start" builds upool, allows a fourth slot with `UPOOL_MAX_SLOTS=4`, and runs
+    `upool init`, which registers the lane guard.
+  - Checks 1 to 6 and 10 and 11 are the M3 issues' own: VCS set-up, open, save then close,
+    first-call timeout, scene list, crash recovery, lane guard, and release with an Editor.
+  - Checks 7 to 9 are the end-to-end ones:
+    - three Editors open, and a fourth refused naming `max_editors`;
+    - each desktop session's `unity command eval` landing in its own slot's Editor while three run;
+    - a second cold-import open waiting for the first.
+  - #86's capture procedure is kept as an appendix.
 
 ## [0.2.0] - 2026-10-21
 
