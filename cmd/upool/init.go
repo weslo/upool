@@ -26,8 +26,8 @@ import (
 // the project as a pool and clones its first --slots slots, slot-1 from the main checkout and the
 // rest seeded as A19 says (docs/design.md, "One binary, a dozen commands, one JSON file per pool",
 // the `init` row; docs/contracts.md (f) transitions 1 and 2; A21), and adds upool's instruction
-// block to the repository's CLAUDE.md. It refuses an open Editor or a stale Library, which the
-// first slot would seed from.
+// block to the repository's CLAUDE.md. It refuses an open Editor in the main checkout, which the
+// first slot seeds from; a stale Library there is refreshed before the first clone (#98).
 var initCommand = command{
 	usage: "init [--slots N] [--json]",
 	setup: func(fs *flag.FlagSet) handler {
@@ -278,9 +278,6 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkEditorClosed(repo); err != nil {
 		return nil, nil, err
 	}
-	if err := checkLibraryCurrent(ctx, g, repo); err != nil {
-		return nil, nil, err
-	}
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
 	if err != nil {
 		return nil, nil, err
@@ -297,8 +294,12 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkBaseCommit(ctx, g, repo, r.Base, r.BaseSource); err != nil {
 		return nil, nil, err
 	}
+	refreshed, err := refreshLibrary(ctx, inv, g, repo, cfg)
+	if err != nil {
+		return nil, refreshed, err
+	}
 	if err := r.installAgentFiles(repo, b); err != nil {
-		return nil, nil, err
+		return nil, refreshed, err
 	}
 	if r.GitignoreUpdated, err = ignoreWorktrees(ctx, g, repo); err != nil {
 		return nil, nil, err
@@ -311,12 +312,15 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	var warnings []string
+	warnings := refreshed
 	if len(existing) > 0 {
 		r.ExistingSlots = existing
-	} else if r.Slots, warnings, err = cloneSlots(ctx, inv, g, key, repo, n,
-		cfg.MaxSlots.Value); err != nil {
-		return nil, nil, err
+	} else {
+		var cloned []string
+		if r.Slots, cloned, err = cloneSlots(ctx, inv, g, key, repo, n, cfg); err != nil {
+			return nil, warnings, err
+		}
+		warnings = append(warnings, cloned...)
 	}
 	reg, err := registry.Add(ctx, inv.home, repo)
 	if err != nil {
@@ -416,20 +420,30 @@ func checkEditorClosed(repo string) error {
 	return nil
 }
 
-// checkLibraryCurrent refuses repo while its Library is stale: the first slot seeds from the main
-// checkout, and every clone of a stale Library recompiles what the seed never did
-// (docs/contracts.md (g) Clone recipe, steps 0 and 1). The recipe would refresh the seed with a
-// batch open; until the stale-seed refresh arrives in M4, init asks the user to.
-func checkLibraryCurrent(ctx context.Context, g git.Client, repo string) error {
+// refreshLibrary brings the main checkout's Library current before init writes anything to the
+// project: the first slot seeds from it, and every clone of a stale Library recompiles what the
+// seed never did (docs/contracts.md (g) Clone recipe, steps 0 and 1). A stale Library is refreshed
+// with a headless Editor, as the recipe refreshes a stale seed, and checked again (#98); one the
+// refresh does not bring current is refused, as #49 refused every stale Library, saying how to
+// bring it current by hand. It returns the CLI's warnings.
+func refreshLibrary(ctx context.Context, inv *invocation, g git.Client, repo string,
+	cfg config.Config) ([]string, error) {
+	const fix = "open the project in Unity, let it finish importing and compiling, quit it, " +
+		"then run upool init again"
 	s, err := clone.CheckStaleness(ctx, g, repo)
+	if err != nil || !s.Stale() {
+		return nil, err
+	}
+	warnings, err := seedRefresher(inv, cfg).Refresh(ctx, repo, false)
 	if err != nil {
-		return err
+		return warnings, fmt.Errorf("the Library in %s is stale: %s, and refreshing it failed: "+
+			"%v: %s", repo, s.Reason(), err, fix)
 	}
-	if !s.Stale() {
-		return nil
+	if s, err = clone.CheckStaleness(ctx, g, repo); err != nil || !s.Stale() {
+		return warnings, err
 	}
-	return fmt.Errorf("the Library in %s is stale: %s: open the project in Unity, let it finish "+
-		"importing and compiling, quit it, then run upool init again", repo, s.Reason())
+	return warnings, fmt.Errorf("the Library in %s is still stale after its refresh: %s: %s",
+		repo, s.Reason(), fix)
 }
 
 // resolveBase returns the pool's base and where it came from: the configured base if a layer set
@@ -537,18 +551,21 @@ func createPool(ctx context.Context, home, repo, base string) (key string,
 }
 
 // cloneSlots clones n slots into the pool key: slot-1 from the main checkout, repo, which init has
-// checked has no Editor open and a current Library (docs/contracts.md (g) Clone recipe, step 0:
-// init's first slot seeds from the main checkout with its Editor closed), and the rest from the
-// seed A19 chooses, normally slot-1, held warming while it is copied (A21). It returns the slots
-// and what the recipe warned about, such as a cache key that changed (A20).
-func cloneSlots(ctx context.Context, inv *invocation, g git.Client, key, repo string, n,
-	maxSlots int) ([]clonedSlot, []string, error) {
+// checked has no Editor open (docs/contracts.md (g) Clone recipe, step 0: init's first slot seeds
+// from the main checkout with its Editor closed), and the rest from the seed A19 chooses, normally
+// slot-1, held warming while it is copied (A21). A stale seed is refreshed first, with an Editor
+// charged against cfg's budget (#98). It returns the slots and what the recipe warned about, such
+// as a cache key that changed (A20).
+func cloneSlots(ctx context.Context, inv *invocation, g git.Client, key, repo string, n int,
+	cfg config.Config) ([]clonedSlot, []string, error) {
 	var warnings []string
+	warn := func(line string) { warnings = append(warnings, line) }
+	refresher := seedRefresher(inv, cfg)
 	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,
-		MaxSlots: maxSlots, Keys: clone.KeyCheck{Env: inv.environ()},
-		Warn: func(line string) { warnings = append(warnings, line) }}
+		MaxSlots: cfg.MaxSlots.Value, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn,
+		Refresher: refresher}
 	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
-		Key: key, Keys: clone.KeyCheck{Env: inv.environ()}}
+		Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn, Refresher: refresher}
 	slots := make([]clonedSlot, 0, n)
 	for i := range n {
 		seed := clone.Seed{Path: repo}

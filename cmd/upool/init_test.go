@@ -6,14 +6,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // The tests of init's refusals, which change nothing and so run everywhere. The tests of an init
@@ -141,33 +144,69 @@ func TestInitRefusesOpenEditor(t *testing.T) {
 }
 
 // A stale Library would hand the first slot, and every clone after it, a recompile
-// (docs/contracts.md (g) step 1), so init refuses it and says how to bring it current.
-func TestInitRefusesStaleLibrary(t *testing.T) {
+// (docs/contracts.md (g) step 1), so init refreshes it with a headless Editor first (#98). One the
+// refresh does not bring current, because it failed or because the Editor compiled nothing, is
+// refused before init writes anything to the project, saying how to bring it current by hand; the
+// ledger holds no Editor afterwards.
+func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 	const fix = "open the project in Unity, let it finish importing and compiling, quit it, " +
 		"then run upool init again"
+	stale := testenv.PlayerScript + " (modified 2026-10-12T23:00:00Z) is newer than " +
+		"Library/ScriptAssemblies (modified 2026-10-12T22:00:00Z)"
 	tests := []struct {
-		name   string
-		setup  func(t *testing.T) *testenv.Env
-		reason string
+		name string
+		// unity, when true, puts the fake unity on PATH, answering open, status and close.
+		unity bool
+		want  string
 	}{
-		{"a script newer than ScriptAssemblies", func(t *testing.T) *testenv.Env {
-			return newInitEnv(t, testenv.StaleLibrary())
-		}, testenv.PlayerScript + " (modified 2026-10-12T23:00:00Z) is newer than " +
-			"Library/ScriptAssemblies (modified 2026-10-12T22:00:00Z)"},
-		{"no ScriptAssemblies", func(t *testing.T) *testenv.Env {
-			e := newInitEnv(t)
-			if err := os.RemoveAll(e.Path("Library/ScriptAssemblies")); err != nil {
-				t.Fatal(err)
-			}
-			return e
-		}, "it has no Library/ScriptAssemblies"},
+		{"no unity to refresh it with", false, "is stale: " + stale + ", and refreshing it " +
+			"failed: "},
+		{"an Editor that compiled nothing", true, "is still stale after its refresh: " + stale +
+			": " + fix},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			e := tt.setup(t)
-			r := runIn(t, e, e.Repo, "init")
-			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
-				"the Library in "+e.Repo+" is stale: "+tt.reason+": "+fix)
+			e := newInitEnv(t, testenv.StaleLibrary())
+			gitignore := readFile(t, e, ".gitignore")
+			var u *fake.Unity
+			if tt.unity {
+				u = fake.Install(t, openReply(t, e, "open-headless.json"), statusReady,
+					closeHeadlessReply)
+				e.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+e.Getenv("PATH"))
+			}
+			r := runProcs(t, e, e.Repo, newRewarmProcs(1, nil),
+				func() time.Time { return clock }, "init")
+			want := "upool: the Library in " + e.Repo + " " + tt.want
+			if r.code != output.ExitFailure || r.stdout != "" || !strings.Contains(r.stderr, want) ||
+				!strings.Contains(r.stderr, fix) {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 1, nothing, and %q…%q", r.code,
+					r.stdout, r.stderr, want, fix)
+			}
+			if got := readFile(t, e, ".upool.toml"); got != "" {
+				t.Errorf(".upool.toml = %q, want none", got)
+			}
+			if got := readFile(t, e, ".gitignore"); got != gitignore {
+				t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
+			}
+			if got := readFile(t, e, "CLAUDE.md"); strings.Contains(got, "<!-- upool:") {
+				t.Errorf("CLAUDE.md = %q, want no upool block", got)
+			}
+			if _, err := os.Stat(filepath.Join(e.Home, ".upool", "registry.json")); !errors.Is(err,
+				fs.ErrNotExist) {
+				t.Errorf("~/.upool/registry.json: stat error = %v, want it not to exist", err)
+			}
+			if l, err := ledger.Load(e.Home); err != nil || len(l.Editors) != 0 {
+				t.Errorf("ledger = %+v, %v; want no Editor", l.Editors, err)
+			}
+			if u != nil {
+				want := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+					{"status", "--until-ready", "--timeout", "120", "--format", "json"},
+					{"close", e.Repo, "--format", "json"}}
+				if got := unityArgs(u); !slices.EqualFunc(got, want, slices.Equal) {
+					t.Errorf("unity calls = %q, want open, status and close of the main checkout",
+						got)
+				}
+			}
 		})
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
+	"github.com/weslo/upool/internal/unity"
 	"github.com/weslo/upool/internal/unity/fake"
 )
 
@@ -71,8 +72,8 @@ func TestCloseSavesThenCloses(t *testing.T) {
 			t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr,
 				want)
 		}
-		if waited := time.Since(begin); waited != 2*exitPollInterval {
-			t.Errorf("close waited %s for the process, want %s", waited, 2*exitPollInterval)
+		if waited := time.Since(begin); waited != 2*unity.ExitPollInterval {
+			t.Errorf("close waited %s for the process, want %s", waited, 2*unity.ExitPollInterval)
 		}
 	})
 	want := [][]string{{"command", "save_all", "--format", "json"},
@@ -117,7 +118,7 @@ func TestCloseNeverClosesAfterAFailedSave(t *testing.T) {
 	}
 }
 
-// An Editor still running exitTimeout after `unity close` returned fails close, and stays in the
+// An Editor still running unity.ExitTimeout after `unity close` returned fails close, and stays in the
 // ledger, since it is still up and still charged.
 func TestCloseFailsWhileTheEditorRuns(t *testing.T) {
 	p, _, e := closePool(t, saveAllReply, closeReply)
@@ -129,8 +130,8 @@ func TestCloseFailsWhileTheEditorRuns(t *testing.T) {
 		if r.code != output.ExitFailure || r.stderr != want {
 			t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
 		}
-		if waited := time.Since(begin); waited != exitTimeout {
-			t.Errorf("close waited %s, want %s", waited, exitTimeout)
+		if waited := time.Since(begin); waited != unity.ExitTimeout {
+			t.Errorf("close waited %s, want %s", waited, unity.ExitTimeout)
 		}
 	})
 	checkEditors(t, p, e)

@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // These tests run the recipe for real: real git and /bin/cp -cR in a testenv repository, the
@@ -281,8 +283,7 @@ func TestCloneTakesTheNextFreeName(t *testing.T) {
 	}
 }
 
-// A stale seed is refused before anything is written: the refresh that would bring it current
-// arrives in M4.
+// With no Refresher, a stale seed is refused before anything is written.
 func TestCloneRefusesAStaleSeed(t *testing.T) {
 	e := testenv.New(t, testenv.StaleLibrary())
 	r := newPool(t, e, CP{})
@@ -299,6 +300,55 @@ func TestCloneRefusesAStaleSeed(t *testing.T) {
 	}
 	if exists(t, e.Repo, ".claude/worktrees") {
 		t.Error(".claude/worktrees exists, want nothing cloned")
+	}
+}
+
+// The acceptance test of #98: a stale harness seed with no Editor gets open, `--until-ready` and
+// close in the fake's log before the copy starts, and once its Editor has compiled, the check runs
+// again and the clone goes on from it. A seed the Editor leaves stale fails the clone, before
+// anything is written.
+func TestStaleSeedIsRefreshed(t *testing.T) {
+	for _, compiles := range []bool{true, false} {
+		name := map[bool]string{true: "brought current", false: "still stale"}[compiles]
+		t.Run(name, func(t *testing.T) {
+			e := testenv.New(t, testenv.StaleLibrary())
+			excludeWorktrees(e)
+			u := fake.Install(t, openHeadless(e.Repo), statusReady, closeHeadless)
+			var before [][]string // the fake's log when the copy starts
+			spy := &spyCopier{fn: func() {
+				for _, c := range u.Calls() {
+					before = append(before, c.Args)
+				}
+			}}
+			r := newPool(t, e, spy)
+			var during func()
+			if compiles {
+				during = func() { compile(t, e.Repo) }
+			}
+			r.Refresher = newRefresher(e, u, newRefreshProcs(1, during))
+			slot, err := r.Clone(t.Context(), e.Home, key, e.Repo)
+			if !compiles {
+				want := "the Library in " + e.Repo + " is still stale after its refresh"
+				if err == nil || !strings.Contains(err.Error(), want) {
+					t.Fatalf("err = %v, want one saying %q", err, want)
+				}
+				if spy.calls != 0 || exists(t, e.Repo, ".claude/worktrees") {
+					t.Error("the clone copied, want nothing cloned")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.EqualFunc(before, refreshCalls(e.Repo, true), slices.Equal) {
+				t.Errorf("unity calls when the copy started = %q, want open, status and close",
+					before)
+			}
+			checkReady(t, e, slot, "slot-1", e.Head, false)
+			if got := editors(t, e.Home); len(got) != 0 {
+				t.Errorf("ledger = %+v, want empty", got)
+			}
+		})
 	}
 }
 

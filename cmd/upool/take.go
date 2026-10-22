@@ -18,6 +18,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/unity"
 )
 
 // takeUsage is take's usage line, which its handler also names when it refuses its arguments.
@@ -151,17 +152,17 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 			Now: inv.now},
 		recoverer: pool.Recoverer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key}}
 	if !opts.noCreate {
+		warn := func(line string) {
+			_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
+		}
+		refresher := seedRefresher(inv, cfg)
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
 				OwnerPID: inv.pid, MaxSlots: cfg.MaxSlots.Value,
-				Keys: clone.KeyCheck{Env: inv.environ()},
-				Warn: func(line string) {
-					_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
-				}},
+				Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn, Refresher: refresher},
 			seeder: clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
-				Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: func(line string) {
-					_, _ = fmt.Fprintln(inv.stderr, "upool: warning: "+line) // progress only
-				}},
+				Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn,
+				Refresher: refresher},
 			maxSlots: cfg.MaxSlots.Value,
 		}
 	}
@@ -231,6 +232,17 @@ type cloner struct {
 	recipe   clone.Recipe
 	seeder   clone.Seeder
 	maxSlots int
+}
+
+// seedRefresher is the refresh of a stale seed before a clone, for the clones take, refresh and
+// init make ((g) step 1; #98): its Editor is charged against cfg's budget, and stderr is told when
+// one starts, since it takes a while.
+func seedRefresher(inv *invocation, cfg config.Config) *clone.SeedRefresher {
+	return &clone.SeedRefresher{Unity: unity.Client{Runner: unity.Exec{}, Env: inv.environ()},
+		Proc: inv.checker(), Budget: ledger.NewBudget(cfg), Home: inv.home, OwnerPID: inv.pid,
+		Now: inv.now, Say: func(line string) {
+			_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
+		}}
 }
 
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.

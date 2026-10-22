@@ -3,15 +3,18 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
 
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity/fake"
 )
 
 // The tests of take cloning a slot when none is ready (#62), after a real `upool init`, whose
@@ -67,6 +70,42 @@ func TestTakeClonesASlotFromTheMainCheckout(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(slot2, "Library", "ScriptAssemblies")); err != nil {
 		t.Errorf("slot-2 has no warm Library: %v", err)
+	}
+}
+
+// A stale main checkout, the only seed, is refreshed before the clone (#98): take opens its Editor
+// headless, waits until it is ready, closes it, checks the Library again and clones from it. The
+// stand-in Editor brings the Library current as it starts.
+func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
+	e := leasedPool(t)
+	e.SetMtime(testenv.PlayerScript, testenv.StaleTime)
+	// Then the clone compares slot-2's cache key across its checkout ((g) step 7).
+	u := fake.Install(t, openReply(t, e, "open-headless.json"), statusReady, closeHeadlessReply,
+		fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+	e.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+e.Getenv("PATH"))
+	built := testenv.StaleTime.Add(time.Hour)
+	procs := newRewarmProcs(1, func() {
+		e.SetMtime("Library/ScriptAssemblies/Assembly-CSharp.dll", built)
+		e.SetMtime("Library/ScriptAssemblies", built)
+	})
+	r := runProcs(t, e, e.Repo, procs, func() time.Time { return clock }, "take", "feature-y")
+	if r.code != output.ExitOK || r.stdout != e.Path(".claude/worktrees/slot-2")+"\n" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want 0 and slot-2's path", r.code, r.stdout,
+			r.stderr)
+	}
+	want := "upool: the Library in " + e.Repo + " is stale; refreshing it with a headless " +
+		"Editor first\n"
+	if !strings.Contains(r.stderr, want) {
+		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
+	}
+	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
+		{"close", e.Repo, "--format", "json"}}
+	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {
+		t.Errorf("unity calls = %q, want open, status and close of the main checkout first", got)
+	}
+	if l, err := ledger.Load(e.Home); err != nil || len(l.Editors) != 0 {
+		t.Errorf("ledger = %+v, %v; want no Editor", l.Editors, err)
 	}
 }
 
