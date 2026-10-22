@@ -17,6 +17,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity"
 	"github.com/weslo/upool/internal/unity/fake"
 )
 
@@ -356,8 +357,8 @@ func TestOpenWaitsForTheRunningColdImport(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		begin := time.Now()
 		r := runOpen(t, p, procsAlive(os.Getpid(), 1001), time.Now)
-		if waited := time.Since(begin); waited != coldReadyTimeout {
-			t.Errorf("open waited %s, want %s", waited, coldReadyTimeout)
+		if waited := time.Since(begin); waited != unity.ColdReadyTimeout {
+			t.Errorf("open waited %s, want %s", waited, unity.ColdReadyTimeout)
 		}
 		waiting := "upool: waiting to open the Editor of " + p.slot("slot-1") +
 			": max_cold_imports refuses another Editor: 1 cold imports are running, and it " +

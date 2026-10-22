@@ -11,6 +11,7 @@ import (
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/unity"
 )
 
 // mover moves a pool's idle ready slots to base and re-warms them, refresh's last step
@@ -193,7 +194,7 @@ func (m mover) unwarmed(ctx context.Context, s pool.Slot, err error) (movedSlot,
 	if err := m.setReimportPending(ctx, s.Name); err != nil {
 		return movedSlot{}, false, err
 	}
-	var notReady *notReadyError
+	var notReady *unity.NotReadyError
 	if errors.As(err, &notReady) {
 		_, warnings, closeErr := shutSlotEditor(ctx, m.inv, m.rp, s)
 		for _, w := range warnings {

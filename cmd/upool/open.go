@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/weslo/upool/internal/config"
@@ -29,23 +27,6 @@ const openUsage = "open [--headless|--gui] [--json]"
 const (
 	modeHeadless = "headless"
 	modeGUI      = "gui"
-)
-
-// The waits of `upool open` (docs/contracts.md A37). An Editor charged as a cold import gets
-// coldReadyTimeout to be ready, and any other readyTimeout: GUI Editors were ready in 11 to 21 s
-// and headless ones within 57 s on warm Libraries, and a cold import took 235 to 259 s (spike §8
-// C.1, B.1; spike §2 T5.5). A max_cold_imports refusal waits coldReadyTimeout too (A38).
-const (
-	readyTimeout     = 120 * time.Second
-	coldReadyTimeout = 300 * time.Second
-	// launchTimeout bounds `unity open`, which returns once it has launched the Editor.
-	launchTimeout = time.Minute
-	// statusGrace is how long upool gives `unity status --until-ready` past its own --timeout
-	// before it ends the call, so that a CLI that hangs cannot hang open.
-	statusGrace = 30 * time.Second
-	// editorPollInterval is how often open checks that the Editor it launched is still running
-	// while it waits for it to be ready.
-	editorPollInterval = time.Second
 )
 
 // openCommand is `upool open [--headless|--gui]`: from inside a slot, it charges the Editor
@@ -109,9 +90,9 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 
 // openSlotEditor is open's work on slot s of the pool rp, which refresh also does to re-warm a
 // slot it moved to base (#97): it returns what it did and the CLI's warnings. With rewarm, for
-// refresh, it waits coldReadyTimeout whatever the charge, and an Editor still running when the
-// wait runs out stays in the ledger, with the scene list kept, for refresh to close: the error is
-// then a *notReadyError, and the report names the Editor's PID (A40).
+// refresh, it waits unity.ColdReadyTimeout whatever the charge, and an Editor still running when
+// the wait runs out stays in the ledger, with the scene list kept, for refresh to close: the error
+// is then a *unity.NotReadyError, and the report names the Editor's PID (A40).
 //
 //  1. It admits the Editor to the ledger under upool's own PID, as a cold import when the slot has
 //     no Library/ or its reimport_pending is set (A20). A refusal by max_cold_imports waits; any
@@ -144,9 +125,9 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 	if _, err := os.Stat(filepath.Join(s.Path, "Library")); errors.Is(err, os.ErrNotExist) {
 		cold = true
 	}
-	timeout := readyTimeout
+	timeout := unity.ReadyTimeout
 	if cold || rewarm {
-		timeout = coldReadyTimeout
+		timeout = unity.ColdReadyTimeout
 	}
 	e, err := admitEditor(ctx, inv, procs, budget, ledger.Editor{Project: s.Path, PID: inv.pid,
 		Mode: mode, OpenedByUpool: true, ColdImport: cold})
@@ -171,15 +152,15 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 	}
 
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
-	pid, warnings, err := launchEditor(ctx, client, s.Path, mode)
+	pid, warnings, err := client.Launch(ctx, s.Path, mode == modeHeadless)
 	if err == nil {
 		err = ledger.Launched(ctx, inv.home, s.Path, inv.pid, pid)
 	}
 	if err != nil {
 		return fail(inv.pid, err)
 	}
-	if err := waitReady(ctx, procs, client, s.Path, pid, timeout); err != nil {
-		var notReady *notReadyError
+	if err := client.WaitReady(ctx, procs, s.Path, pid, timeout); err != nil {
+		var notReady *unity.NotReadyError
 		if rewarm && errors.As(err, &notReady) {
 			return openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode,
 				ColdImport: cold, ChargeGB: e.ChargeGB}, warnings, err
@@ -250,11 +231,12 @@ func slotHere(ctx context.Context, inv *invocation, command string) (registeredP
 }
 
 // admitEditor admits e to the ledger. A refusal by max_cold_imports waits for the running cold
-// import to end, retrying once a second and saying why on stderr, for at most coldReadyTimeout;
+// import to end, retrying once a second and saying why on stderr, for at most
+// unity.ColdReadyTimeout;
 // any other refusal fails at once, naming its limit (A38).
 func admitEditor(ctx context.Context, inv *invocation, procs proc.Checker, b ledger.Budget,
 	e ledger.Editor) (ledger.Editor, error) {
-	deadline := inv.now().Add(coldReadyTimeout)
+	deadline := inv.now().Add(unity.ColdReadyTimeout)
 	said := ""
 	for {
 		admitted, err := ledger.Admit(ctx, inv.home, procs, b, e)
@@ -268,7 +250,7 @@ func admitEditor(ctx context.Context, inv *invocation, procs proc.Checker, b led
 		case !inv.now().Before(deadline):
 			return ledger.Editor{}, output.Fail(output.CodeCommandFailed,
 				"opening the Editor of %s: still refused after %s: %v", e.Project,
-				coldReadyTimeout, refusal)
+				unity.ColdReadyTimeout, refusal)
 		}
 		line := "waiting to open the Editor of " + e.Project + ": " + refusal.Error()
 		if line != said {
@@ -278,110 +260,6 @@ func admitEditor(ctx context.Context, inv *invocation, procs proc.Checker, b led
 		time.Sleep(retryInterval)
 	}
 }
-
-// launchEditor runs `unity open <slot>`, with `--args -batchmode` for a headless Editor (A33), and
-// returns the PID it launched and the CLI's warnings, such as its Hub-registry warning, which it
-// repeats in the envelope (A12).
-func launchEditor(ctx context.Context, c unity.Client, slot, mode string) (int, []string,
-	error) {
-	ctx, cancel := context.WithTimeout(ctx, launchTimeout)
-	defer cancel()
-	var args []string
-	if mode == modeHeadless {
-		args = []string{"--args", "-batchmode"}
-	}
-	reply, err := c.Call(ctx, unity.VerbOpen, slot, args...)
-	if err == nil {
-		err = reply.Err()
-	}
-	if err != nil {
-		return 0, nil, err
-	}
-	var data struct {
-		LaunchedPID int `json:"launchedPid"`
-	}
-	if json.Unmarshal(reply.Response.Data, &data) != nil || data.LaunchedPID < 1 {
-		return 0, reply.Response.Warnings, output.Fail(output.CodeCommandFailed,
-			"unity open %s reported no launchedPid", slot)
-	}
-	return data.LaunchedPID, reply.Response.Warnings, nil
-}
-
-// waitReady waits for the Editor at pid to be ready in slot: `unity status --until-ready
-// --timeout <timeout>`, which waits the whole timeout when no Editor comes up, while it checks the
-// Editor's process every editorPollInterval, so that an Editor that exits fails at once rather
-// than at the timeout (docs/design.md, the lifecycle paragraph). An Editor that is not ready in
-// time fails as the status call does, exiting 6 for STATUS_NO_INSTANCES (A3).
-func waitReady(ctx context.Context, procs proc.Checker, c unity.Client, slot string, pid int,
-	timeout time.Duration) error {
-	exited := output.Fail(output.CodeCommandFailed,
-		"the Editor of %s, process %d, exited before it was ready", slot, pid)
-	start, err := procs.Start(pid)
-	if errors.Is(err, proc.ErrNoProcess) {
-		return exited
-	}
-	if err != nil {
-		return err
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout+statusGrace)
-	// finished closes once the status call has returned, with its error in statusErr.
-	finished := make(chan struct{})
-	var statusErr error
-	go func() {
-		defer close(finished)
-		reply, err := c.Call(ctx, unity.VerbStatus, slot, "--until-ready", "--timeout",
-			strconv.Itoa(int(timeout/time.Second)))
-		if err == nil {
-			err = reply.Err()
-		}
-		statusErr = err
-	}()
-	// stop ends the status call, if it still runs, and waits for it; its result no longer counts.
-	stop := func() {
-		cancel()
-		<-finished
-	}
-	ticker := time.NewTicker(editorPollInterval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-finished:
-			cancel()
-			err := statusErr
-			if err == nil {
-				return nil
-			}
-			if alive, aliveErr := procs.Alive(pid, start); aliveErr == nil && !alive {
-				return exited
-			}
-			return &notReadyError{slot: slot, timeout: timeout, err: err}
-		case <-ticker.C:
-			alive, err := procs.Alive(pid, start)
-			if err != nil || !alive {
-				stop()
-				if err != nil {
-					return err
-				}
-				return exited
-			}
-		}
-	}
-}
-
-// notReadyError is waitReady's error for an Editor that was not ready when the wait ran out and
-// whose process, as far as could be told, was still running.
-type notReadyError struct {
-	slot    string
-	timeout time.Duration
-	// err is the status call's error.
-	err error
-}
-
-func (e *notReadyError) Error() string {
-	return fmt.Sprintf("the Editor of %s was not ready after %s: %v", e.slot, e.timeout, e.err)
-}
-
-func (e *notReadyError) Unwrap() error { return e.err }
 
 // withdrawEditor takes the Editor open recorded under pid out of the ledger after err, and
 // returns err, with the withdrawal's own error if it failed.
