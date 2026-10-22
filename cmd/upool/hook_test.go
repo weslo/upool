@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,5 +180,63 @@ func TestHookRemovesThePassThroughWorktreeItMade(t *testing.T) {
 	}
 	if got := e.Git("worktree", "list", "--porcelain"); strings.Contains(got, path) {
 		t.Errorf("git worktree list = %q, want %s gone", got, path)
+	}
+}
+
+// Through the dispatcher, `upool hook pre-tool-use` on the captured Edit request, pointed at a
+// scene in slot-1, which `upool take` leased in the script lane, prints Claude Code's deny
+// decision and exits 0; pointed at a script, it prints nothing and exits 0 (#95).
+func TestHookPreToolUseDeniesASceneInAScriptLane(t *testing.T) {
+	p := newHarnessPool(t)
+	if r := runIn(t, p.Env, p.Repo, "take", "feature"); r.code != output.ExitOK {
+		t.Fatalf("take: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "hooks",
+		"pretooluse-edit.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	capture, err := pathvars.Fill(string(b), pathvars.Var{Name: "repo", Path: p.Repo},
+		pathvars.Var{Name: "home", Path: p.Home},
+		pathvars.Var{Name: "claude_tmp", Path: filepath.Join(p.Home, "claude-tmp")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		file string
+		deny bool
+	}{{"Assets/Scenes/Main.unity", true}, {"Assets/Scripts/Player.cs", false}} {
+		stdin := strings.Replace(capture, p.slot("slot-1")+"/upool-capture.txt",
+			p.slot("slot-1")+"/"+tt.file, 1)
+		var out, errOut bytes.Buffer
+		d := dispatcher{commands: commandTable, hooks: hookTable,
+			stdin: strings.NewReader(stdin), stdout: &out, stderr: &errOut, getenv: p.Getenv,
+			environ: p.Environ, now: func() time.Time { return clock }, pid: os.Getpid()}
+		if code := d.run([]string{"hook", "pre-tool-use"}); code != output.ExitOK ||
+			errOut.Len() != 0 {
+			t.Fatalf("%s: exit = %d, stderr %q; want 0 and nothing", tt.file, code,
+				errOut.String())
+		}
+		if !tt.deny {
+			if out.Len() != 0 {
+				t.Errorf("%s: stdout = %q, want nothing", tt.file, out.String())
+			}
+			continue
+		}
+		var decision struct {
+			HookSpecificOutput struct {
+				HookEventName, PermissionDecision, PermissionDecisionReason string
+			} `json:"hookSpecificOutput"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &decision); err != nil ||
+			!strings.HasSuffix(out.String(), "}\n") || strings.Count(out.String(), "\n") != 1 {
+			t.Fatalf("%s: stdout = %q, want one line of JSON: %v", tt.file, out.String(), err)
+		}
+		if got := decision.HookSpecificOutput; got.HookEventName != "PreToolUse" ||
+			got.PermissionDecision != "deny" ||
+			!strings.Contains(got.PermissionDecisionReason, "--lane scene") {
+			t.Errorf("%s: decision %+v, want PreToolUse denied, naming --lane scene", tt.file,
+				got)
+		}
 	}
 }

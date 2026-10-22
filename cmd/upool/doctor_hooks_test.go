@@ -36,12 +36,30 @@ func TestDoctorHooks(t *testing.T) {
 				}
 				editSettings(t, p, func(hooks map[string]any) {
 					for _, h := range hookEvents {
-						hooks[h.event] = []any{map[string]any{"hooks": []any{map[string]any{
-							"type": "command", "command": moved,
-							"args": []string{"hook", h.hook}}}}}
+						handler := map[string]any{"type": "command", "command": moved,
+							"args": []string{"hook", h.hook}}
+						if h.onFailure != "" {
+							handler["onFailure"] = h.onFailure
+						}
+						hooks[h.event] = []any{map[string]any{"hooks": []any{handler}}}
 					}
 				})
 			},
+		},
+		{
+			name: "a lane guard that fails open",
+			breakIt: func(t *testing.T, p harnessPool) {
+				upool := registeredUpool(t, p)
+				editSettings(t, p, func(hooks map[string]any) {
+					hooks["PreToolUse"] = []any{map[string]any{
+						"matcher": "Edit|Write|NotebookEdit", "hooks": []any{map[string]any{
+							"type": "command", "command": upool,
+							"args": []string{"hook", "pre-tool-use"}}}}}
+				})
+			},
+			check: checkHookSettings, result: checkFail,
+			reason: "does not register upool hook pre-tool-use for PreToolUse with " +
+				"\"onFailure\": \"block\": run upool init",
 		},
 		{
 			name: "registered upool gone",

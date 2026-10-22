@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/proc"
 )
@@ -94,9 +95,14 @@ type command struct {
 // an error (docs/design.md, "Repository, CI and Homebrew distribution", internal/hooks).
 type hookHandler func(inv *invocation) (path string, err error)
 
-// hook is one row of the hook table.
+// hookDecider runs a hook that answers with a decision rather than a path, PreToolUse's lane guard,
+// and returns the decision for the dispatcher to print (internal/hooks.Decision.Output).
+type hookDecider func(inv *invocation) (hooks.Decision, error)
+
+// hook is one row of the hook table: handle, or for a hook that decides, decide.
 type hook struct {
 	handle hookHandler
+	decide hookDecider
 	// failExit is the exit code when handle fails. Claude Code's hook contract sets it, not
 	// upool's own exit codes: only worktree-create exits non-zero, which aborts the session, and
 	// worktree-remove always exits 0 (docs/contracts.md (d), "upool's own exit codes").
@@ -208,6 +214,9 @@ func (d *dispatcher) hook(args []string) int {
 		say(d.stderr, fmt.Sprintf("hook %s: unexpected arguments %q", event, args[1:]))
 		return h.failExit
 	}
+	if h.decide != nil {
+		return d.decision(event, h)
+	}
 	path, err := h.handle(d.invocation(nil, nil))
 	if err != nil {
 		say(d.stderr, fmt.Sprintf("hook %s: %v", event, err))
@@ -218,6 +227,31 @@ func (d *dispatcher) hook(args []string) int {
 	}
 	if _, err := fmt.Fprintln(d.stdout, path); err != nil {
 		say(d.stderr, fmt.Sprintf("hook %s: writing the path: %v", event, err))
+		return h.failExit
+	}
+	return output.ExitOK
+}
+
+// decision runs the deciding hook h for event and prints its decision, a JSON document on one line,
+// or nothing when the hook lets the call through (docs/design.md, "Lanes: scripts in parallel,
+// scenes one at a time, `.meta` never regenerated"). On failure the error goes to stderr and upool
+// exits with failExit, which the hook's registration turns into a denial (`"onFailure": "block"`).
+func (d *dispatcher) decision(event string, h hook) int {
+	dec, err := h.decide(d.invocation(nil, nil))
+	if err != nil {
+		say(d.stderr, fmt.Sprintf("hook %s: %v", event, err))
+		return h.failExit
+	}
+	out, err := dec.Output()
+	if err != nil {
+		say(d.stderr, fmt.Sprintf("hook %s: encoding the decision: %v", event, err))
+		return h.failExit
+	}
+	if out == nil {
+		return output.ExitOK
+	}
+	if _, err := fmt.Fprintln(d.stdout, string(out)); err != nil {
+		say(d.stderr, fmt.Sprintf("hook %s: writing the decision: %v", event, err))
 		return h.failExit
 	}
 	return output.ExitOK

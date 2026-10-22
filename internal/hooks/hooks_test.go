@@ -31,10 +31,6 @@ const parentPID = 4242
 // registers no hook (docs/contracts.md A25).
 const eventSessionEnd = "SessionEnd"
 
-// eventPreToolUse is PreToolUse's hook_event_name, whose captures M3 adds (#86) for the lane hook
-// (#95).
-const eventPreToolUse = "PreToolUse"
-
 // logCaptures are the files in capturesDir that are not hook stdin, by name: a hook's own log,
 // which the classification passes over (testdata/README.md, captures/hooks/).
 var logCaptures = map[string]bool{"desktop-create-timeout.txt": true}

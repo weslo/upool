@@ -563,7 +563,8 @@ func TestInitRegistersHooks(t *testing.T) {
   "env": {"OTHER_TOOL": "<on> & off"},
   "hooks": {
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command", "command": "other-tool guard"}]}
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "other-tool guard"}]},
+      "@pre-tool-use@"
     ],
     "SessionStart": [
       {"matcher": "startup", "hooks": [{"type": "command", "command": "other-tool start", "timeout": 30}]},

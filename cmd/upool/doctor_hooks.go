@@ -51,9 +51,12 @@ func hookSettingsCheck(file string) doctorCheck {
 		i := slices.IndexFunc(registered[h.event], func(c commandHook) bool {
 			return c.Type == "command" && filepath.IsAbs(c.Command) &&
 				filepath.Base(c.Command) == upoolName &&
-				slices.Equal(c.Args, []string{"hook", h.hook})
+				slices.Equal(c.Args, []string{"hook", h.hook}) && c.OnFailure == h.onFailure
 		})
-		if i < 0 {
+		if i < 0 && h.onFailure != "" {
+			missing = append(missing, fmt.Sprintf("upool hook %s for %s with \"onFailure\": %q",
+				h.hook, h.event, h.onFailure))
+		} else if i < 0 {
 			missing = append(missing, fmt.Sprintf("upool hook %s for %s", h.hook, h.event))
 		} else if upool := registered[h.event][i].Command; !slices.Contains(upools, upool) {
 			upools = append(upools, upool)

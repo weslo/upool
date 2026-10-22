@@ -133,6 +133,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
     only when the licence is not active.
   - The verb table and docs/contracts.md (c) gain `license status`. docs/manual-gates/M3.md gains
     the check "Crash recovery".
+- The lane guard: `upool hook pre-tool-use`, which `upool init` registers in the project's
+  `.claude/settings.local.json` for `Edit|Write|NotebookEdit`, with `"onFailure": "block"` (A26).
+  - It denies a write to a `.unity`, `.prefab`, `.asset` or `.meta` file in a slot whose lease is in
+    the script lane, with a reason naming `upool take <branch> --lane scene`. It lets everything
+    else through, paths outside every slot included.
+  - A hook that fails exits 1, which `onFailure` turns into a denial. Shell commands that write
+    files are not seen.
+  - A project registered earlier gets the guard from `upool init` run again; until then `doctor`
+    fails `hook-settings` naming it.
+  - docs/manual-gates/M3.md gains the check "Lane guard".
 
 ## [0.2.0] - 2026-10-21
 
