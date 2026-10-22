@@ -117,6 +117,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - `upool close` puts it back once a headless Editor upool opened has exited, then deletes the
     copy, and says so in `scene_list_restored`. GUI sessions do neither.
   - docs/manual-gates/M3.md gains the check "Scene list".
+- `upool release` saves and closes the Editor upool opened in the slot, as `upool close` does,
+  before it judges the slot clean. The Editor's unsaved work lands in the slot, which a change then
+  parks.
+  - A running Editor upool did not open fails release, which closes only Editors it opened.
+  - A save that fails stops release with the slot still leased.
+  - `--json` gives the closed Editor as `editor`.
+- `upool take` skips a slot whose Editor the ledger records as running (`editor-running`).
+  docs/manual-gates/M3.md gains the check "Release with an Editor".
 
 ## [0.2.0] - 2026-10-21
 

@@ -85,6 +85,17 @@ func closeEditor(inv *invocation) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	r, warnings, err := closeSlotEditor(ctx, inv, rp, s)
+	if err != nil {
+		return nil, warnings, err
+	}
+	return r, warnings, nil
+}
+
+// closeSlotEditor is close's work on slot s of the pool rp, which release also does for an Editor
+// upool opened: it returns what it did and the CLI's warnings.
+func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
+	s pool.Slot) (closeReport, []string, error) {
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
 	if err := client.SaveAll(ctx, s.Path); err != nil {
 		code := output.CodeCommandFailed
@@ -92,8 +103,8 @@ func closeEditor(inv *invocation) (any, []string, error) {
 		if errors.As(err, &f) {
 			code = f.Code()
 		}
-		return nil, nil, output.Fail(code, "not closing the Editor of %s, since saving its "+
-			"scenes failed: %v", s.Path, err)
+		return closeReport{}, nil, output.Fail(code, "not closing the Editor of %s, since "+
+			"saving its scenes failed: %v", s.Path, err)
 	}
 
 	closeCtx, cancel := context.WithTimeout(ctx, closeTimeout)
@@ -103,37 +114,38 @@ func closeEditor(inv *invocation) (any, []string, error) {
 		err = reply.Err()
 	}
 	if err != nil {
-		return nil, nil, err
+		return closeReport{}, nil, err
 	}
+	warnings := reply.Response.Warnings
 	var data struct {
 		PID    int    `json:"pid"`
 		Closed bool   `json:"closed"`
 		Method string `json:"method"`
 	}
 	if json.Unmarshal(reply.Response.Data, &data) != nil || !data.Closed {
-		return nil, reply.Response.Warnings, output.Fail(output.CodeCommandFailed,
+		return closeReport{}, warnings, output.Fail(output.CodeCommandFailed,
 			"unity close %s did not report the Editor closed", s.Path)
 	}
 
 	procs := inv.checker()
 	pids, headless, err := editorPIDs(inv.home, s.Path, data.PID)
 	if err != nil {
-		return nil, reply.Response.Warnings, err
+		return closeReport{}, warnings, err
 	}
 	if err := waitGone(inv, procs, s.Path, pids); err != nil {
-		return nil, reply.Response.Warnings, err
+		return closeReport{}, warnings, err
 	}
 	if _, err := ledger.Remove(ctx, inv.home, procs, s.Path); err != nil {
-		return nil, reply.Response.Warnings, err
+		return closeReport{}, warnings, err
 	}
 	r := closeReport{Slot: s.Name, Path: s.Path, PID: data.PID, Method: data.Method}
 	if headless {
 		if r.SceneListRestored, err = restoreSceneList(ctx, inv.home, rp.repo.Key,
 			s); err != nil {
-			return nil, reply.Response.Warnings, err
+			return closeReport{}, warnings, err
 		}
 	}
-	return r, reply.Response.Warnings, nil
+	return r, warnings, nil
 }
 
 // editorPIDs returns the processes of slot's Editor: those the ledger records for it and reported,

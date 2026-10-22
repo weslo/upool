@@ -87,6 +87,14 @@ func runOpen(t *testing.T, p harnessPool, procs proc.Checker, now func() time.Ti
 func runInSlot1(t *testing.T, p harnessPool, procs proc.Checker, now func() time.Time,
 	args ...string) result {
 	t.Helper()
+	return runProcs(t, p.Env, p.slot("slot-1"), procs, now, args...)
+}
+
+// runProcs runs upool with args in e, with dir as the working directory, as runAt does, with
+// procs as the process table and now as the clock.
+func runProcs(t *testing.T, e *testenv.Env, dir string, procs proc.Checker, now func() time.Time,
+	args ...string) result {
+	t.Helper()
 	var out, errOut bytes.Buffer
 	d := dispatcher{
 		commands:   commandTable,
@@ -94,9 +102,9 @@ func runInSlot1(t *testing.T, p harnessPool, procs proc.Checker, now func() time
 		stdin:      strings.NewReader(""),
 		stdout:     &out,
 		stderr:     &errOut,
-		getenv:     p.Getenv,
-		environ:    p.Environ,
-		getwd:      func() (string, error) { return p.slot("slot-1"), nil },
+		getenv:     e.Getenv,
+		environ:    e.Environ,
+		getwd:      func() (string, error) { return dir, nil },
 		now:        now,
 		pid:        os.Getpid(),
 		ppid:       os.Getppid(),

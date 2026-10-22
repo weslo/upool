@@ -12,6 +12,7 @@ import (
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -146,7 +147,7 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 	l := leaser{g: g, home: inv.home, key: key, repo: repo, base: rp.pool.Base,
 		lane: opts.lane, holder: opts.holder, holderPID: opts.holderPID,
 		holderStart: opts.holderStart, confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
-		reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home, Key: key,
+		reclaimer: pool.Reclaimer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key,
 			Now: inv.now}}
 	if !opts.noCreate {
 		l.cloner = &cloner{
@@ -373,8 +374,10 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // (docs/design.md, "Leases that survive crashes and never reclaim a live tree": take prints why
 // each slot was skipped). A ready slot qualifies only while its directory exists, git lists it
 // and its backlink checks out; otherwise it is skipped as missing-from-worktree-list
-// ((f) transition 17). First it ends the unconfirmed leases older than confirm_timeout, and
-// returns the slots they were on, whose leases the caller finishes (#75). A scene lease is taken
+// ((f) transition 17). One whose Editor the ledger records with a running process is skipped as
+// editor-running (docs/contracts.md (f), the conditions take skips for). First it ends the
+// unconfirmed leases older than confirm_timeout, and returns the slots they were on, whose leases
+// the caller finishes (#75). A scene lease is taken
 // only while no other lease holds the scene lane: otherwise every slot that could be handed out is
 // skipped, naming the lease that holds it, and that lease's slot is returned as scene.
 func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, skipped []string,
@@ -396,9 +399,22 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 		if err != nil {
 			return err
 		}
+		editors, err := ledger.Load(l.home)
+		if err != nil {
+			return err
+		}
 		for i := range p.Slots {
 			s := &p.Slots[i]
 			reason := skipReason(*s, listed, l.repo)
+			if reason == "" {
+				live, err := editors.LiveIn(l.reclaimer.Proc, s.Path)
+				if err != nil {
+					return err
+				}
+				if live {
+					reason = "editor-running"
+				}
+			}
 			if reason == "" && scene != nil {
 				reason = sceneHeld(*scene)
 			}
