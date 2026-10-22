@@ -100,7 +100,7 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	r, warnings, err := openSlotEditor(ctx, inv, rp, s, mode)
+	r, warnings, err := openSlotEditor(ctx, inv, rp, s, mode, false)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -108,7 +108,10 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 }
 
 // openSlotEditor is open's work on slot s of the pool rp, which refresh also does to re-warm a
-// slot it moved to base (#97): it returns what it did and the CLI's warnings.
+// slot it moved to base (#97): it returns what it did and the CLI's warnings. With rewarm, for
+// refresh, it waits coldReadyTimeout whatever the charge, and an Editor still running when the
+// wait runs out stays in the ledger, with the scene list kept, for refresh to close: the error is
+// then a *notReadyError, and the report names the Editor's PID (A40).
 //
 //  1. It admits the Editor to the ledger under upool's own PID, as a cold import when the slot has
 //     no Library/ or its reimport_pending is set (A20). A refusal by max_cold_imports waits; any
@@ -125,7 +128,7 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 // reset without `-x`"; A8). A failure after admission withdraws the entry, so that the ledger
 // charges nothing for an Editor that never became ready, and drops the kept scene list.
 func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s pool.Slot,
-	mode string) (openReport, []string, error) {
+	mode string, rewarm bool) (openReport, []string, error) {
 	repo := rp.pool.Repo
 	if repo == "" {
 		repo = rp.repo.Path
@@ -142,7 +145,7 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 		cold = true
 	}
 	timeout := readyTimeout
-	if cold {
+	if cold || rewarm {
 		timeout = coldReadyTimeout
 	}
 	e, err := admitEditor(ctx, inv, procs, budget, ledger.Editor{Project: s.Path, PID: inv.pid,
@@ -176,6 +179,11 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 		return fail(inv.pid, err)
 	}
 	if err := waitReady(ctx, procs, client, s.Path, pid, timeout); err != nil {
+		var notReady *notReadyError
+		if rewarm && errors.As(err, &notReady) {
+			return openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode,
+				ColdImport: cold, ChargeGB: e.ChargeGB}, warnings, err
+		}
 		return fail(pid, err)
 	}
 
@@ -346,7 +354,7 @@ func waitReady(ctx context.Context, procs proc.Checker, c unity.Client, slot str
 			if alive, aliveErr := procs.Alive(pid, start); aliveErr == nil && !alive {
 				return exited
 			}
-			return fmt.Errorf("the Editor of %s was not ready after %s: %w", slot, timeout, err)
+			return &notReadyError{slot: slot, timeout: timeout, err: err}
 		case <-ticker.C:
 			alive, err := procs.Alive(pid, start)
 			if err != nil || !alive {
@@ -359,6 +367,21 @@ func waitReady(ctx context.Context, procs proc.Checker, c unity.Client, slot str
 		}
 	}
 }
+
+// notReadyError is waitReady's error for an Editor that was not ready when the wait ran out and
+// whose process, as far as could be told, was still running.
+type notReadyError struct {
+	slot    string
+	timeout time.Duration
+	// err is the status call's error.
+	err error
+}
+
+func (e *notReadyError) Error() string {
+	return fmt.Sprintf("the Editor of %s was not ready after %s: %v", e.slot, e.timeout, e.err)
+}
+
+func (e *notReadyError) Unwrap() error { return e.err }
 
 // withdrawEditor takes the Editor open recorded under pid out of the ledger after err, and
 // returns err, with the withdrawal's own error if it failed.

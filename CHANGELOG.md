@@ -15,9 +15,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   <base>`. Each such slot is marked `warming` with refresh as its owner, so that `take` skips it;
   checked out with `git checkout --detach`, the cache key compared across the checkout; re-warmed
   with a headless Editor, opened, made ready and saved and closed as `upool open` and `upool
-  close` do, charged in the ledger, as a cold import when the key changed; and returned to
-  `ready`. stdout says which slots were moved and how long each re-warm took. A failed checkout or
-  re-warm is a warning and the slot is ready all the same; a failed fetch fails the refresh.
+  close` do, charged in the ledger, as a cold import when the key changed, and given the
+  cold-import timeout, 300 s, whatever its charge; and returned to `ready`. A slot is moved only
+  forward, to a commit its HEAD is an ancestor of, so a plain refresh leaves a slot that `--fetch`
+  moved ahead of the local base where it is (A41). stdout says which slots were moved and how long
+  each re-warm took. A failed checkout is a warning, and the slot stays where it was; a failed
+  re-warm is a warning, and the slot is ready at base with `reimport_pending` set, its Editor
+  closed without `save_all` if it was still running, or, if that close fails, kept in the ledger
+  with the slot `warming` until it exits (A40). A failed fetch fails the refresh. After the moves
+  the top-up runs again, so that a handout during a move is topped up.
 - `take`, `status` and `doctor` check a `warming` slot again once its owner, the refresh or the
   clone holding it, is gone and no live Editor in the ledger has it open: a clean slot goes back to
   `ready` and a dirty one is parked, each with a line on stderr (docs/contracts.md (f) transition

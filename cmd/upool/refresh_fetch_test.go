@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -116,7 +117,8 @@ func checkSlot1(t *testing.T, p harnessPool, commit string, pending bool) {
 
 // The acceptance test of #97. A ready slot one commit behind origin/main ends ready at origin/main,
 // with the fake's log showing, for it, the cache key compared across the checkout, then open with
-// `--args -batchmode`, `status --until-ready`, save_all and close, each on slot-1. While it is
+// `--args -batchmode`, `status --until-ready` for the cold-import timeout, which a re-warm always
+// waits (A40), save_all and close, each on slot-1. While it is
 // warming, a take run as the Editor starts skips it. A dead owner's clean warming slot returns to
 // ready at the next take, status or doctor, and a later refresh moves it to base.
 func TestRefreshFetch(t *testing.T) {
@@ -145,7 +147,7 @@ func TestRefreshFetch(t *testing.T) {
 		wantCalls := [][]string{{"cache", "key", slot, "--format", "json"},
 			{"cache", "key", slot, "--format", "json"},
 			{"open", slot, "--args", "-batchmode", "--format", "json"},
-			{"status", "--until-ready", "--timeout", "120", "--format", "json"},
+			{"status", "--until-ready", "--timeout", "300", "--format", "json"},
 			{"command", "save_all", "--format", "json"},
 			{"close", slot, "--format", "json"}}
 		if got := callArgs(t, p, u); !slices.EqualFunc(got, wantCalls, slices.Equal) {
@@ -235,9 +237,8 @@ func TestRefreshFetch(t *testing.T) {
 		if !pending {
 			t.Error("reimport_pending was not set while the Editor started")
 		}
-		if calls := callArgs(t, p, u); len(calls) != 6 || !slices.Equal(calls[3],
-			[]string{"status", "--until-ready", "--timeout", "300", "--format", "json"}) {
-			t.Errorf("unity calls = %q, want the cold import's wait of 300 s", calls)
+		if calls := callArgs(t, p, u); len(calls) != 6 {
+			t.Errorf("unity calls = %q, want the move and re-warm of slot-1", calls)
 		}
 		checkSlot1(t, p, upstream, false)
 		checkEditors(t, p)
@@ -282,30 +283,80 @@ func TestRefreshMovesToTheLocalBase(t *testing.T) {
 	checkSlot1(t, p, commit, false)
 }
 
-// A re-warm that fails, here an Editor not ready in time, is a warning: the slot is moved and
-// ready all the same, its next open doing the import, and the ledger charges nothing.
-func TestRefreshReturnsASlotWhoseRewarmFailed(t *testing.T) {
-	p, origin := fetchPool(t)
-	upstream := pushUpstream(t, p, origin)
-	replies := rewarmReplies(t, p, nil)
-	replies[3] = statusNoInstances
-	u := p.installUnity(t, replies[:4]...)
-	r := runRefresh(t, p, newRewarmProcs(1, nil), "--fetch")
-	want := "the pool has 1 ready, as ready = 1 asks\nmoved slot-1 to origin/main (" +
-		upstream[:7] + ") but did not re-warm it\n"
-	if r.code != output.ExitOK || r.stdout != want {
-		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr, want)
+// A re-warm that fails is a warning, and the moved slot goes back to ready with reimport_pending
+// set, so that its next open is charged as the cold import the re-warm did not finish (A40). An
+// Editor still running when the wait ran out is closed without save_all; one that exited is
+// already out of the ledger. If the close fails, the Editor stays in the ledger and the slot
+// warming.
+func TestRefreshRewarmFailures(t *testing.T) {
+	notReady := "the Editor of %s was not ready after 5m0s: "
+	for _, tt := range []struct {
+		name string
+		// close is the fake's reply to `unity close`, if refresh is to close the Editor.
+		close *fake.Reply
+		// exits is whether the Editor exits before it is ready.
+		exits bool
+		// warning is how the warning starts after "moved slot-1 to origin/main but did not
+		// re-warm it: ", with %s the slot.
+		warning string
+		closed  bool
+	}{
+		{"not ready, closed", &closeHeadlessReply, false, notReady, true},
+		{"not ready, the close failed", &statusNoInstances, false, notReady, false},
+		{"exited before ready", nil, true, "the Editor of %s, process 25147, exited before " +
+			"it was ready", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, origin := fetchPool(t)
+			upstream := pushUpstream(t, p, origin)
+			replies := rewarmReplies(t, p, nil)[:3]
+			replies = append(replies, statusNoInstances)
+			if tt.close != nil {
+				replies = append(replies, *tt.close)
+			}
+			u := p.installUnity(t, replies...)
+			procs := newRewarmProcs(1, nil)
+			if tt.exits {
+				procs.checks[capturedPID] = 0
+			}
+			r := runRefresh(t, p, procs, "--fetch")
+			slot := p.slot("slot-1")
+			warning := "upool: warning: moved slot-1 to origin/main but did not re-warm it: " +
+				fmt.Sprintf(tt.warning, slot)
+			if r.code != output.ExitOK || !strings.Contains(r.stderr, warning) {
+				t.Errorf("exit %d, stderr %q; want 0 and a warning starting %q", r.code, r.stderr,
+					warning)
+			}
+			want := [][]string{{"cache", "key", slot, "--format", "json"},
+				{"cache", "key", slot, "--format", "json"},
+				{"open", slot, "--args", "-batchmode", "--format", "json"},
+				{"status", "--until-ready", "--timeout", "300", "--format", "json"}}
+			if tt.close != nil {
+				want = append(want, []string{"close", slot, "--format", "json"})
+			}
+			if got := callArgs(t, p, u); !slices.EqualFunc(got, want, slices.Equal) {
+				t.Errorf("unity calls = %q, want %q: no save_all", got, want)
+			}
+			if !tt.closed {
+				if s := p.loadPool(t).Slots[0]; s.State != pool.StateWarming {
+					t.Errorf("slot-1 = %s, want warming while its Editor runs", s.State)
+				}
+				checkEditors(t, p, ledger.Editor{Project: slot, PID: capturedPID, Mode: modeHeadless,
+					OpenedByUpool: true, ChargeGB: 2.5})
+				if strings.Contains(r.stdout, "moved") {
+					t.Errorf("stdout = %q, want no move reported", r.stdout)
+				}
+				return
+			}
+			wantOut := "the pool has 1 ready, as ready = 1 asks\nmoved slot-1 to origin/main (" +
+				upstream[:7] + ") but did not re-warm it\n"
+			if r.stdout != wantOut {
+				t.Errorf("stdout = %q, want %q", r.stdout, wantOut)
+			}
+			checkSlot1(t, p, upstream, true)
+			checkEditors(t, p)
+		})
 	}
-	warning := "upool: warning: moved slot-1 to origin/main but did not re-warm it: the Editor " +
-		"of " + p.slot("slot-1") + " was not ready after 2m0s: "
-	if !strings.Contains(r.stderr, warning) {
-		t.Errorf("stderr = %q, want it to say %q…", r.stderr, warning)
-	}
-	if calls := callArgs(t, p, u); len(calls) != 4 {
-		t.Errorf("unity calls = %q, want no save_all or close after the failed open", calls)
-	}
-	checkSlot1(t, p, upstream, false)
-	checkEditors(t, p)
 }
 
 // --fetch with no origin to fetch from fails, moving nothing, and the refresh job is cleared.
@@ -380,5 +431,49 @@ func TestRefreshTopsUpAgainAfterTheMoves(t *testing.T) {
 		") and re-warmed it in 0.0 s\n"
 	if r.code != output.ExitOK || r.stdout != want {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr, want)
+	}
+}
+
+// A refresh moves a slot only forward (A41): a slot ahead of the pool's base, as `refresh --fetch`
+// leaves one when the main checkout has not pulled, or on another line of history, is left where
+// it is by the plain refresh the session-start hook spawns, with no Unity call.
+func TestRefreshMovesASlotOnlyForward(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		// at returns the commit to put slot-1 on, made in p.
+		at func(t *testing.T, p harnessPool, origin string) string
+	}{
+		{"ahead of base", func(t *testing.T, p harnessPool, origin string) string {
+			upstream := pushUpstream(t, p, origin)
+			p.Git("fetch", "-q", "origin")
+			return upstream
+		}},
+		{"on another line", func(t *testing.T, p harnessPool, _ string) string {
+			p.inSlot("checkout", "-q", "-b", "elsewhere")
+			p.WriteFile(".claude/worktrees/slot-1/"+testenv.GameScript, "// elsewhere\n")
+			p.inSlot("commit", "-q", "-am", "a change on another line")
+			commit := p.inSlot("rev-parse", "HEAD")
+			p.inSlot("checkout", "-q", "--detach", commit)
+			p.WriteFile(testenv.PlayerScript, "// moved on locally\n")
+			p.Git("commit", "-q", "-m", "a script change", "--", testenv.PlayerScript)
+			return commit
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, origin := fetchPool(t)
+			commit := tt.at(t, p, origin)
+			p.inSlot("checkout", "-q", "--detach", commit)
+			u := p.installUnity(t)
+			r := runRefresh(t, p, newRewarmProcs(1, nil))
+			if want := "the pool has 1 ready, as ready = 1 asks\n"; r.code != output.ExitOK ||
+				r.stdout != want || r.stderr != "" {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 0, %q and nothing", r.code,
+					r.stdout, r.stderr, want)
+			}
+			if calls := u.Calls(); len(calls) != 0 {
+				t.Errorf("unity calls = %+v, want none", calls)
+			}
+			checkSlot1(t, p, commit, false)
+		})
 	}
 }

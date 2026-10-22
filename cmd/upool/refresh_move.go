@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -51,9 +52,9 @@ func (m *mover) resolve(ctx context.Context, fetch bool) error {
 	return err
 }
 
-// moveReady moves each ready slot that no lease holds, no Editor has open, whose HEAD is not
-// base's commit and that it has not tried before, to that commit, records in r what it moved, and
-// returns how many slots it tried. A slot it could not move is a warning, not a failure, as a
+// moveReady moves each ready slot that no lease holds, no Editor has open, whose HEAD is an
+// ancestor of base's commit but not that commit (A41), and that it has not tried before, to that
+// commit, records in r what it moved, and returns how many slots it tried. A slot it could not move is a warning, not a failure, as a
 // needs-reset slot the top-up could not reset is; only a failure to read the pool or the ledger is
 // moveReady's error.
 func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
@@ -78,6 +79,15 @@ func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
 		}
 		if head == m.commit {
 			continue
+		}
+		forward, err := m.g.IsAncestor(ctx, m.repo, head, m.commit)
+		if err != nil {
+			m.warn(fmt.Sprintf("did not move %s to %s: %v", s.Name, m.base, err))
+			m.tried[s.Name] = true
+			continue
+		}
+		if !forward {
+			continue // a slot is moved only forward (A41)
 		}
 		live, err := editors.LiveIn(m.inv.checker(), s.Path)
 		if err != nil {
@@ -113,15 +123,18 @@ func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
 //     key` calls, and a changed key sets reimport_pending (A20).
 //  3. It re-warms the slot as `upool open --headless` and `upool close` do: admitted to the ledger,
 //     as a cold import when reimport_pending is set and waiting its turn under max_cold_imports,
-//     opened, `status --until-ready`, then save_all and close.
+//     opened, `status --until-ready` for A37's cold-import timeout whatever the charge, then
+//     save_all and close (A40).
 //  4. It returns the slot to ready, once clean ((f) transition 18).
 //
 // A slot that is no longer ready when step 1 looks is skipped. A failed checkout is a warning, and
-// the slot goes back to ready where it was, not moved. A failed re-warm is a warning, and the
-// moved slot goes back to ready all the same, its next open doing the import. A slot left dirty,
-// or whose Editor could not be closed, stays warming, a warning saying so: once this
-// refresh has exited and no Editor is live in it, the next take, status or doctor checks it again
-// ((f) transition 22). It reports whether it moved the slot and returned it to ready.
+// the slot goes back to ready where it was, not moved. A failed re-warm is a warning: an Editor
+// still running when the wait ran out is closed without save_all, which it has no work for, the
+// slot's reimport_pending is set, so that its next open is charged as the cold import the re-warm
+// did not finish, and the moved slot goes back to ready (A40). A slot left dirty, or whose Editor
+// could not be closed, stays warming, a warning saying so: once this refresh has exited and no
+// Editor is live in it, the next take, status or doctor checks it again ((f) transition 22). It
+// reports whether it moved the slot and returned it to ready.
 func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	held, err := m.hold(ctx, s)
 	if err != nil || !held {
@@ -151,13 +164,12 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 
 	moved := movedSlot{Slot: s.Name}
 	begin := m.inv.now()
-	_, warnings, err := openSlotEditor(ctx, m.inv, m.rp, s, modeHeadless)
+	_, warnings, err := openSlotEditor(ctx, m.inv, m.rp, s, modeHeadless, true)
 	for _, w := range warnings {
 		m.warn(w)
 	}
 	if err != nil {
-		m.warn(fmt.Sprintf("moved %s to %s but did not re-warm it: %v", s.Name, m.base, err))
-		return m.finish(ctx, s, moved)
+		return m.unwarmed(ctx, s, err)
 	}
 	_, warnings, err = closeSlotEditor(ctx, m.inv, m.rp, s)
 	for _, w := range warnings {
@@ -170,6 +182,32 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	}
 	moved.Rewarmed, moved.RewarmSeconds = true, m.inv.now().Sub(begin).Seconds()
 	return m.finish(ctx, s, moved)
+}
+
+// unwarmed deals with the slot s, moved to base, whose re-warm failed with err (A40). An Editor
+// still running when the wait ran out is closed without save_all; if that fails, the Editor stays
+// in the ledger and the slot warming. Otherwise the slot's reimport_pending is set and it goes back
+// to ready, not re-warmed.
+func (m mover) unwarmed(ctx context.Context, s pool.Slot, err error) (movedSlot, bool, error) {
+	var notReady *notReadyError
+	if errors.As(err, &notReady) {
+		_, warnings, closeErr := shutSlotEditor(ctx, m.inv, m.rp, s)
+		for _, w := range warnings {
+			m.warn(w)
+		}
+		if closeErr != nil {
+			m.warn(fmt.Sprintf("moved %s to %s but did not re-warm it: %v; nor could it close "+
+				"the Editor, so the slot stays warming until the Editor is gone: %v", s.Name,
+				m.base, err, closeErr))
+			return movedSlot{}, false, nil
+		}
+		err = fmt.Errorf("%w; its Editor is closed", err)
+	}
+	m.warn(fmt.Sprintf("moved %s to %s but did not re-warm it: %v", s.Name, m.base, err))
+	if err := m.setReimportPending(ctx, s.Name); err != nil {
+		return movedSlot{}, false, err
+	}
+	return m.finish(ctx, s, movedSlot{Slot: s.Name})
 }
 
 // hold marks the ready slot s warming, with upool's own PID and its start time as the owner, if
@@ -199,7 +237,7 @@ func (m mover) hold(ctx context.Context, s pool.Slot) (bool, error) {
 }
 
 // setReimportPending sets the reimport_pending of the slot name, whose checkout changed its cache
-// key (A20).
+// key (A20) or whose re-warm failed (A40).
 func (m mover) setReimportPending(ctx context.Context, name string) error {
 	return pool.Update(ctx, m.inv.home, m.rp.repo.Key, func(p *pool.Pool) error {
 		for i := range p.Slots {
