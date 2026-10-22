@@ -205,11 +205,14 @@ func (sd Seeder) qualifies(ctx context.Context, editors ledger.Ledger,
 
 // current returns "" when seed, a candidate that qualifies with staleness st, may be cloned:
 // its Library is current, or Refresher refreshed it and the check, run again, finds it current
-// ((g) step 1; #98). Otherwise it returns why not, for Choose to try the next candidate, and gives
-// back a slot seed it holds, as ready. A slot seed is clean when it is held, and its refresh's
-// Editor may leave define-order noise, which is reverted; a refresh that leaves it dirty otherwise
-// passes it over without giving it back, so that once this process has exited the slot is parked
-// ((f) transition 22). Only a failure to read or write the seed is its error.
+// ((g) step 1; #98). A slot's reimport_pending makes its refresh a cold import, and a refresh that
+// brings it current clears the flag, as the open that does the import does (A20; A39). Otherwise
+// current returns why not, for Choose to try the next candidate, and gives back a slot seed it
+// holds, as ready. A slot seed is clean when it is held, and its refresh's Editor may leave
+// define-order noise, which is reverted. A slot its refresh left dirty otherwise, or with an
+// Editor that could not be closed, is passed over without being given back, so that it stays
+// warming until this process has exited and no Editor is live in it ((f) transition 22). Only a
+// failure to read or write the seed or the pool is its error.
 func (sd Seeder) current(ctx context.Context, seed Seed, st Staleness) (string, error) {
 	if !st.Stale() {
 		return "", nil
@@ -217,16 +220,23 @@ func (sd Seeder) current(ctx context.Context, seed Seed, st Staleness) (string, 
 	if sd.Refresher == nil {
 		return sd.passOver(ctx, seed, "its Library is stale: "+st.Reason())
 	}
-	warnings, err := sd.Refresher.Refresh(ctx, seed.Path)
+	pending, err := sd.pending(seed)
+	if err != nil {
+		return "", err
+	}
+	warnings, err := sd.Refresher.Refresh(ctx, seed.Path, pending)
 	for _, w := range warnings {
 		if sd.Warn != nil {
 			sd.Warn(w)
 		}
 	}
 	why := ""
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrRefreshedOnce):
+		why = "its Library is stale, and " + err.Error()
+	case err != nil:
 		why = "refreshing its stale Library failed: " + err.Error()
-	} else {
+	default:
 		st, err := CheckStaleness(ctx, sd.Git, seed.Path)
 		if err != nil {
 			return "", err
@@ -234,6 +244,9 @@ func (sd Seeder) current(ctx context.Context, seed Seed, st Staleness) (string, 
 		if st.Stale() {
 			why = "its Library is still stale after its refresh: " + st.Reason()
 		}
+	}
+	if seed.Slot != "" && errors.Is(err, ErrEditorLeft) {
+		return why + "; it stays warming until the Editor is gone", nil
 	}
 	if seed.Slot != "" {
 		if _, err := pool.RevertNoise(ctx, sd.Git, seed.Path); err != nil {
@@ -249,9 +262,38 @@ func (sd Seeder) current(ctx context.Context, seed Seed, st Staleness) (string, 
 		}
 	}
 	if why == "" {
+		if pending {
+			return "", sd.clearPending(ctx, seed)
+		}
 		return "", nil
 	}
 	return sd.passOver(ctx, seed, why)
+}
+
+// pending returns the reimport_pending of the slot seed, or false for the main checkout.
+func (sd Seeder) pending(seed Seed) (bool, error) {
+	if seed.Slot == "" {
+		return false, nil
+	}
+	p, err := pool.Load(sd.Home, sd.Key)
+	if err != nil {
+		return false, err
+	}
+	i := slices.IndexFunc(p.Slots, func(s pool.Slot) bool { return s.Name == seed.Slot })
+	return i >= 0 && p.Slots[i].ReimportPending, nil
+}
+
+// clearPending clears the reimport_pending of the slot seed, whose refresh has done the import
+// the flag announced (A39).
+func (sd Seeder) clearPending(ctx context.Context, seed Seed) error {
+	return pool.Update(ctx, sd.Home, sd.Key, func(p *pool.Pool) error {
+		for i := range p.Slots {
+			if p.Slots[i].Name == seed.Slot {
+				p.Slots[i].ReimportPending = false
+			}
+		}
+		return nil
+	})
 }
 
 // passOver gives back seed, when it is a slot Choose holds, as ready, and returns why it was

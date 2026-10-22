@@ -11,13 +11,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - A stale seed is refreshed before it is cloned, rather than refused (#98; docs/contracts.md (g)
   step 1). The clone recipe opens the seed's Editor headless, charged in the ledger, waits until it
-  is ready for the 120 s an open gets, closes it without `save_all`, puts back the scene list the
-  headless Editor empties, and checks the Library again: the clone goes on if it is current and
-  fails if it is still stale. The seed choice refreshes a stale candidate the same way while it
-  holds it, and passes it over for the next candidate if the refresh fails, leaves it stale or
-  leaves it dirty; one left dirty stays `warming`, to be parked once the cloner has exited. An
-  Editor still running when the wait runs out is closed, and one whose close fails stays in the
-  ledger.
+  is ready, closes it without `save_all`, puts back the scene list the headless Editor empties, and
+  checks the Library again: the clone goes on if it is current and fails if it is still stale. A
+  seed with `reimport_pending` set, or with no `Library/`, is refreshed as a cold import, with the
+  300 s wait, and a refresh that brings a slot current clears its flag; any other waits 120 s. The
+  seed choice refreshes a stale candidate the same way while it holds it, and passes it over for
+  the next candidate if the refresh fails, leaves it stale or leaves it dirty; one left dirty, or
+  with an Editor that could not be closed, stays `warming` until the cloner has exited and no
+  Editor is in it. An Editor still running when the wait runs out is closed, and one whose close
+  fails stays in the ledger. Each seed is refreshed at most once a run, so that `take --timeout`
+  does not open Editor after Editor in a seed its refresh left stale.
 
 - `upool refresh --fetch`, and the move to base in every `upool refresh` (#97). After the top-up,
   refresh moves each ready slot that no lease holds, no Editor has open and whose HEAD is not at

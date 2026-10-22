@@ -115,8 +115,13 @@ func editors(t *testing.T, home string) []ledger.Editor {
 // refreshCalls are the calls of a refresh of repo: open headless, the wait for 120 s (A37) and,
 // with closed, the close, each with repo positional or targeted.
 func refreshCalls(repo string, closed bool) [][]string {
+	return refreshCallsWaiting(repo, "120", closed)
+}
+
+// refreshCallsWaiting are refreshCalls with a wait of timeout seconds.
+func refreshCallsWaiting(repo, timeout string, closed bool) [][]string {
 	calls := [][]string{{"open", repo, "--args", "-batchmode", "--format", "json"},
-		{"status", "--until-ready", "--timeout", "120", "--format", "json"}}
+		{"status", "--until-ready", "--timeout", timeout, "--format", "json"}}
 	if closed {
 		calls = append(calls, []string{"close", repo, "--format", "json"})
 	}
@@ -157,7 +162,7 @@ func TestSeedRefresherOpensWaitsAndCloses(t *testing.T) {
 	var said []string
 	r := newRefresher(e, u, procs)
 	r.Say = func(line string) { said = append(said, line) }
-	warnings, err := r.Refresh(t.Context(), e.Repo)
+	warnings, err := r.Refresh(t.Context(), e.Repo, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +210,7 @@ func TestSeedRefresherFailures(t *testing.T) {
 			u := fake.Install(t, append([]fake.Reply{openHeadless(e.Repo)}, tt.replies...)...)
 			procs := newRefreshProcs(1, nil)
 			procs.exited = tt.exited
-			_, err := newRefresher(e, u, procs).Refresh(t.Context(), e.Repo)
+			_, err := newRefresher(e, u, procs).Refresh(t.Context(), e.Repo, false)
 			var notReady *unity.NotReadyError
 			switch {
 			case err == nil:
@@ -230,7 +235,7 @@ func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
 	u := fake.Install(t)
 	r := newRefresher(e, u, newRefreshProcs(1, nil))
 	r.Budget.RAMGB = 1
-	if _, err := r.Refresh(t.Context(), e.Repo); err == nil {
+	if _, err := r.Refresh(t.Context(), e.Repo, false); err == nil {
 		t.Fatal("Refresh succeeded, want the budget to refuse it")
 	}
 	checkCalls(t, u, e.Repo, nil)
@@ -239,38 +244,111 @@ func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
 	}
 }
 
+// A refresh of a cold seed, a slot with reimport_pending or a checkout with no Library/, is
+// charged as a cold import and waits the cold-import timeout, 300 s, as `upool open` would (A20;
+// A37), and ends the cold import once the Editor is ready (A39).
+func TestSeedRefresherChargesAColdImport(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		pending bool
+	}{{"reimport_pending", true}, {"no Library", false}} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := testenv.New(t, testenv.StaleLibrary())
+			if !tt.pending {
+				if err := os.RemoveAll(e.Path("Library")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			u := fake.Install(t, openHeadless(e.Repo), statusReady, closeHeadless)
+			var charged []ledger.Editor
+			// Running for the wait and for the end of the cold import.
+			procs := newRefreshProcs(2, func() { charged = editors(t, e.Home) })
+			if _, err := newRefresher(e, u, procs).Refresh(t.Context(), e.Repo,
+				tt.pending); err != nil {
+				t.Fatal(err)
+			}
+			checkCalls(t, u, e.Repo, refreshCallsWaiting(e.Repo, "300", true))
+			if len(charged) != 1 || !charged[0].ColdImport ||
+				charged[0].ChargeGB != ledger.ColdImportGB {
+				t.Errorf("ledger while the Editor started = %+v, want it charged as a cold "+
+					"import", charged)
+			}
+			if got := editors(t, e.Home); len(got) != 0 {
+				t.Errorf("ledger afterwards = %+v, want empty", got)
+			}
+		})
+	}
+}
+
+// A refresher refreshes each seed once: asked again, it fails with ErrRefreshedOnce and calls
+// nothing, so that a take that retries does not open Editor after Editor in a seed its refresh
+// left stale.
+func TestSeedRefresherRefreshesASeedOnce(t *testing.T) {
+	e := testenv.New(t, testenv.StaleLibrary())
+	u := fake.Install(t, openHeadless(e.Repo), statusReady, closeHeadless)
+	r := newRefresher(e, u, newRefreshProcs(1, nil))
+	if _, err := r.Refresh(t.Context(), e.Repo, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Refresh(t.Context(), e.Repo, false); !errors.Is(err, ErrRefreshedOnce) {
+		t.Errorf("second Refresh = %v, want ErrRefreshedOnce", err)
+	}
+	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, true))
+}
+
 // The seed choice refreshes a stale candidate while it holds it, and chooses it once it is
 // current; a candidate whose refresh fails, or that its refresh leaves dirty, is passed over for
 // the next, the main checkout here. A slot passed over is given back ready, unless its refresh
-// left it dirty: it stays warming, for transition 22 to park once the cloner has exited.
+// left it dirty, or left an Editor in it that could not be closed: it stays warming, for
+// transition 22 once the cloner has exited and no Editor is live in it. A slot with
+// reimport_pending is refreshed as a cold import, and the flag is cleared once it is current.
 func TestChooseSeedRefreshesAStaleCandidate(t *testing.T) {
 	stale := testenv.ScriptTime.Add(-time.Hour)
+	refreshes := func(slot string) []fake.Reply {
+		return []fake.Reply{openHeadless(slot), statusReady, closeHeadless}
+	}
+	compiles := func(t *testing.T, slot string) { compile(t, slot) }
 	for _, tt := range []struct {
 		name string
-		// unity is whether the fake unity answers; without it the launch fails.
-		unity bool
+		// replies are the fake's; nil leaves unity off PATH, so the launch fails.
+		replies func(slot string) []fake.Reply
 		// during runs while slot-1's Editor starts.
-		during func(t *testing.T, slot string)
-		seed   string
-		state  pool.State
+		during  func(t *testing.T, slot string)
+		pending bool
+		seed    string
+		state   pool.State
+		wait    string
 	}{
-		{"refreshed and chosen", true, func(t *testing.T, slot string) { compile(t, slot) },
-			"slot-1", pool.StateWarming},
-		{"the refresh failed", false, nil, "", pool.StateReady},
-		{"the refresh left it dirty", true, func(t *testing.T, slot string) {
+		{"refreshed and chosen", refreshes, compiles, false, "slot-1", pool.StateWarming, "120"},
+		{"reimport_pending, refreshed cold and chosen", refreshes, compiles, true, "slot-1",
+			pool.StateWarming, "300"},
+		{"the refresh failed", nil, nil, false, "", pool.StateReady, ""},
+		{"the refresh left it dirty", refreshes, func(t *testing.T, slot string) {
 			compile(t, slot)
 			if err := os.WriteFile(filepath.Join(slot, "left.txt"), []byte("x\n"),
 				0o644); err != nil {
 				t.Error(err)
 			}
-		}, "", pool.StateWarming},
+		}, false, "", pool.StateWarming, "120"},
+		{"an Editor that could not be closed", func(slot string) []fake.Reply {
+			return []fake.Reply{openHeadless(slot), statusNoInstances, statusNoInstances}
+		}, nil, false, "", pool.StateWarming, "120"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newSeedEnv(t, []pool.State{pool.StateReady}, []time.Time{stale})
 			slot := e.slot(t, "slot-1").Path
+			if tt.pending {
+				err := pool.Update(t.Context(), e.Home, e.key, func(p *pool.Pool) error {
+					p.Slots[0].ReimportPending = true
+					return nil
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			var u *fake.Unity
-			if tt.unity {
-				u = fake.Install(t, openHeadless(slot), statusReady, closeHeadless)
+			if tt.replies != nil {
+				u = fake.Install(t, tt.replies(slot)...)
 			} else {
 				u = fake.Install(t)
 				if err := os.Remove(filepath.Join(u.Dir(), "unity")); err != nil {
@@ -281,7 +359,11 @@ func TestChooseSeedRefreshesAStaleCandidate(t *testing.T) {
 			if tt.during != nil {
 				during = func() { tt.during(t, slot) }
 			}
-			e.sd.Refresher = newRefresher(e.Env, u, newRefreshProcs(1, during))
+			starts := 1
+			if tt.pending {
+				starts = 2 // and for the end of the cold import
+			}
+			e.sd.Refresher = newRefresher(e.Env, u, newRefreshProcs(starts, during))
 			seed, why, err := e.sd.Choose(t.Context())
 			if err != nil {
 				t.Fatal(err)
@@ -293,12 +375,39 @@ func TestChooseSeedRefreshesAStaleCandidate(t *testing.T) {
 			if seed != want {
 				t.Errorf("seed = %+v, want %+v; passed over %q", seed, want, why)
 			}
-			if got := e.slot(t, "slot-1").State; got != tt.state {
-				t.Errorf("slot-1 = %s, want %s", got, tt.state)
+			s := e.slot(t, "slot-1")
+			if s.State != tt.state {
+				t.Errorf("slot-1 = %s, want %s", s.State, tt.state)
+			}
+			if tt.seed != "" && s.ReimportPending {
+				t.Error("reimport_pending is still set, want it cleared by the refresh")
 			}
 			if tt.seed == "" && (len(why) != 1 || !strings.HasPrefix(why[0], "slot-1: ")) {
 				t.Errorf("passed over %q, want slot-1 with its reason", why)
 			}
+			if calls := u.Calls(); tt.wait != "" && (len(calls) < 2 || calls[1].Args[3] != tt.wait) {
+				t.Errorf("unity calls = %+v, want a wait of %s s", calls, tt.wait)
+			}
 		})
 	}
+}
+
+// A seed choice that runs again, as take's does for its timeout, does not refresh again a
+// candidate its refresh left stale: the main checkout is chosen with no second Editor.
+func TestChooseSeedRefreshesACandidateOnce(t *testing.T) {
+	e := newSeedEnv(t, []pool.State{pool.StateReady}, []time.Time{testenv.ScriptTime.Add(
+		-time.Hour)})
+	slot := e.slot(t, "slot-1").Path
+	u := fake.Install(t, openHeadless(slot), statusReady, closeHeadless)
+	e.sd.Refresher = newRefresher(e.Env, u, newRefreshProcs(1, nil))
+	for range 2 {
+		seed, why, err := e.sd.Choose(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seed != (Seed{Path: e.Repo}) {
+			t.Errorf("seed = %+v, want the main checkout; passed over %q", seed, why)
+		}
+	}
+	checkCalls(t, u, slot, refreshCalls(slot, true))
 }

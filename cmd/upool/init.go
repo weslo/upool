@@ -434,7 +434,7 @@ func refreshLibrary(ctx context.Context, inv *invocation, g git.Client, repo str
 	if err != nil || !s.Stale() {
 		return nil, err
 	}
-	warnings, err := seedRefresher(inv, cfg).Refresh(ctx, repo)
+	warnings, err := seedRefresher(inv, cfg).Refresh(ctx, repo, false)
 	if err != nil {
 		return warnings, fmt.Errorf("the Library in %s is stale: %s, and refreshing it failed: "+
 			"%v: %s", repo, s.Reason(), err, fix)

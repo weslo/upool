@@ -93,7 +93,7 @@ func (r Recipe) Clone(ctx context.Context, home, key, seed string) (pool.Slot, e
 		return pool.Slot{}, fmt.Errorf("the Library in %s is stale: %s", seed, s.Reason())
 	}
 	if s.Stale() {
-		warnings, err := r.Refresher.Refresh(ctx, seed)
+		warnings, err := r.Refresher.Refresh(ctx, seed, false)
 		for _, w := range warnings {
 			r.warn(w)
 		}
