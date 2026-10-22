@@ -63,6 +63,8 @@ type Recipe struct {
 	// that is refused, under the lock, with an error wrapping ErrPoolFull (docs/design.md, "Leases
 	// that survive crashes and never reclaim a live tree": growth stops at max_slots).
 	MaxSlots int
+	// Refresher refreshes a stale seed in step 1; with none, a stale seed is refused.
+	Refresher *SeedRefresher
 }
 
 // ErrPoolFull is the error Clone wraps when the pool already has MaxSlots slots.
@@ -74,7 +76,8 @@ var ErrPoolFull = errors.New("the pool is at max_slots")
 // it is ready ((f) transitions 1 and 2).
 //
 // Choosing the seed is the caller's (step 0): init passes the main checkout once it has checked
-// that its Editor is closed. A stale seed is refused, since refreshing it arrives in M4.
+// that its Editor is closed. A stale seed is refreshed by Refresher, and the check runs again:
+// the clone goes on if the seed is current, and fails if it is still stale (#98).
 //
 // The lock is held only while state.json is written, never across the copy (docs/contracts.md
 // (e)). A clone that fails after step 2 leaves its slot creating with this process as its owner,
@@ -86,8 +89,24 @@ func (r Recipe) Clone(ctx context.Context, home, key, seed string) (pool.Slot, e
 	if err != nil {
 		return pool.Slot{}, err
 	}
-	if s.Stale() {
+	if s.Stale() && r.Refresher == nil {
 		return pool.Slot{}, fmt.Errorf("the Library in %s is stale: %s", seed, s.Reason())
+	}
+	if s.Stale() {
+		warnings, err := r.Refresher.Refresh(ctx, seed)
+		for _, w := range warnings {
+			r.warn(w)
+		}
+		if err != nil {
+			return pool.Slot{}, fmt.Errorf("refreshing the stale Library in %s: %w", seed, err)
+		}
+		if s, err = CheckStaleness(ctx, r.Git, seed); err != nil {
+			return pool.Slot{}, err
+		}
+		if s.Stale() {
+			return pool.Slot{}, fmt.Errorf("the Library in %s is still stale after its refresh: "+
+				"%s", seed, s.Reason())
+		}
 	}
 	slot, repo, base, err := r.reserve(ctx, home, key)
 	if err != nil {

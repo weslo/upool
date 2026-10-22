@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/block"
@@ -99,6 +100,41 @@ func checkPool(t *testing.T, e *testenv.Env, base string) {
 	}
 	if status := gitIn(t, e, s.Path, "status", "--porcelain"); status != "" {
 		t.Errorf("slot-1 status = %q, want nothing", status)
+	}
+}
+
+// init refreshes a stale Library in the main checkout before it writes anything, rather than
+// refusing it (#98): it opens the checkout's Editor headless, waits until it is ready, closes it,
+// and, the Library current, goes on to clone slot-1 from it. The stand-in Editor brings the Library
+// current as it starts.
+func TestInitRefreshesAStaleLibrary(t *testing.T) {
+	e := newInitEnv(t, testenv.StaleLibrary())
+	// Then the clone compares slot-1's cache key across its checkout ((g) step 7).
+	u := fake.Install(t, openReply(t, e, "open-headless.json"), statusReady, closeHeadlessReply,
+		fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+	e.Setenv("PATH", u.Dir()+string(os.PathListSeparator)+e.Getenv("PATH"))
+	built := testenv.StaleTime.Add(time.Hour)
+	procs := newRewarmProcs(1, func() {
+		e.SetMtime("Library/ScriptAssemblies/Assembly-CSharp.dll", built)
+		e.SetMtime("Library/ScriptAssemblies", built)
+	})
+	r := runProcs(t, e, e.Repo, procs, func() time.Time { return clock }, "init")
+	if r.code != output.ExitOK {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want 0", r.code, r.stdout, r.stderr)
+	}
+	want := "upool: the Library in " + e.Repo + " is stale; refreshing it with a headless " +
+		"Editor first\n"
+	if !strings.Contains(r.stderr, want) {
+		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
+	}
+	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
+		{"close", e.Repo, "--format", "json"}}
+	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {
+		t.Errorf("unity calls = %q, want open, status and close of the main checkout first", got)
+	}
+	if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=ready" {
+		t.Errorf("slots = %s, want slot-1 ready", got)
 	}
 }
 
