@@ -1,0 +1,47 @@
+{
+  "success": true,
+  "command": "status",
+  "data": {
+    "pools": [
+      {
+        "repo": "${home}/Documents/down",
+        "base": "main",
+        "slots": [
+          {
+            "name": "slot-1",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-1",
+            "state": "ready",
+            "lease": null,
+            "disk": {
+              "private_bytes": 65536,
+              "apparent_bytes": 2097152
+            }
+          },
+          {
+            "name": "slot-2",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-2",
+            "state": "ready",
+            "lease": null,
+            "disk": {
+              "private_bytes": 0,
+              "apparent_bytes": 0
+            }
+          },
+          {
+            "name": "slot-3",
+            "path": "${home}/Documents/down/.claude/worktrees/slot-3",
+            "state": "parked",
+            "lease": null
+          }
+        ],
+        "refresh_job": null,
+        "disk": {
+          "private_bytes": 65536,
+          "apparent_bytes": 2097152
+        }
+      }
+    ]
+  },
+  "errors": [],
+  "warnings": []
+}
