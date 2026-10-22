@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
@@ -323,5 +324,61 @@ func TestRefreshFetchFailsWithoutAnOrigin(t *testing.T) {
 	checkSlot1(t, p, p.BaseCommit, false)
 	if job := p.loadPool(t).RefreshJob; job != nil {
 		t.Errorf("refresh_job = %+v, want it cleared", job)
+	}
+}
+
+// A slot whose checkout fails is not moved: a warning says so, stdout and the JSON list no move,
+// and the slot is ready where it was. It is tried once, so the refresh ends.
+func TestRefreshDoesNotCountAFailedCheckoutAsMoved(t *testing.T) {
+	p, origin := fetchPool(t)
+	pushUpstream(t, p, origin)
+	p.WriteFile(".git/worktrees/slot-1/index.lock", "")
+	u := p.installUnity(t, fake.Reply{Capture: "cache-key.json"})
+	r := runRefresh(t, p, newRewarmProcs(1, nil), "--fetch", "--json")
+	env := decode(t, r.stdout)
+	data, _ := env.Data.(map[string]any)
+	if r.code != output.ExitOK || data == nil || len(data["moved"].([]any)) != 0 {
+		t.Errorf("exit %d, stdout %q; want 0 and nothing moved", r.code, r.stdout)
+	}
+	warning := "did not move slot-1 to origin/main: "
+	if !slices.ContainsFunc(env.Warnings, func(w string) bool {
+		return strings.HasPrefix(w, warning)
+	}) {
+		t.Errorf("warnings = %q, want one starting %q", env.Warnings, warning)
+	}
+	if calls := u.Calls(); len(calls) != 1 {
+		t.Errorf("unity calls = %+v, want only the cache key before the checkout", calls)
+	}
+	checkSlot1(t, p, p.BaseCommit, false)
+}
+
+// A slot handed out while a move runs leaves its top-up to the running refresh, the pool's
+// refresh_job, so the top-up runs again once the moves are done: with ready = 2 and max_slots = 2,
+// a take of slot-2 during slot-1's re-warm leaves one ready slot, and the second top-up stops at
+// max_slots rather than at ready.
+func TestRefreshTopsUpAgainAfterTheMoves(t *testing.T) {
+	p := warmPool(t)
+	origin := tempDir(t)
+	p.Git("init", "-q", "--bare", "-b", testenv.Base, origin)
+	p.Git("remote", "add", "origin", origin)
+	p.Git("push", "-q", "origin", testenv.Base)
+	upstream := pushUpstream(t, p, origin)
+	p.Setenv(config.EnvName("ready"), "2")
+	p.Setenv(config.EnvName("max_slots"), "2")
+	p.installUnity(t, rewarmReplies(t, p, nil)...)
+	var during result
+	procs := newRewarmProcs(1, func() {
+		during = runProcs(t, p.Env, p.Repo, procsAlive(os.Getpid(), capturedPID),
+			func() time.Time { return clock }, "take", "feature-z", "--no-create")
+	})
+	r := runRefresh(t, p, procs, "--fetch")
+	if during.code != output.ExitOK || during.stdout != p.slot("slot-2")+"\n" {
+		t.Fatalf("take during the re-warm: exit %d, stdout %q, stderr %q; want slot-2",
+			during.code, during.stdout, during.stderr)
+	}
+	want := "the pool has 2 slots, its max_slots\nmoved slot-1 to origin/main (" + upstream[:7] +
+		") and re-warmed it in 0.0 s\n"
+	if r.code != output.ExitOK || r.stdout != want {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr, want)
 	}
 }

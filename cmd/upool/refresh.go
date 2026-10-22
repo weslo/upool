@@ -174,43 +174,67 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 		MaxSlots: cfg.MaxSlots.Value, Keys: keys, Warn: warn}
 	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
 		Key: key, Keys: keys, Warn: warn}
-	for {
-		p, err := pool.Load(inv.home, key)
-		if err != nil {
-			return nil, warnings, err
+	// topUp clones until the pool has ready slots ready, or max_slots slots, or no seed
+	// qualifies, and says in r.Stopped why it stopped.
+	topUp := func() error {
+		for {
+			p, err := pool.Load(inv.home, key)
+			if err != nil {
+				return err
+			}
+			if n := readyCount(p); n >= cfg.Ready.Value {
+				r.Stopped = fmt.Sprintf("the pool has %d ready, as ready = %d asks", n,
+					cfg.Ready.Value)
+				return nil
+			}
+			if len(p.Slots) >= cfg.MaxSlots.Value {
+				r.Stopped = fmt.Sprintf("the pool has %d slots, its max_slots", len(p.Slots))
+				return nil
+			}
+			seed, why, err := seeder.Choose(ctx)
+			if errors.Is(err, clone.ErrNoSeed) {
+				r.Stopped = "no seed qualifies: " + strings.Join(why, "; ")
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			s, err := recipe.Clone(ctx, inv.home, key, seed.Path)
+			err = errors.Join(err, seeder.Done(ctx, seed))
+			if errors.Is(err, clone.ErrPoolFull) {
+				r.Stopped = fmt.Sprintf("the pool has %d slots, its max_slots",
+					cfg.MaxSlots.Value)
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			r.Cloned = append(r.Cloned, s.Name)
 		}
-		if n := readyCount(p); n >= cfg.Ready.Value {
-			r.Stopped = fmt.Sprintf("the pool has %d ready, as ready = %d asks", n,
-				cfg.Ready.Value)
-			break
-		}
-		if len(p.Slots) >= cfg.MaxSlots.Value {
-			r.Stopped = fmt.Sprintf("the pool has %d slots, its max_slots", len(p.Slots))
-			break
-		}
-		seed, why, err := seeder.Choose(ctx)
-		if errors.Is(err, clone.ErrNoSeed) {
-			r.Stopped = "no seed qualifies: " + strings.Join(why, "; ")
-			break
-		}
-		if err != nil {
-			return nil, warnings, err
-		}
-		s, err := recipe.Clone(ctx, inv.home, key, seed.Path)
-		err = errors.Join(err, seeder.Done(ctx, seed))
-		if errors.Is(err, clone.ErrPoolFull) {
-			r.Stopped = fmt.Sprintf("the pool has %d slots, its max_slots", cfg.MaxSlots.Value)
-			break
-		}
-		if err != nil {
-			return nil, warnings, err
-		}
-		r.Cloned = append(r.Cloned, s.Name)
+	}
+	if err := topUp(); err != nil {
+		return nil, warnings, err
 	}
 
-	mv := mover{inv: inv, rp: rp, repo: repo, g: g, keys: keys, warn: warn}
-	if err := mv.moveReady(ctx, fetch, &r); err != nil {
+	// The moves to base come after the top-up. A move can take minutes, and a session handed a
+	// slot meanwhile leaves its top-up to this refresh, the pool's refresh_job, so the top-up runs
+	// again after each round of moves, and moves what it cloned, until a round tries no slot.
+	mv := mover{inv: inv, rp: rp, repo: repo, g: g, keys: keys, warn: warn,
+		tried: map[string]bool{}}
+	if err := mv.resolve(ctx, fetch); err != nil {
 		return nil, warnings, err
+	}
+	for {
+		tried, err := mv.moveReady(ctx, &r)
+		if err != nil {
+			return nil, warnings, err
+		}
+		if tried == 0 {
+			break
+		}
+		if err := topUp(); err != nil {
+			return nil, warnings, err
+		}
 	}
 	return r, warnings, nil
 }

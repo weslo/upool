@@ -26,69 +26,85 @@ type mover struct {
 	keys clone.KeyCheck
 	// warn adds a line to refresh's warnings.
 	warn func(line string)
+	// base is where the slots belong, the pool's base or origin/<base>, and commit the commit it
+	// names, as resolve found them.
+	base, commit string
+	// tried are the slots this refresh has tried to move, by name, each tried once.
+	tried map[string]bool
 }
 
-// moveReady moves each ready slot that no lease holds and no Editor has open, and whose HEAD is not
-// base's commit, to that commit, and records in r what it moved. base is the pool's base or, with
-// fetch, `origin/<base>` after `git fetch origin <base>`. A slot it could not move is a warning,
-// not a failure, as a needs-reset slot the top-up could not reset is; only a failure to fetch, to
-// read the pool or to resolve base is moveReady's error.
-func (m mover) moveReady(ctx context.Context, fetch bool, r *refreshReport) error {
-	key := m.rp.repo.Key
-	p, err := pool.Load(m.inv.home, key)
+// resolve finds base and its commit: the pool's base or, with fetch, `origin/<base>` after
+// `git fetch origin <base>`. A failure to fetch, or to resolve base, fails the refresh.
+func (m *mover) resolve(ctx context.Context, fetch bool) error {
+	p, err := pool.Load(m.inv.home, m.rp.repo.Key)
 	if err != nil {
 		return err
 	}
-	base := p.Base
+	m.base = p.Base
 	if fetch {
 		if err := m.g.Fetch(ctx, m.repo, "origin", p.Base); err != nil {
 			return fmt.Errorf("fetching %s from origin: %w", p.Base, err)
 		}
-		base = "origin/" + p.Base
+		m.base = "origin/" + p.Base
 	}
-	commit, err := m.g.Commit(ctx, m.repo, base)
+	m.commit, err = m.g.Commit(ctx, m.repo, m.base)
+	return err
+}
+
+// moveReady moves each ready slot that no lease holds, no Editor has open, whose HEAD is not
+// base's commit and that it has not tried before, to that commit, records in r what it moved, and
+// returns how many slots it tried. A slot it could not move is a warning, not a failure, as a
+// needs-reset slot the top-up could not reset is; only a failure to read the pool or the ledger is
+// moveReady's error.
+func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
+	p, err := pool.Load(m.inv.home, m.rp.repo.Key)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	editors, err := ledger.Load(m.inv.home)
 	if err != nil {
-		return err
+		return 0, err
 	}
+	tried := 0
 	for _, s := range p.Slots {
-		if s.State != pool.StateReady || s.Lease != nil {
+		if s.State != pool.StateReady || s.Lease != nil || m.tried[s.Name] {
 			continue
 		}
 		head, err := m.g.Head(ctx, s.Path)
 		if err != nil {
-			m.warn(fmt.Sprintf("did not move %s to %s: %v", s.Name, base, err))
+			m.warn(fmt.Sprintf("did not move %s to %s: %v", s.Name, m.base, err))
+			m.tried[s.Name] = true
 			continue
 		}
-		if head == commit {
+		if head == m.commit {
 			continue
 		}
 		live, err := editors.LiveIn(m.inv.checker(), s.Path)
 		if err != nil {
-			return err
+			return tried, err
 		}
 		if live {
-			m.warn(fmt.Sprintf("did not move %s to %s: an Editor has it open", s.Name, base))
+			m.warn(fmt.Sprintf("did not move %s to %s: an Editor has it open", s.Name, m.base))
+			m.tried[s.Name] = true
 			continue
 		}
-		moved, ok, err := m.move(ctx, s, base, commit)
+		m.tried[s.Name] = true
+		tried++
+		moved, ok, err := m.move(ctx, s)
 		if err != nil {
-			return err
+			return tried, err
 		}
 		if ok {
 			r.Moved = append(r.Moved, moved)
 		}
 	}
 	if len(r.Moved) > 0 {
-		r.Base, r.Commit = base, commit
+		r.Base, r.Commit = m.base, m.commit
 	}
-	return nil
+	return tried, nil
 }
 
-// move moves the ready slot s to commit, which base names, and re-warms it.
+// move moves the ready slot s to base's commit and re-warms it.
 //
 //  1. Under the lock, it marks s warming, with upool's own PID as its owner, if it is still ready
 //     and unleased ((f) transition 3; A4), so that no take hands it out mid-checkout or while its
@@ -100,29 +116,30 @@ func (m mover) moveReady(ctx context.Context, fetch bool, r *refreshReport) erro
 //     opened, `status --until-ready`, then save_all and close.
 //  4. It returns the slot to ready, once clean ((f) transition 18).
 //
-// A slot that is no longer ready when step 1 looks is skipped. A failed checkout or re-warm is a
-// warning, and the slot goes back to ready all the same, its next open doing the import. A slot
-// left dirty, or whose Editor could not be closed, stays warming, a warning saying so: once this
+// A slot that is no longer ready when step 1 looks is skipped. A failed checkout is a warning, and
+// the slot goes back to ready where it was, not moved. A failed re-warm is a warning, and the
+// moved slot goes back to ready all the same, its next open doing the import. A slot left dirty,
+// or whose Editor could not be closed, stays warming, a warning saying so: once this
 // refresh has exited and no Editor is live in it, the next take, status or doctor checks it again
-// ((f) transition 22). It reports whether it returned the slot to ready.
-func (m mover) move(ctx context.Context, s pool.Slot, base, commit string) (movedSlot, bool,
-	error) {
+// ((f) transition 22). It reports whether it moved the slot and returned it to ready.
+func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	held, err := m.hold(ctx, s)
 	if err != nil || !held {
 		return movedSlot{}, false, err
 	}
 	_, _ = fmt.Fprintf(m.inv.stderr, "upool: moving %s to %s (%s) and re-warming it\n", s.Name,
-		base, shortCommit(commit)) // progress only
+		m.base, shortCommit(m.commit)) // progress only
 
 	changed, note, err := m.keys.Around(ctx, s.Path, func() error {
-		return m.g.CheckoutDetach(ctx, s.Path, commit)
+		return m.g.CheckoutDetach(ctx, s.Path, m.commit)
 	})
 	if note != "" {
 		m.warn(note)
 	}
 	if err != nil {
-		m.warn(fmt.Sprintf("did not move %s to %s: %v", s.Name, base, err))
-		return m.finish(ctx, s, movedSlot{Slot: s.Name})
+		m.warn(fmt.Sprintf("did not move %s to %s: %v", s.Name, m.base, err))
+		_, _, err := m.finish(ctx, s, movedSlot{})
+		return movedSlot{}, false, err
 	}
 	if changed {
 		if err := m.setReimportPending(ctx, s.Name); err != nil {
@@ -139,7 +156,7 @@ func (m mover) move(ctx context.Context, s pool.Slot, base, commit string) (move
 		m.warn(w)
 	}
 	if err != nil {
-		m.warn(fmt.Sprintf("moved %s to %s but did not re-warm it: %v", s.Name, base, err))
+		m.warn(fmt.Sprintf("moved %s to %s but did not re-warm it: %v", s.Name, m.base, err))
 		return m.finish(ctx, s, moved)
 	}
 	_, warnings, err = closeSlotEditor(ctx, m.inv, m.rp, s)
