@@ -283,6 +283,25 @@ func TestCloneTakesTheNextFreeName(t *testing.T) {
 	}
 }
 
+// The slot's last_used is the time step 8 marked it ready, so that its idle time, which prune
+// reckons from, starts at its clone (A42).
+func TestCloneStampsLastUsed(t *testing.T) {
+	e := testenv.New(t)
+	excludeWorktrees(e)
+	r := newPool(t, e, CP{})
+	made := time.Date(2026, 10, 22, 9, 30, 0, 0, time.UTC)
+	r.Now = func() time.Time { return made }
+	slot := mustClone(t, e, r)
+	p, err := pool.Load(e.Home, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slot.LastUsed.Equal(made) || len(p.Slots) != 1 || !p.Slots[0].LastUsed.Equal(made) {
+		t.Errorf("last_used = %s returned, %+v in state.json; want %s", slot.LastUsed, p.Slots,
+			made)
+	}
+}
+
 // With no Refresher, a stale seed is refused before anything is written.
 func TestCloneRefusesAStaleSeed(t *testing.T) {
 	e := testenv.New(t, testenv.StaleLibrary())

@@ -261,7 +261,7 @@ Slot:
 | `seed_head` | string, commit SHA | the seed source's `git rev-parse HEAD` at clone time: the commit the cloned Library matches. The slot is then moved to base ((g) step 7), so its own HEAD may differ | clone (`init`, `take`, `refresh`) | D-lifecycle; S§8 "What this changes (updated)", staleness row; A10 |
 | `seed_dirty` | bool | whether the seed source had uncommitted changes, which (g) step 7 reverts in the slot | clone | same |
 | `reimport_pending` | bool | a checkout upool made in the slot changed `unity cache key`, so the next open is a large reimport | set by every checkout upool makes ((g) step 7, `release`, the deferred reset, `refresh`); cleared by the next `upool open`, which charges that open as a cold import | A20 |
-| `last_used` | timestamp | for LRU removal under `max_disk` and for `shrink_after` | `release`, hook (remove) | D-disk; D-commands |
+| `last_used` | timestamp | for LRU removal under `max_disk` and for `shrink_after`; a slot with none counts as last used when its directory was made | clone ((g) step 8), `release`, hook (remove) | D-disk; D-commands; A42 |
 | `lease` | lease or null | current lease | `take`, `take --confirm`, `release`, hooks, reclaim | D-leases |
 
 Lease:
@@ -407,7 +407,7 @@ sets `UNITY_SKIP_HOOKS` (D-lifecycle).
 | 5 | `rm -f <slot>/Library/EditorInstance.json <slot>/Library/ProtocolInstance.json` and `rm -rf <slot>/Library/Pipeline` | D-lifecycle; S§2 T1.5–T1.6 |
 | 6 | `git -C <slot> reset -q` to rebuild the index (7.3 to 7.7 s) | S§2 TA; S§9 E.1 |
 | 7 | Move the slot to base. If the seed was dirty, `git -C <slot> checkout -- .` and `git -C <slot> clean -fd`, which keeps gitignored files; then, if HEAD is not base, `git -C <slot> checkout --detach <base>`. The first open imports only the difference between `<seed-head>` and base; a seed already clean at base, as every ready slot is, makes this step do nothing. Compare `unity cache key "<slot>"` before and after the checkout; a change sets `reimport_pending` | A10; A20 |
-| 8 | Verify `git -C <slot> status --porcelain` is empty, HEAD is base, the slot's `.git` file points back into `<repo>/.git/worktrees/`, and the slot is in `git worktree list`; mark it `ready` | D-leases; D-route; A10 |
+| 8 | Verify `git -C <slot> status --porcelain` is empty, HEAD is base, the slot's `.git` file points back into `<repo>/.git/worktrees/`, and the slot is in `git worktree list`; mark it `ready`, with `last_used` the time it was marked | D-leases; D-route; A10; A42 |
 
 Exclusion list, exactly: `.git`, `Temp`, `Logs`, `obj`, `Builds`, `.claude/worktrees` (D-clone;
 S§2 TA; S§9 E.1).
@@ -968,6 +968,16 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   **A41.** Forward only. A refresh moves a slot only when its HEAD is an ancestor of the target
   commit (`git merge-base --is-ancestor`); a slot ahead of the target, or on another line of
   history, is left where it is (maintainer decision, 2026-10-22; (f) transition 3).
+
+- **42. When a never-used slot has been idle since** ([#100](https://github.com/weslo/upool/issues/100)).
+  `prune` removes ready slots beyond `ready` once their `last_used` is older than `shrink_after`,
+  but only `release` and the remove hook set `last_used`, so a slot no one has used yet, as
+  `init --slots N` and the top-up clone them, has none, and would be removed at once, against A21.
+
+  **A42.** Both. The clone recipe records `last_used` when it marks the slot ready ((g) step 8),
+  so a slot's idle time starts at its clone. A slot with no `last_used`, cloned before that, counts
+  as idle since its directory was made, its birth time on APFS (maintainer decision, 2026-10-22;
+  (e); A21).
 
 ### Other open questions
 

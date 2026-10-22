@@ -159,7 +159,8 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 		l.cloner = &cloner{
 			recipe: clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{},
 				OwnerPID: inv.pid, MaxSlots: cfg.MaxSlots.Value,
-				Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn, Refresher: refresher},
+				Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn, Refresher: refresher,
+				Now: inv.now},
 			seeder: clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
 				Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn,
 				Refresher: refresher},

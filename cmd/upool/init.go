@@ -563,7 +563,7 @@ func cloneSlots(ctx context.Context, inv *invocation, g git.Client, key, repo st
 	refresher := seedRefresher(inv, cfg)
 	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,
 		MaxSlots: cfg.MaxSlots.Value, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn,
-		Refresher: refresher}
+		Refresher: refresher, Now: inv.now}
 	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
 		Key: key, Keys: clone.KeyCheck{Env: inv.environ()}, Warn: warn, Refresher: refresher}
 	slots := make([]clonedSlot, 0, n)

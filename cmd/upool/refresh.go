@@ -172,7 +172,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 
 	refresher := seedRefresher(inv, cfg)
 	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,
-		MaxSlots: cfg.MaxSlots.Value, Keys: keys, Warn: warn, Refresher: refresher}
+		MaxSlots: cfg.MaxSlots.Value, Keys: keys, Warn: warn, Refresher: refresher, Now: inv.now}
 	seeder := clone.Seeder{Git: g, Proc: proc.System{}, OwnerPID: inv.pid, Home: inv.home,
 		Key: key, Keys: keys, Warn: warn, Refresher: refresher}
 	// topUp clones until the pool has ready slots ready, or max_slots slots, or no seed
