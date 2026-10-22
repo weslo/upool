@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -187,14 +185,12 @@ func (sd Seeder) qualifies(ctx context.Context, editors ledger.Ledger,
 	if live {
 		return Staleness{}, "an Editor upool opened has it open", nil
 	}
-	for _, name := range instanceFiles {
-		_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(name)))
-		if err == nil {
-			return Staleness{}, "the Unity Editor has it open (" + name + " exists)", nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return Staleness{}, "", fmt.Errorf("checking for %s in %s: %w", name, dir, err)
-		}
+	name, err := InstanceFile(dir)
+	if err != nil {
+		return Staleness{}, "", err
+	}
+	if name != "" {
+		return Staleness{}, "the Unity Editor has it open (" + name + " exists)", nil
 	}
 	st, err := CheckStaleness(ctx, sd.Git, dir)
 	if err != nil {

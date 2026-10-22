@@ -9,6 +9,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool prune [--all] [--yes]` (#100): lists, and with `--yes` removes, the ready slots beyond
+  `ready` that are idle, merged and clean (docs/contracts.md (f) transition 15; A31). The `ready`
+  most recently used idle slots are kept; each of the rest is listed, with why, once it has been
+  idle for `shrink_after`, no Editor has its Library open (by the ledger or its instance files),
+  it is clean but for define-order noise, and its HEAD is merged into base. Leased, parked and
+  every other state are never listed. Without `--yes` nothing changes. A removal takes the slot's
+  entry out of `state.json` first, so that no `take` hands it out, checks it again, and runs
+  `git worktree remove` without `--force`; if anything fails the entry is put back. `--all` spans
+  every pool, and `--json` reports each candidate.
+
 - `upool status --du` (#99): each slot's disk use, its private size beside its apparent size, and
   each pool's sums, with `--all` for every pool and `--json` (`disk.private_bytes` and
   `disk.apparent_bytes`). The private size is the sum over the slot's regular files of APFS's
@@ -52,6 +62,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- The clone recipe records a new slot's `last_used` as it marks it ready, so that its idle time
+  starts at its clone; a slot cloned before that, with none, counts as idle since its directory
+  was made (docs/contracts.md A42).
 - `upool init` refreshes a stale Library in the main checkout, as the clone recipe refreshes a
   stale seed, before it writes anything to the project, rather than refusing it (#98). A Library
   the refresh does not bring current is refused as before, saying how to bring it current by hand.
