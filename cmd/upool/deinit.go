@@ -367,6 +367,10 @@ func (d deiniter) inUse(ctx context.Context, s pool.Slot, cfg config.Config,
 	if gone {
 		return "", nil
 	}
+	if s.State == pool.StateParked && unlisted {
+		return fmt.Sprintf("is parked, holding work, in a directory git does not list: save "+
+			"what you need from %s, delete it, then run upool deinit again", s.Path), nil
+	}
 	if s.State == pool.StateParked {
 		return fmt.Sprintf("is parked, holding work: save what you need from it, remove it "+
 			"with git worktree remove --force %s, then run upool deinit again", s.Path), nil
@@ -472,12 +476,6 @@ func (d deiniter) remove(ctx context.Context, r *deinitReport, hooks registratio
 				r.Slots[i].Name, err)
 		}
 	}
-	if slices.ContainsFunc(r.Slots, func(s deinitSlot) bool { return s.Gone }) {
-		// git keeps a worktree whose directory went without it, until it is pruned.
-		if err := d.g.WorktreePrune(ctx, d.top); err != nil {
-			return r, nil, err
-		}
-	}
 	for i := range r.Agents {
 		d.pr.removeAgent(ctx, &r.Agents[i])
 	}
@@ -537,6 +535,11 @@ func (d deiniter) removeSlot(ctx context.Context, key string, s *deinitSlot) err
 	// lease does (A27); git prunes no locked worktree, even one whose directory is gone.
 	if s.slot.Lease != nil {
 		err = pool.Unlock(ctx, d.g, d.top, s.Path)
+	}
+	if err == nil && s.Gone {
+		// git keeps a worktree whose directory went without it until it is pruned, and pruned
+		// now, so that a run that stops at a later slot leaves no entry-less registration.
+		err = d.g.WorktreePrune(ctx, d.top)
 	}
 	if err == nil && (s.Gone || s.Unlisted) {
 		s.Removed = true

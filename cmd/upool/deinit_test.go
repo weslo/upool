@@ -234,7 +234,8 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 			func(t *testing.T, p harnessPool) {
 				p.update(t, func(pl *pool.Pool) { pl.Slots[1].State = pool.StateParked })
 			}},
-		{"parked, unlisted", "slot-2 is parked, holding work",
+		{"parked, unlisted", "slot-2 is parked, holding work, in a directory git does not " +
+			"list: save what you need from",
 			func(t *testing.T, p harnessPool) {
 				p.Git("worktree", "remove", p.slot("slot-2"))
 				p.WriteFile(".claude/worktrees/slot-2/work.txt", "work\n")
@@ -492,4 +493,27 @@ func TestDeinitThatStopsLeavesAWorkingPool(t *testing.T) {
 		t.Fatalf("second deinit: exit = %d; stderr %q", r.code, r.stderr)
 	}
 	checkGone(t, p)
+}
+
+// A slot whose directory is gone is pruned from git as its entry goes, so that a deinit that then
+// stops at a later slot leaves git no registration that a rerun would not see (#191).
+func TestDeinitPrunesAGoneSlotBeforeItStops(t *testing.T) {
+	p := newHarnessPool(t)
+	if err := os.RemoveAll(p.slot("slot-1")); err != nil {
+		t.Fatal(err)
+	}
+	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 5151,
+		OpenedByUpool: true})
+	if r := runDeinit(t, p, &startsLater{pid: 5151, n: 1}, "--yes"); r.code != output.ExitFailure {
+		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitFailure, r.stderr)
+	}
+	if p.listed(p.slot("slot-1")) {
+		t.Error("git still lists slot-1 after deinit stopped, want it pruned")
+	}
+	if r := runDeinit(t, p, procsAlive(), "--yes"); r.code != output.ExitOK {
+		t.Fatalf("second deinit: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	if got := p.Git("worktree", "list", "--porcelain"); strings.Count(got, "worktree ") != 1 {
+		t.Errorf("git worktree list = %q, want the main checkout alone", got)
+	}
 }
