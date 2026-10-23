@@ -28,20 +28,25 @@ cd <project> && upool init
 ```
 
 `upool init` runs once per Unity project, from Terminal, inside the repository, with the project's
-Unity Editor closed. It registers upool's hooks, the skill and the instruction blocks in that
-project alone, and touches no other repository. Upgrade with `brew upgrade upool`, then run
-`upool init` again in each project to refresh them.
+Unity Editor closed. It makes the project a pool and clones its first slot from your checkout, then
+registers upool's hooks, the skill and the instruction blocks in that project alone, and touches no
+other repository. Upgrade with `brew upgrade upool`, then run `upool init` again in each project to
+refresh them.
 
 ## 🏊 How a session gets a slot
 
 - Start a Claude Code session with a worktree in a project you ran `upool init` in; it opens in a
-  ready slot under the project's `.claude/worktrees/` in well under a second.
+  ready slot under the project's `.claude/worktrees/` within a couple of seconds, and the pool is
+  topped up in the background. With every slot taken, it waits up to 20 seconds for one, then fails
+  to start, saying to run `upool refresh`.
 - The slot is a full copy of your checkout, Library and agent files included, so Unity opens it in
-  about 10 seconds once warm instead of re-importing everything.
+  well under a minute instead of re-importing everything.
 - The session's `unity` commands reach the slot's own Editor, never another session's.
-- When you archive the session, the slot goes back to the pool; if it holds uncommitted work, it is
-  parked for you to look at, never reset.
-- Subagents and repositories without a pool get ordinary git worktrees.
+- When you archive the session, the slot goes back to the pool; if it holds uncommitted work, or a
+  commit no branch holds, it is parked for you to look at, never reset.
+- Subagents and repositories without a pool get ordinary git worktrees. Once a subagent's session
+  is gone, `upool prune` lists its worktree and `upool prune --yes` removes it, unless it holds
+  work.
 
 ## 📋 Requirements
 
@@ -65,7 +70,7 @@ passes.
 | ✅ Done | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
 | ✅ Done | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `init`'s per-project hooks that hand each session a slot, the background top-up, the skill and `run` | v0.2.0 |
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
-| 🚧 In progress | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, the disk budget and `.upool.toml`, then the Homebrew release the Quickstart uses | v0.4.0 |
+| 🚧 In progress | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
 
 ## 📚 Documentation
 
