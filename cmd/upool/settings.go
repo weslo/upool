@@ -85,47 +85,87 @@ type registration struct {
 // planRegistration reads the settings file and returns it with upool's hooks registered, each
 // running upool, an absolute path.
 func planRegistration(file, upool string) (registration, error) {
+	reg, settings, err := readSettings(file)
+	if err != nil {
+		return registration{}, err
+	}
+	if err := registerHooks(settings, upool); err != nil {
+		return registration{}, fmt.Errorf("registering the hooks in %s: %w", reg.file, err)
+	}
+	if err := reg.encode(settings); err != nil {
+		return registration{}, err
+	}
+	reg.changed = !reg.exists || !sameJSON(reg.old, reg.content)
+	return reg, nil
+}
+
+// planDeregistration reads the settings file and returns it without upool's hooks, as
+// deregisterHooks removes them (`upool deinit`, #191). A file that is missing, or holds none of
+// upool's handlers, is left as it is.
+func planDeregistration(file string) (registration, error) {
+	reg, settings, err := readSettings(file)
+	if err != nil || !reg.exists {
+		return reg, err
+	}
+	removed, err := deregisterHooks(settings)
+	if err != nil {
+		return registration{}, fmt.Errorf("removing the hooks from %s: %w", reg.file, err)
+	}
+	if !removed {
+		return reg, nil
+	}
+	if err := reg.encode(settings); err != nil {
+		return registration{}, err
+	}
+	reg.changed = true
+	return reg, nil
+}
+
+// readSettings reads the settings file, and returns what a registration starts from and the file
+// as a JSON object: an empty one for a file that is missing or blank.
+func readSettings(file string) (registration, *jsonObject, error) {
 	reg := registration{file: file, mode: settingsMode}
 	reg.target = reg.file
 	if _, err := os.Lstat(reg.file); err == nil {
 		if reg.target, err = filepath.EvalSymlinks(reg.file); err != nil {
-			return registration{}, fmt.Errorf("resolving %s: %w", reg.file, err)
+			return registration{}, nil, fmt.Errorf("resolving %s: %w", reg.file, err)
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return registration{}, fmt.Errorf("checking %s: %w", reg.file, err)
+		return registration{}, nil, fmt.Errorf("checking %s: %w", reg.file, err)
 	}
 	settings := &jsonObject{}
 	info, err := os.Stat(reg.target)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
-		return registration{}, fmt.Errorf("checking %s: %w", reg.target, err)
+		return registration{}, nil, fmt.Errorf("checking %s: %w", reg.target, err)
 	case !info.Mode().IsRegular():
-		return registration{}, fmt.Errorf("%s is not a regular file", reg.target)
+		return registration{}, nil, fmt.Errorf("%s is not a regular file", reg.target)
 	default:
 		reg.exists, reg.mode = true, info.Mode().Perm()
 		if reg.old, err = os.ReadFile(reg.target); err != nil {
-			return registration{}, fmt.Errorf("reading %s: %w", reg.target, err)
+			return registration{}, nil, fmt.Errorf("reading %s: %w", reg.target, err)
 		}
 		if len(bytes.TrimSpace(reg.old)) > 0 {
 			if err := json.Unmarshal(reg.old, settings); err != nil {
-				return registration{}, fmt.Errorf("reading %s: %w", reg.file, err)
+				return registration{}, nil, fmt.Errorf("reading %s: %w", reg.file, err)
 			}
 		}
 	}
-	if err := registerHooks(settings, upool); err != nil {
-		return registration{}, fmt.Errorf("registering the hooks in %s: %w", reg.file, err)
-	}
+	return reg, settings, nil
+}
+
+// encode sets reg's content to settings, indented as Claude Code writes the file.
+func (reg *registration) encode(settings *jsonObject) error {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(settings); err != nil {
-		return registration{}, fmt.Errorf("encoding %s: %w", reg.file, err)
+		return fmt.Errorf("encoding %s: %w", reg.file, err)
 	}
 	reg.content = b.Bytes()
-	reg.changed = !reg.exists || !sameJSON(reg.old, reg.content)
-	return reg, nil
+	return nil
 }
 
 // apply writes the registration, unless the file already held it.
@@ -213,6 +253,52 @@ func registerHooks(settings *jsonObject, upool string) error {
 		}
 	}
 	return settings.setValue("hooks", hooks)
+}
+
+// deregisterHooks removes from settings every handler that runs `upool hook`, by any path, in any
+// event, as registerHooks recognises them, and reports whether there was one. A matcher group left
+// with no handlers goes with them, and so does an event left with no groups and a hooks object
+// left empty; every other key, group and handler stays, in order (`upool deinit`, #191).
+func deregisterHooks(settings *jsonObject) (bool, error) {
+	raw, ok := settings.get("hooks")
+	if !ok {
+		return false, nil
+	}
+	hooks := &jsonObject{}
+	if err := json.Unmarshal(raw, hooks); err != nil {
+		return false, fmt.Errorf("hooks: %w", err)
+	}
+	removed := false
+	for _, event := range slices.Clone(hooks.keys) {
+		raw, _ := hooks.get(event)
+		var groups []json.RawMessage
+		if json.Unmarshal(raw, &groups) != nil {
+			continue
+		}
+		kept, first, err := removeUpoolHooks(groups)
+		if err != nil {
+			return false, fmt.Errorf("hooks.%s: %w", event, err)
+		}
+		if first < 0 {
+			continue
+		}
+		removed = true
+		if len(kept) == 0 {
+			hooks.remove(event)
+			continue
+		}
+		if err := hooks.setValue(event, kept); err != nil {
+			return false, err
+		}
+	}
+	switch {
+	case !removed:
+		return false, nil
+	case len(hooks.keys) == 0:
+		settings.remove("hooks")
+		return true, nil
+	}
+	return true, settings.setValue("hooks", hooks)
 }
 
 // removeUpoolHooks returns groups without upool's handlers, and the index in the result where the

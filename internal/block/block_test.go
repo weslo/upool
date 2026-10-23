@@ -304,3 +304,66 @@ func TestUpsertNamesTheFileItCannotUpdate(t *testing.T) {
 			err, missingDir)
 	}
 }
+
+// Strip undoes an insert: a file the block was appended to, after a final newline, after none, or
+// created holding the block alone, reads as before but for a missing final newline, which an
+// insert supplies; the text around a block that is not last stays, as does a newer block's.
+func TestStripUndoesAnInsert(t *testing.T) {
+	tests := []struct{ name, doc, want string }{
+		{"after a final newline", "# Project\n\nGuidance.\n", "# Project\n\nGuidance.\n"},
+		{"after a blank line", "# Project\n\n", "# Project\n"},
+		{"after no final newline", "# Project", "# Project\n"},
+		{"alone", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			doc, _ := mustApply(t, tt.doc, current)
+			out, found, err := Strip([]byte(doc))
+			if err != nil || !found || string(out) != tt.want {
+				t.Errorf("Strip = %q, %v, %v; want %q, true, nil", out, found, err, tt.want)
+			}
+		})
+	}
+	for _, b := range []Block{older, {Version: 9, Body: "A newer text.\n"}} {
+		out, found, err := Strip([]byte(before + string(b.Render()) + after))
+		if err != nil || !found || string(out) != before+after {
+			t.Errorf("Strip of v%d = %q, %v, %v; want %q", b.Version, out, found, err,
+				before+after)
+		}
+	}
+	if out, found, err := Strip([]byte(before)); err != nil || found || string(out) != before {
+		t.Errorf("Strip with no block = %q, %v, %v; want the text as it is", out, found, err)
+	}
+	if _, _, err := Strip([]byte("# Project\n" + Begin(1) + "\n")); err == nil {
+		t.Error("Strip of an unpaired marker: no error")
+	}
+}
+
+// Remove writes a file it took the block out of, deletes one it left empty, and leaves a file with
+// no block, or a missing one, unwritten.
+func TestRemoveDeletesAFileLeftEmpty(t *testing.T) {
+	dir := t.TempDir()
+	kept, alone := filepath.Join(dir, "CLAUDE.md"), filepath.Join(dir, "AGENTS.md")
+	if err := os.WriteFile(kept, []byte("# Project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{kept, alone} {
+		if _, err := Upsert(f, current); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tt := range []struct {
+		file string
+		want Action
+	}{{kept, Removed}, {alone, Deleted}, {kept, Absent}, {alone, Absent}} {
+		if got, err := Remove(tt.file); err != nil || got != tt.want {
+			t.Errorf("Remove(%s) = %q, %v; want %q", filepath.Base(tt.file), got, err, tt.want)
+		}
+	}
+	if b, err := os.ReadFile(kept); err != nil || string(b) != "# Project\n" {
+		t.Errorf("CLAUDE.md = %q, %v; want %q", b, err, "# Project\n")
+	}
+	if _, err := os.Lstat(alone); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("AGENTS.md: %v, want it deleted", err)
+	}
+}

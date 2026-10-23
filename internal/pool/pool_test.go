@@ -456,3 +456,36 @@ func TestMalformedDocumentIsAnError(t *testing.T) {
 		})
 	}
 }
+
+// Delete removes the pool's directory, state.json and what is beside it, once fn passes the pool
+// it holds; when fn refuses, nothing goes.
+func TestDeleteRemovesThePoolsDirectory(t *testing.T) {
+	home := tempDir(t)
+	save(t, home, Pool{Repo: repo.Path, Base: "main", Slots: []Slot{{Name: "slot-1"}}})
+	dir := filepath.Join(home, ".upool", "pools", key)
+	if err := os.WriteFile(filepath.Join(dir, "refresh.log"), []byte("log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refused := errors.New("refused")
+	err := Delete(context.Background(), home, key, func(p Pool) error {
+		if len(p.Slots) != 1 || p.Slots[0].Name != "slot-1" {
+			t.Errorf("fn got %+v, want the pool with slot-1", p)
+		}
+		return refused
+	})
+	if !errors.Is(err, refused) {
+		t.Errorf("Delete error = %v, want fn's", err)
+	}
+	if load(t, home).Repo != repo.Path {
+		t.Error("state.json is gone after fn refused")
+	}
+	if err := Delete(context.Background(), home, key, func(Pool) error { return nil }); err != nil {
+		t.Fatalf("Delete error = %v, want nil", err)
+	}
+	if _, err := os.Lstat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("%s: %v, want it gone", dir, err)
+	}
+	if _, err := os.Lstat(filepath.Join(home, ".upool", "lock")); err != nil {
+		t.Errorf("~/.upool/lock: %v, want it kept", err)
+	}
+}

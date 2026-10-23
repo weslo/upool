@@ -18,6 +18,7 @@ var version = "dev"
 // those that work (docs/design.md, "One binary, a dozen commands, one JSON file per pool").
 var commandTable = map[string]command{
 	"close":   closeCommand,
+	"deinit":  deinitCommand,
 	"doctor":  doctorCommand,
 	"init":    initCommand,
 	"open":    openCommand,
