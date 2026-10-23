@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
 	"github.com/weslo/upool/internal/testenv"
 )
@@ -219,7 +222,7 @@ func decodeData(t *testing.T, stdout string, v any) {
 
 // prunerFor is the pruner prune would run over p's pool, as this process, at the test clock, with
 // procs as the process table.
-func prunerFor(t *testing.T, p harnessPool, procs *editorProcs) pruner {
+func prunerFor(t *testing.T, p harnessPool, procs proc.Checker) pruner {
 	t.Helper()
 	inv := &invocation{home: p.Home, getenv: p.Getenv, environ: p.Environ,
 		now: func() time.Time { return clock }, pid: os.Getpid(), procs: procs,
@@ -578,10 +581,284 @@ func TestPruneRefusesAMaxDiskThatIsNoBudget(t *testing.T) {
 			p.Setenv(config.EnvName("max_disk"), value)
 			r := runIn(t, p.Env, p.Repo, "prune")
 			want := "; it must be a number of 0 or more\n"
-			if r.code != output.ExitFailure || !strings.HasPrefix(r.stderr, "upool: max_disk is ") ||
+			if r.code != output.ExitFailure ||
+				!strings.HasPrefix(r.stderr, "upool: max_disk is ") ||
 				!strings.HasSuffix(r.stderr, ", from env"+want) {
 				t.Errorf("exit %d, stderr %q; want 1 and a refusal of max_disk %s", r.code,
 					r.stderr, value)
+			}
+		})
+	}
+}
+
+// agentPool is a harness pool, its slots both used at the test clock, with one subagent worktree,
+// detached at base, whose entry has parent and createdAt.
+func agentPool(t *testing.T, parent int, createdAt time.Time) (harnessPool, string) {
+	t.Helper()
+	p := newHarnessPool(t)
+	agent := p.Path(".claude/worktrees/agent-0123456789abcdef0")
+	p.Git("worktree", "add", "-q", "--detach", agent, testenv.Base)
+	p.update(t, func(pl *pool.Pool) {
+		pl.AgentWorktrees = []pool.AgentWorktree{{Path: agent, ParentSessionID: "session-1",
+			ParentPID: parent, CreatedAt: createdAt}}
+	})
+	return p, agent
+}
+
+// goneParent is a PID no process in the tests' process table has.
+const goneParent = 4321
+
+// The acceptance test of #102. A clean agent worktree whose parent is gone is listed, and removed
+// with --yes, its entry and its worktree; a dirty one is kept and listed, as is one whose subagent
+// committed on its detached HEAD; a young one with a live parent is not listed; and one older than
+// agent_ttl is listed though its parent lives.
+func TestPruneAgents(t *testing.T) {
+	t.Run("clean, parent gone", func(t *testing.T) {
+		p, agent := agentPool(t, goneParent, clock)
+		r := runPrune(t, p)
+		want := p.Repo + ":\n  would remove agent worktree " + agent + ": its parent, process " +
+			"4321, is gone; clean\nthis was a dry run: upool prune --yes removes them\n"
+		if r.stdout != want {
+			t.Errorf("stdout = %q, want %q", r.stdout, want)
+		}
+		r = runPrune(t, p, "--yes")
+		if want := p.Repo + ":\n  removed agent worktree " + agent + ": its parent, process " +
+			"4321, is gone; clean\n"; r.stdout != want {
+			t.Errorf("stdout = %q, want %q", r.stdout, want)
+		}
+		if got := p.loadPool(t).AgentWorktrees; len(got) != 0 {
+			t.Errorf("agent_worktrees = %+v, want none", got)
+		}
+		if p.listed(agent) {
+			t.Error("git still lists the agent worktree")
+		}
+		if _, err := os.Stat(agent); !os.IsNotExist(err) {
+			t.Errorf("the agent worktree's directory: stat error = %v, want it gone", err)
+		}
+	})
+	for _, tt := range []struct {
+		name  string
+		dirty func(t *testing.T, p harnessPool, agent string)
+		why   string
+	}{
+		{"dirty", func(t *testing.T, p harnessPool, agent string) {
+			if err := os.WriteFile(filepath.Join(agent, "left.txt"), []byte("x\n"),
+				0o644); err != nil {
+				t.Fatal(err)
+			}
+		}, "it is dirty: ?? left.txt"},
+		{"a commit on its detached HEAD", func(t *testing.T, p harnessPool, agent string) {
+			if err := os.WriteFile(filepath.Join(agent, "work.txt"), []byte("x\n"),
+				0o644); err != nil {
+				t.Fatal(err)
+			}
+			p.Git("-C", agent, "add", "work.txt")
+			p.Git("-C", agent, "commit", "-q", "-m", "the subagent's work")
+		}, "it is dirty: HEAD is on no branch"},
+	} {
+		t.Run(tt.name+", parent gone", func(t *testing.T) {
+			p, agent := agentPool(t, goneParent, clock)
+			tt.dirty(t, p, agent)
+			want := p.Repo + ":\n  keeping agent worktree " + agent + ": its parent, process " +
+				"4321, is gone, but " + tt.why + "\n"
+			for _, args := range [][]string{nil, {"--yes"}} {
+				if r := runPrune(t, p, args...); r.stdout != want {
+					t.Errorf("prune %v: stdout = %q, want %q", args, r.stdout, want)
+				}
+			}
+			if len(p.loadPool(t).AgentWorktrees) != 1 || !p.listed(agent) {
+				t.Error("the dirty agent worktree went, want it kept")
+			}
+		})
+	}
+	t.Run("young, parent alive", func(t *testing.T) {
+		p, _ := agentPool(t, os.Getpid(), clock)
+		if r := runPrune(t, p, "--yes"); r.stdout != p.Repo+": nothing to prune\n" {
+			t.Errorf("stdout = %q, want nothing to prune", r.stdout)
+		}
+		if len(p.loadPool(t).AgentWorktrees) != 1 {
+			t.Error("the young agent worktree went, want it kept")
+		}
+	})
+	t.Run("past agent_ttl, parent alive", func(t *testing.T) {
+		p, agent := agentPool(t, os.Getpid(), clock.Add(-25*time.Hour))
+		want := p.Repo + ":\n  would remove agent worktree " + agent + ": made 1d1h ago, past " +
+			"agent_ttl 1d; clean\nthis was a dry run: upool prune --yes removes them\n"
+		if r := runPrune(t, p); r.stdout != want {
+			t.Errorf("stdout = %q, want %q", r.stdout, want)
+		}
+	})
+}
+
+// removeAgent asks again before it removes: an agent worktree an Editor opened between the
+// listing and the removal is put back, and one git refuses, here a locked one, is put back too.
+func TestPruneAgentRemovalThatFails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(t *testing.T, p harnessPool, agent string)
+		want   string
+	}{
+		{"an Editor opened meanwhile", func(t *testing.T, p harnessPool, agent string) {
+			writeLedger(t, p, ledger.Editor{Project: agent, PID: os.Getpid(),
+				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+		}, "an Editor has it open now; it stays"},
+		{"locked", func(t *testing.T, p harnessPool, agent string) {
+			p.Git("worktree", "lock", agent)
+		}, "; it stays"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, agent := agentPool(t, goneParent, clock)
+			pr := prunerFor(t, p, procsAlive(os.Getpid()))
+			var r poolPrune
+			if err := pr.agents(t.Context(), &r); err != nil || len(r.Agents) != 1 {
+				t.Fatalf("agents = %+v, %v; want the agent worktree", r.Agents, err)
+			}
+			tt.change(t, p, agent)
+			pr.removeAgent(t.Context(), &r.Agents[0])
+			if c := r.Agents[0]; c.Removed || !strings.HasSuffix(c.Error, tt.want) {
+				t.Errorf("candidate = %+v, want not removed and an error ending %q", c, tt.want)
+			}
+			if got := p.loadPool(t).AgentWorktrees; len(got) != 1 || got[0].Path != agent ||
+				!p.listed(agent) {
+				t.Errorf("agent_worktrees = %+v, want it back and in git's list", got)
+			}
+		})
+	}
+}
+
+// An agent worktree whose entry changed between the listing and the removal, as when the hook
+// made a new subagent worktree at the same path, is refused and left as it is.
+func TestPruneAgentChangedMeanwhile(t *testing.T) {
+	p, agent := agentPool(t, goneParent, clock)
+	pr := prunerFor(t, p, procsAlive(os.Getpid()))
+	var r poolPrune
+	if err := pr.agents(t.Context(), &r); err != nil || len(r.Agents) != 1 {
+		t.Fatalf("agents = %+v, %v; want the agent worktree", r.Agents, err)
+	}
+	p.update(t, func(pl *pool.Pool) {
+		pl.AgentWorktrees[0].ParentPID, pl.AgentWorktrees[0].CreatedAt = os.Getpid(), clock.Add(
+			time.Minute)
+	})
+	pr.removeAgent(t.Context(), &r.Agents[0])
+	if c := r.Agents[0]; c.Removed || c.Error != "it changed in state.json meanwhile" {
+		t.Errorf("candidate = %+v, want it refused as changed", c)
+	}
+	if got := p.loadPool(t).AgentWorktrees; len(got) != 1 || got[0].ParentPID != os.Getpid() ||
+		!p.listed(agent) {
+		t.Errorf("agent_worktrees = %+v, want the new entry kept and the worktree in git's list",
+			got)
+	}
+}
+
+// An agent worktree whose directory is gone, or that git no longer lists, is left out: prune
+// neither fails on it nor drops its entry, and goes on to remove the pool's candidate slot.
+func TestPruneLeavesAMissingAgentWorktreeOut(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		gone func(t *testing.T, p harnessPool, agent string)
+	}{
+		{"its directory gone", func(t *testing.T, p harnessPool, agent string) {
+			if err := os.RemoveAll(agent); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"removed from git", func(t *testing.T, p harnessPool, agent string) {
+			p.Git("worktree", "remove", agent)
+		}},
+		{"not in git's list, its directory still there", func(t *testing.T, p harnessPool,
+			agent string) {
+			if err := os.RemoveAll(p.Path(".git/worktrees/" + filepath.Base(agent))); err != nil {
+				t.Fatal(err)
+			}
+			if p.listed(agent) {
+				t.Fatal("git still lists the agent worktree")
+			}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, agent := agentPool(t, goneParent, clock)
+			p.update(t, func(pl *pool.Pool) { pl.Slots[1].LastUsed = monthAgo })
+			tt.gone(t, p, agent)
+			r := runPrune(t, p, "--yes")
+			if want := p.Repo + ":\n  removed slot-2: " + slot2Why + "\n"; r.stdout != want {
+				t.Errorf("stdout = %q, want %q", r.stdout, want)
+			}
+			if got := p.loadPool(t).AgentWorktrees; len(got) != 1 || got[0].Path != agent {
+				t.Errorf("agent_worktrees = %+v, want the entry left alone", got)
+			}
+		})
+	}
+}
+
+// A removal that fails after git has dropped the agent worktree from its list, here on a directory
+// it cannot delete, leaves the entry out, and names what is left to delete.
+func TestPruneAgentRemovalGitLetsGoOf(t *testing.T) {
+	p, agent := agentPool(t, goneParent, clock)
+	pr := prunerFor(t, p, procsAlive(os.Getpid()))
+	var r poolPrune
+	if err := pr.agents(t.Context(), &r); err != nil || len(r.Agents) != 1 {
+		t.Fatalf("agents = %+v, %v; want the agent worktree", r.Agents, err)
+	}
+	stuck := filepath.Join(agent, "Library", "stuck")
+	if err := os.MkdirAll(stuck, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stuck, "f"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(stuck, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o755) }) // so that the test can clean up
+	pr.removeAgent(t.Context(), &r.Agents[0])
+	want := "; git no longer lists it: delete what is left of " + agent + " by hand"
+	if c := r.Agents[0]; c.Removed || !strings.HasSuffix(c.Error, want) {
+		t.Errorf("candidate = %+v, want an error ending %q", c, want)
+	}
+	if p.listed(agent) {
+		t.Fatal("git still lists the agent worktree, so the test did not reach the case")
+	}
+	if got := p.loadPool(t).AgentWorktrees; len(got) != 0 {
+		t.Errorf("agent_worktrees = %+v, want the entry left out", got)
+	}
+}
+
+// unsupportedProcs answers as internal/proc does off macOS, where it reads no process: every call
+// fails with errors.ErrUnsupported.
+type unsupportedProcs struct{}
+
+func (unsupportedProcs) Start(int) (time.Time, error) {
+	return time.Time{}, fmt.Errorf("reading start times: %w", errors.ErrUnsupported)
+}
+
+func (unsupportedProcs) Alive(int, time.Time) (bool, error) {
+	return false, fmt.Errorf("reading start times: %w", errors.ErrUnsupported)
+}
+
+// Where no process can be read, an agent worktree's parent counts as alive: a young one is not
+// due, and one past agent_ttl is, for its age alone.
+func TestPruneAgentsWhereNoProcessCanBeRead(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		created time.Time
+		want    string
+	}{
+		{"young", clock, ""},
+		{"past agent_ttl", clock.Add(-25 * time.Hour), "made 1d1h ago, past agent_ttl 1d; clean"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, _ := agentPool(t, goneParent, tt.created)
+			pr := prunerFor(t, p, unsupportedProcs{})
+			var r poolPrune
+			if err := pr.agents(t.Context(), &r); err != nil {
+				t.Fatal(err)
+			}
+			got := ""
+			if len(r.Agents) == 1 {
+				got = r.Agents[0].Why
+			}
+			if len(r.Agents) > 1 || got != tt.want {
+				t.Errorf("agents = %+v, want why %q", r.Agents, tt.want)
 			}
 		})
 	}
