@@ -26,6 +26,12 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# A tag with a pre-release suffix, such as the release candidate a milestone's gate installs from
+# the tap (v0.4.0-rc.1), is published as a GitHub pre-release; the brews section still writes its
+# formula (#106).
+release:
+  prerelease: auto
+
 # Release notes come from CHANGELOG.md (see .github/workflows/release.yml), passed as
 # --release-notes. The changelog step must stay enabled: it is where GoReleaser loads that file,
 # and given the file it generates nothing from git (#150).

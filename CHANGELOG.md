@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0-rc.1] - 2026-10-23
+
 ### Added
 
 - `upool deinit [--yes]` takes upool out of a project, the inverse of `upool init` (#191). Like
