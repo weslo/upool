@@ -30,15 +30,20 @@ jobs:
             exit 1
           fi
       # Until the tap token exists (#104), a release publishes to GitHub Releases only (#146).
+      # GoReleaser is pinned to the version `make release-dry-run` was last checked with: one that
+      # still writes the Homebrew formula from `brews`, which 2.10 and later deprecate in favour of
+      # casks. The formula stays (docs/contracts.md A16), so a newer version is taken only once a
+      # dry run shows it still writes it.
       - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: "~> v2"
+          version: "v2.18.3"
           args: >-
             release --clean --release-notes ${{ runner.temp }}/release-notes.md
             ${{ secrets.HOMEBREW_TAP_TOKEN == '' && '--skip=homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Fine-grained token with contents write on weslo/homebrew-tap only.
-          # The secret does not exist yet: it is created in M4 (Hygiene and release).
+          # Fine-grained token with contents write on weslo/homebrew-tap only, which the
+          # maintainer creates as docs/manual-gates/M4.md, "Tap token", says; with no secret, the
+          # release skips Homebrew.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
