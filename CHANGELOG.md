@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `max_disk` (#101): an optional machine setting, in GB, in the user file or `UPOOL_MAX_DISK`,
+  which `.upool.toml` does not take. With it set, `upool prune` also lists, least recently used
+  first, idle ready slots past the `ready` it keeps, whatever their age, while the pool's disk use
+  is over it: the sum of its slots' private sizes, as `status --du` measures them (A32), less the
+  slots already listed. The same rules hold as for `shrink_after`: only idle, clean, merged ready
+  slots with no Editor, and never below `ready` ready slots. prune's candidates are now listed
+  least recently used first. A negative `max_disk` is refused, and off macOS `max_disk` cannot be
+  measured, so prune fails while it is set.
+
 - `upool prune [--all] [--yes]` (#100): lists, and with `--yes` removes, the ready slots beyond
   `ready` that are idle, merged and clean (docs/contracts.md (f) transition 15; A31). The `ready`
   most recently used idle slots are kept; each of the rest is listed, with why, once it has been

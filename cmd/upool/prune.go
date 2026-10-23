@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"strings"
@@ -28,7 +29,9 @@ const pruneUsage = "prune [--all] [--yes] [--json]"
 // and with --yes removes them (docs/design.md, "One binary, a dozen commands, one JSON file per
 // pool", the `prune` row; "Disk: 0.4 GB per persistent slot; disk is not what limits the count":
 // dry run unless --yes, with no override flags; docs/contracts.md (f) transition 15; A31; #100).
-// The disk budget, max_disk, and agent worktrees join it in later issues.
+// With max_disk set it also lists, least recently used first, idle ready slots past those
+// `ready` keeps while the pool's disk use is over max_disk (#101). Agent worktrees join it in a
+// later issue.
 var pruneCommand = command{
 	usage: pruneUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -150,6 +153,8 @@ type pruner struct {
 	inv *invocation
 	rp  registeredPool
 	g   git.Client
+	// measure measures a slot's disk use for max_disk; nil is clone.DiskUse, status --du's.
+	measure func(dir string) (clone.Disk, error)
 }
 
 // repo is the pool's main checkout.
@@ -166,7 +171,7 @@ type idleSlot struct {
 	since time.Time
 }
 
-// candidates returns the pool's slots that prune may remove, in state.json's order. The idle
+// candidates returns the pool's slots that prune may remove, least recently used first. The idle
 // slots are the ready ones no lease holds whose directory exists and git lists; a slot missing
 // from either is left to doctor, and takes no place among those kept. Of the idle slots, the
 // `ready` most recently used are kept. Each of the rest is a candidate when all of these hold:
@@ -178,7 +183,8 @@ type idleSlot struct {
 //     work git worktree remove would delete;
 //   - its HEAD is merged into base, an ancestor of base's commit.
 //
-// Leased, parked and every other state are never candidates.
+// With max_disk set, overDisk then adds the least recently used of the rest, whatever their age,
+// while the pool's disk use is over it. Leased, parked and every other state are never candidates.
 func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	repo := pr.repo()
 	r := poolPrune{Repo: repo, Candidates: []pruneCandidate{}}
@@ -230,42 +236,108 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	}
 	now, shrink := pr.inv.now(), cfg.ShrinkAfter.Value
 	for _, is := range beyond {
-		s := is.slot
 		idleFor := now.Sub(is.since)
 		if idleFor < shrink {
 			continue
 		}
-		why, err := pr.kept(ctx, editors, listed, s.Path)
+		ok, err := pr.removable(ctx, editors, listed, base, is.slot.Path)
 		if err != nil {
 			return poolPrune{}, err
 		}
-		if why != "" {
-			continue
+		if ok {
+			r.Candidates = append(r.Candidates, pruneCandidate{Slot: is.slot.Name,
+				Path: is.slot.Path, IdleSince: is.since.UTC(), Why: fmt.Sprintf("idle %s, past "+
+					"shrink_after %s; beyond ready = %d; clean, and merged into %s",
+					leaseAge(idleFor), leaseAge(shrink), cfg.Ready.Value, pr.rp.pool.Base)})
 		}
-		head, err := pr.g.Head(ctx, s.Path)
-		if err != nil {
-			return poolPrune{}, err
-		}
-		merged, err := pr.g.IsAncestor(ctx, repo, head, base)
-		if err != nil {
-			return poolPrune{}, err
-		}
-		if !merged {
-			continue
-		}
-		r.Candidates = append(r.Candidates, pruneCandidate{Slot: s.Name, Path: s.Path,
-			IdleSince: is.since.UTC(), Why: fmt.Sprintf("idle %s, past shrink_after %s; beyond "+
-				"ready = %d; clean, and merged into %s", leaseAge(idleFor), leaseAge(shrink),
-				cfg.Ready.Value, pr.rp.pool.Base)})
 	}
-	order := map[string]int{}
-	for i, s := range pr.rp.pool.Slots {
-		order[s.Name] = i
+	if cfg.MaxDisk.Set() {
+		if err := pr.overDisk(ctx, cfg, editors, listed, base, beyond, &r); err != nil {
+			return poolPrune{}, err
+		}
 	}
 	slices.SortStableFunc(r.Candidates, func(a, b pruneCandidate) int {
-		return order[a.Slot] - order[b.Slot]
+		return a.IdleSince.Compare(b.IdleSince)
 	})
 	return r, nil
+}
+
+// gigabyte is a gigabyte as max_disk counts one, 2^30 bytes, as the RAM settings do.
+const gigabyte = 1 << 30
+
+// overDisk adds to r's candidates while the pool's disk use is over max_disk: the slots of beyond,
+// those past the `ready` kept, least recently used first, that removable allows (#101; docs/
+// design.md, "Disk: 0.4 GB per persistent slot; disk is not what limits the count": an optional
+// max_disk with LRU removal of idle ready slots). The pool's disk use is status --du's: the sum of
+// its slots' private sizes, every slot whose directory exists counted (A32), less those r already
+// lists. It never goes below `ready` ready slots, since beyond leaves them out.
+func (pr pruner) overDisk(ctx context.Context, cfg config.Config, editors ledger.Ledger,
+	listed map[string]bool, base string, beyond []idleSlot, r *poolPrune) error {
+	if cfg.MaxDisk.Value < 0 {
+		return output.Fail(output.CodeCommandFailed, "max_disk is %v GB, from %s; it must be 0 "+
+			"or more", cfg.MaxDisk.Value, cfg.MaxDisk.Source)
+	}
+	measure := pr.measure
+	if measure == nil {
+		measure = clone.DiskUse
+	}
+	private := map[string]int64{}
+	var total int64
+	for _, s := range pr.rp.pool.Slots {
+		d, err := measure(s.Path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case errors.Is(err, errors.ErrUnsupported):
+			return output.Fail(output.CodeCommandFailed, "max_disk is measured in APFS private "+
+				"sizes, as status --du measures them, which only macOS has: %v", err)
+		case err != nil:
+			return fmt.Errorf("measuring %s: %w", s.Name, err)
+		}
+		private[s.Name] = d.Private
+		total += d.Private
+	}
+	listedAlready := map[string]bool{}
+	for _, c := range r.Candidates {
+		listedAlready[c.Slot] = true
+		total -= private[c.Slot]
+	}
+	limit := int64(cfg.MaxDisk.Value * gigabyte)
+	for i := len(beyond) - 1; i >= 0 && total > limit; i-- {
+		is := beyond[i]
+		if listedAlready[is.slot.Name] {
+			continue
+		}
+		ok, err := pr.removable(ctx, editors, listed, base, is.slot.Path)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		r.Candidates = append(r.Candidates, pruneCandidate{Slot: is.slot.Name,
+			Path: is.slot.Path, IdleSince: is.since.UTC(), Why: fmt.Sprintf("the least recently "+
+				"used, idle %s, while the pool's %s private is over max_disk %s; beyond ready = "+
+				"%d; clean, and merged into %s", leaseAge(pr.inv.now().Sub(is.since)),
+				bytesSize(total), bytesSize(limit), cfg.Ready.Value, pr.rp.pool.Base)})
+		total -= private[is.slot.Name]
+	}
+	return nil
+}
+
+// removable reports whether the slot at dir may go once its age or the disk calls for it: kept
+// gives no reason to keep it, and its HEAD is merged into base, the commit base names.
+func (pr pruner) removable(ctx context.Context, editors ledger.Ledger, listed map[string]bool,
+	base, dir string) (bool, error) {
+	why, err := pr.kept(ctx, editors, listed, dir)
+	if err != nil || why != "" {
+		return false, err
+	}
+	head, err := pr.g.Head(ctx, dir)
+	if err != nil {
+		return false, err
+	}
+	return pr.g.IsAncestor(ctx, pr.repo(), head, base)
 }
 
 // kept returns why the slot at dir must stay whatever its age, or "": an Editor has its Library

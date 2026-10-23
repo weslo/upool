@@ -88,6 +88,7 @@ func sources(c Config) map[string]Source {
 		"helper_ram_gb":        c.HelperRAMGB.Source,
 		"max_editors":          c.MaxEditors.Source,
 		"shrink_after":         c.ShrinkAfter.Source,
+		"max_disk":             c.MaxDisk.Source,
 		"agent_ttl":            c.AgentTTL.Source,
 		"confirm_timeout":      c.ConfirmTimeout.Source,
 	}
@@ -105,6 +106,7 @@ var nonDefault = map[string]string{
 	"helper_ram_gb":        "1.5",
 	"max_editors":          "4",
 	"shrink_after":         "7d",
+	"max_disk":             "40.5",
 	"agent_ttl":            "12h",
 	"confirm_timeout":      "90s",
 }
@@ -125,6 +127,9 @@ func checkNonDefault(t *testing.T, c Config) {
 		c.ConfirmTimeout.Value != 90*time.Second {
 		t.Errorf("shrink_after, agent_ttl, confirm_timeout = %v, %v, %v, want 168h, 12h, 90s",
 			c.ShrinkAfter.Value, c.AgentTTL.Value, c.ConfirmTimeout.Value)
+	}
+	if c.MaxDisk.Value != 40.5 {
+		t.Errorf("max_disk = %v, want 40.5", c.MaxDisk.Value)
 	}
 }
 
@@ -167,13 +172,16 @@ func TestDefaultsWhenNothingSetsAnything(t *testing.T) {
 	}
 }
 
-func TestBaseAndMaxEditorsHaveNoDefault(t *testing.T) {
+func TestBaseMaxEditorsAndMaxDiskHaveNoDefault(t *testing.T) {
 	c := load(t, Inputs{Home: tempDir(t), Repo: tempDir(t)})
 	if c.Base != (Setting[string]{"", Unset}) || c.Base.Set() {
 		t.Errorf("base = %+v, set %v, want unset", c.Base, c.Base.Set())
 	}
 	if c.MaxEditors != (Setting[int]{0, Unset}) || c.MaxEditors.Set() {
 		t.Errorf("max_editors = %+v, set %v, want unset", c.MaxEditors, c.MaxEditors.Set())
+	}
+	if c.MaxDisk != (Setting[float64]{0, Unset}) || c.MaxDisk.Set() {
+		t.Errorf("max_disk = %+v, set %v, want unset", c.MaxDisk, c.MaxDisk.Set())
 	}
 }
 
@@ -296,6 +304,7 @@ func TestEachSettingTakesItsOwnHighestLayer(t *testing.T) {
 		"ready": User, "max_slots": Repo, "base": Env, "editor_ram_gb": User, "agent_ttl": Flag,
 		"max_cold_imports": Default, "editor_ram_budget_gb": Default, "helper_ram_gb": Default,
 		"shrink_after": Default, "confirm_timeout": Default, "max_editors": Unset,
+		"max_disk": Unset,
 	}
 	if got := sources(c); !maps.Equal(got, want) {
 		t.Errorf("sources = %v, want %v", got, want)
@@ -346,6 +355,7 @@ editor_ram_gb = 3
 helper_ram_gb = 1.5
 max_editors = 4
 shrink_after = "7d"
+max_disk = 40.5
 agent_ttl = "12h"
 confirm_timeout = "90s"
 `)
@@ -411,6 +421,7 @@ func TestRepoFileRejectsMachineKeys(t *testing.T) {
 		"helper_ram_gb":        "1.5",
 		"max_editors":          "4",
 		"shrink_after":         `"7d"`,
+		"max_disk":             "40.5",
 		"agent_ttl":            `"12h"`,
 		"confirm_timeout":      `"90s"`,
 	}

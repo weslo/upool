@@ -5,16 +5,19 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/testenv"
 )
 
 // The tests of `upool prune` (#100), on the harness pool: slot-1 and slot-2, both ready at base,
@@ -413,5 +416,142 @@ func TestPruneRefusesANegativeReady(t *testing.T) {
 	if want := "upool: ready is -1 for " + p.Repo + ", from "; r.code != output.ExitFailure ||
 		!strings.HasPrefix(r.stderr, want) {
 		t.Errorf("exit %d, stderr %q; want 1 and %q…", r.code, r.stderr, want)
+	}
+}
+
+// maxDiskPool is a harness pool with a third slot, slot-3, every slot ready at base: slot-1 used at
+// the test clock, slot-2 two days before it and slot-3 five, so that none is past shrink_after,
+// and slot-3 is the least recently used.
+func maxDiskPool(t *testing.T) harnessPool {
+	t.Helper()
+	p := newHarnessPool(t)
+	p.Git("worktree", "add", "-q", "--detach", p.slot("slot-3"), testenv.Base)
+	day := 24 * time.Hour
+	p.update(t, func(pl *pool.Pool) {
+		pl.Slots[1].LastUsed = clock.Add(-2 * day)
+		pl.Slots = append(pl.Slots, pool.Slot{Name: "slot-3", Path: p.slot("slot-3"),
+			State: pool.StateReady, SeedHead: p.Head, LastUsed: clock.Add(-5 * day)})
+	})
+	return p
+}
+
+// gigabyteEach is a measure that gives every slot 1 GB private.
+func gigabyteEach(string) (clone.Disk, error) {
+	return clone.Disk{Private: 1 << 30, Apparent: 8 << 30}, nil
+}
+
+// slotsOf returns the slot names of candidates, in order.
+func slotsOf(candidates []pruneCandidate) []string {
+	var names []string
+	for _, c := range candidates {
+		names = append(names, c.Slot)
+	}
+	return names
+}
+
+// The acceptance test of #101, with injected disk measures of 1 GB a slot, 3 GB in all. With
+// max_disk at 2.5 GB, the least recently used idle ready slot, slot-3, is listed, though no slot is
+// past shrink_after, and is removed with --yes; at 1.5 GB slot-2 follows it; at 0, slot-1 still
+// stays, since prune never goes below ready; unset, nothing is listed.
+func TestPruneMaxDisk(t *testing.T) {
+	for _, tt := range []struct {
+		maxDisk string
+		want    []string
+	}{
+		{"", nil},
+		{"2.5", []string{"slot-3"}},
+		{"1.5", []string{"slot-3", "slot-2"}},
+		{"0", []string{"slot-3", "slot-2"}},
+	} {
+		t.Run("max_disk "+tt.maxDisk, func(t *testing.T) {
+			p := maxDiskPool(t)
+			if tt.maxDisk != "" {
+				p.Setenv(config.EnvName("max_disk"), tt.maxDisk)
+			}
+			pr := prunerFor(t, p, procsAlive(os.Getpid()))
+			pr.measure = gigabyteEach
+			got, err := pr.candidates(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if names := slotsOf(got.Candidates); !slices.Equal(names, tt.want) {
+				t.Fatalf("candidates = %q, want %q", names, tt.want)
+			}
+			if len(tt.want) == 0 {
+				return
+			}
+			why := got.Candidates[0].Why
+			want := "the least recently used, idle 5d, while the pool's 3.0 GB private is over " +
+				"max_disk"
+			if !strings.HasPrefix(why, want) {
+				t.Errorf("slot-3's why = %q, want it to start %q", why, want)
+			}
+			pr.remove(t.Context(), &got.Candidates[0])
+			if !got.Candidates[0].Removed {
+				t.Fatalf("removing slot-3: %s", got.Candidates[0].Error)
+			}
+			if names := p.slotNames(t); slices.Contains(names, "slot-3") ||
+				p.listed(p.slot("slot-3")) {
+				t.Errorf("slots = %q, want slot-3 gone from state.json and git's list", names)
+			}
+		})
+	}
+}
+
+// max_disk never takes a slot that is not idle and ready, nor one an Editor holds: with slot-3 so
+// held, slot-2, the next least recently used, is listed instead. A slot past shrink_after is listed
+// once, for its age, and its size counts toward the budget.
+func TestPruneMaxDiskTakesOnlyIdleReadySlots(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		setup func(t *testing.T, p harnessPool)
+		want  []string
+	}{
+		{"slot-3 leased", func(t *testing.T, p harnessPool) {
+			p.update(t, func(pl *pool.Pool) {
+				pl.Slots[2].State = pool.StateLeased
+				pl.Slots[2].Lease = &pool.Lease{LeaseID: "id", AcquiredAt: clock, Confirmed: true,
+					Lane: pool.LaneScript}
+			})
+		}, []string{"slot-2"}},
+		{"slot-3 parked", func(t *testing.T, p harnessPool) {
+			p.update(t, func(pl *pool.Pool) { pl.Slots[2].State = pool.StateParked })
+		}, []string{"slot-2"}},
+		{"slot-3 needs-reset", func(t *testing.T, p harnessPool) {
+			p.update(t, func(pl *pool.Pool) { pl.Slots[2].State = pool.StateNeedsReset })
+		}, []string{"slot-2"}},
+		{"slot-3 Editor-held", func(t *testing.T, p harnessPool) {
+			writeLedger(t, p, ledger.Editor{Project: p.slot("slot-3"), PID: os.Getpid(),
+				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+		}, []string{"slot-2"}},
+		{"slot-3 past shrink_after", func(t *testing.T, p harnessPool) {
+			p.update(t, func(pl *pool.Pool) { pl.Slots[2].LastUsed = monthAgo })
+		}, []string{"slot-3"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := maxDiskPool(t)
+			p.Setenv(config.EnvName("max_disk"), "2.5")
+			tt.setup(t, p)
+			pr := prunerFor(t, p, procsAlive(os.Getpid()))
+			pr.measure = gigabyteEach
+			got, err := pr.candidates(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if names := slotsOf(got.Candidates); !slices.Equal(names, tt.want) {
+				t.Errorf("candidates = %q, want %q", names, tt.want)
+			}
+		})
+	}
+}
+
+// A negative max_disk is no budget: prune fails, saying where it came from.
+func TestPruneRefusesANegativeMaxDisk(t *testing.T) {
+	p := maxDiskPool(t)
+	p.Setenv(config.EnvName("max_disk"), "-1")
+	r := runIn(t, p.Env, p.Repo, "prune")
+	if want := "upool: max_disk is -1 GB, from env; it must be 0 or more\n"; r.code !=
+		output.ExitFailure || r.stderr != want {
+		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
 	}
 }
