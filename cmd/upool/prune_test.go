@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +10,11 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/registry"
 )
 
 // The tests of `upool prune` (#100), on the harness pool: slot-1 and slot-2, both ready at base,
@@ -202,5 +205,185 @@ func TestPruneAllAndItsRefusals(t *testing.T) {
 	}
 	if r := runIn(t, p.Env, filepath.Join(p.Repo), "prune", "now"); r.code != output.ExitFailure {
 		t.Errorf("prune now: exit %d, want 1", r.code)
+	}
+}
+
+// prunerFor is the pruner prune would run over p's pool, as this process, at the test clock, with
+// procs as the process table.
+func prunerFor(t *testing.T, p harnessPool, procs *editorProcs) pruner {
+	t.Helper()
+	inv := &invocation{home: p.Home, getenv: p.Getenv, environ: p.Environ,
+		now: func() time.Time { return clock }, pid: os.Getpid(), procs: procs,
+		stderr: io.Discard}
+	pools, err := readPools(t.Context(), p.Home, func(registry.Repo) bool { return true })
+	if err != nil || len(pools) != 1 {
+		t.Fatalf("readPools = %+v, %v; want the harness pool", pools, err)
+	}
+	return pruner{inv: inv, rp: pools[0], g: git.Client{Runner: git.Exec{}, Env: p.Environ()}}
+}
+
+// slot2Candidate returns slot-2 as candidates finds it, the one candidate.
+func slot2Candidate(t *testing.T, pr pruner) pruneCandidate {
+	t.Helper()
+	got, err := pr.candidates(t.Context())
+	if err != nil || len(got.Candidates) != 1 || got.Candidates[0].Slot != "slot-2" {
+		t.Fatalf("candidates = %+v, %v; want slot-2", got, err)
+	}
+	return got.Candidates[0]
+}
+
+// A worktree inside a slot, as the hook's pass-through and subagent branches make one for a
+// session in the slot (A13), keeps the slot, with the worktree and its work: git worktree remove
+// would delete them, and a slot's git status does not show an ignored .claude/worktrees.
+func TestPruneKeepsASlotHoldingAWorktree(t *testing.T) {
+	p := prunePool(t)
+	p.WriteFile(".git/info/exclude", ".claude/worktrees/\n")
+	inner := filepath.Join(p.slot("slot-2"), ".claude", "worktrees", "inner")
+	p.inSlot2("worktree", "add", "-q", "--detach", inner)
+	work := filepath.Join(inner, "work.txt")
+	if err := os.WriteFile(work, []byte("unsaved\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if r := runPrune(t, p, "--yes"); r.stdout != p.Repo+": nothing to prune\n" {
+		t.Errorf("stdout = %q, want nothing to prune", r.stdout)
+	}
+	if _, err := os.Stat(work); err != nil {
+		t.Errorf("%s is gone: %v", work, err)
+	}
+}
+
+// A ready slot whose directory is gone, or that git does not list, is left to doctor: prune
+// neither fails on it nor gives it a place among those ready keeps, so a healthy idle slot is
+// kept in its stead.
+func TestPruneLeavesAMissingSlotToDoctor(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		setup func(t *testing.T, p harnessPool)
+	}{
+		{"slot-2's directory gone", func(t *testing.T, p harnessPool) {
+			if err := os.RemoveAll(p.slot("slot-2")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"slot-2 not in git's list", func(t *testing.T, p harnessPool) {
+			if err := os.RemoveAll(p.Path(".git/worktrees/slot-2")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"slot-1, the most recently used, gone", func(t *testing.T, p harnessPool) {
+			if err := os.RemoveAll(p.slot("slot-1")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := prunePool(t)
+			tt.setup(t, p)
+			if r := runPrune(t, p, "--yes"); r.stdout != p.Repo+": nothing to prune\n" {
+				t.Errorf("stdout = %q, want nothing to prune", r.stdout)
+			}
+			if got := strings.Join(p.slotNames(t), " "); got != "slot-1 slot-2" {
+				t.Errorf("slots = %s, want both left for doctor or kept", got)
+			}
+		})
+	}
+}
+
+// A removal that git refuses before it lets go of the worktree, here a locked one, puts the entry
+// back as it was; one that fails after git has dropped the worktree from its list, here on a
+// directory it cannot delete, leaves the entry out, since git no longer lists the slot, and names
+// what is left to delete.
+func TestPruneRemovalThatFails(t *testing.T) {
+	t.Run("git refuses", func(t *testing.T) {
+		p := prunePool(t)
+		pr := prunerFor(t, p, procsAlive(os.Getpid()))
+		c := slot2Candidate(t, pr)
+		p.Git("worktree", "lock", p.slot("slot-2"))
+		pr.remove(t.Context(), &c)
+		if c.Removed || !strings.HasSuffix(c.Error, "; it stays ready") {
+			t.Errorf("candidate = %+v, want not removed and its entry put back", c)
+		}
+		if got := strings.Join(p.slotNames(t), " "); got != "slot-1 slot-2" {
+			t.Errorf("slots = %s, want slot-2 back", got)
+		}
+		if s := p.loadPool(t).Slots[1]; s.State != pool.StateReady || !s.LastUsed.Equal(monthAgo) {
+			t.Errorf("slot-2 = %s, last used %s; want it ready as it was", s.State, s.LastUsed)
+		}
+	})
+	t.Run("git lets go part way", func(t *testing.T) {
+		p := prunePool(t)
+		pr := prunerFor(t, p, procsAlive(os.Getpid()))
+		c := slot2Candidate(t, pr)
+		stuck := filepath.Join(p.slot("slot-2"), "Library", "stuck")
+		if err := os.MkdirAll(stuck, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(stuck, "f"), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(stuck, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(stuck, 0o755) }) // so that the test can clean up
+		pr.remove(t.Context(), &c)
+		want := "; git no longer lists it, so it is out of the pool: delete what is left of " +
+			p.slot("slot-2") + " by hand"
+		if c.Removed || !strings.HasSuffix(c.Error, want) {
+			t.Errorf("candidate = %+v, want an error ending %q", c, want)
+		}
+		if p.listed(p.slot("slot-2")) {
+			t.Fatal("git still lists slot-2, so the test did not reach the case")
+		}
+		if got := strings.Join(p.slotNames(t), " "); got != "slot-1" {
+			t.Errorf("slots = %s, want slot-2's entry left out", got)
+		}
+	})
+}
+
+// remove asks again, once the slot is out of circulation, what candidates asked: a slot leased
+// meanwhile is refused and left as it is, and one an Editor opened meanwhile is put back.
+func TestPruneChecksAgainBeforeItRemoves(t *testing.T) {
+	t.Run("leased meanwhile", func(t *testing.T) {
+		p := prunePool(t)
+		pr := prunerFor(t, p, procsAlive(os.Getpid()))
+		c := slot2Candidate(t, pr)
+		p.update(t, func(pl *pool.Pool) {
+			pl.Slots[1].State = pool.StateLeased
+			pl.Slots[1].Lease = &pool.Lease{LeaseID: "id", AcquiredAt: clock, Confirmed: true,
+				Lane: pool.LaneScript}
+		})
+		pr.remove(t.Context(), &c)
+		if c.Removed || !strings.Contains(c.Error, "changed in state.json meanwhile") {
+			t.Errorf("candidate = %+v, want it refused as changed", c)
+		}
+		if s := p.loadPool(t).Slots[1]; s.State != pool.StateLeased || !p.listed(s.Path) {
+			t.Errorf("slot-2 = %s, want it still leased and in git's list", s.State)
+		}
+	})
+	t.Run("an Editor opened meanwhile", func(t *testing.T) {
+		p := prunePool(t)
+		pr := prunerFor(t, p, procsAlive(os.Getpid()))
+		c := slot2Candidate(t, pr)
+		writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: os.Getpid(),
+			Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+		pr.remove(t.Context(), &c)
+		if c.Removed || !strings.HasPrefix(c.Error, "an Editor has it open now") {
+			t.Errorf("candidate = %+v, want it refused for the Editor", c)
+		}
+		if got := strings.Join(p.slotNames(t), " "); got != "slot-1 slot-2" ||
+			!p.listed(p.slot("slot-2")) {
+			t.Errorf("slots = %s, want slot-2 back and in git's list", got)
+		}
+	})
+}
+
+// A negative ready is no count: prune fails, saying where it came from, rather than panicking.
+func TestPruneRefusesANegativeReady(t *testing.T) {
+	p := prunePool(t)
+	p.Setenv(config.EnvName("ready"), "-1")
+	r := runIn(t, p.Env, p.Repo, "prune")
+	if want := "upool: ready is -1 for " + p.Repo + ", from "; r.code != output.ExitFailure ||
+		!strings.HasPrefix(r.stderr, want) {
+		t.Errorf("exit %d, stderr %q; want 1 and %q…", r.code, r.stderr, want)
 	}
 }

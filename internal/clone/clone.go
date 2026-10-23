@@ -172,7 +172,11 @@ func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, 
 		if err != nil {
 			return err
 		}
-		name := nextName(p.Slots)
+		dir := filepath.Join(p.Repo, filepath.FromSlash(worktreesDir))
+		name := nextName(p.Slots, func(name string) bool {
+			_, err := os.Lstat(filepath.Join(dir, name))
+			return err == nil
+		})
 		pid := r.OwnerPID
 		slot = pool.Slot{
 			Name:          name,
@@ -191,14 +195,17 @@ func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, 
 	return slot, repo, base, nil
 }
 
-// nextName returns slot-N for the lowest N from 1 that no slot in slots has.
-func nextName(slots []pool.Slot) string {
+// nextName returns slot-N for the lowest N from 1 that no slot in slots has and whose directory
+// onDisk, when it is not nil, does not report on disk: a directory with no entry is one prune is
+// removing, or one left behind, and `git worktree add` would refuse it.
+func nextName(slots []pool.Slot, onDisk func(name string) bool) string {
 	taken := make(map[string]bool, len(slots))
 	for _, s := range slots {
 		taken[s.Name] = true
 	}
 	for n := 1; ; n++ {
-		if name := slotPrefix + strconv.Itoa(n); !taken[name] {
+		name := slotPrefix + strconv.Itoa(n)
+		if !taken[name] && (onDisk == nil || !onDisk(name)) {
 			return name
 		}
 	}

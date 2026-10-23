@@ -5,7 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -166,21 +166,31 @@ type idleSlot struct {
 	since time.Time
 }
 
-// candidates returns the pool's slots that prune may remove, in state.json's order. Of the ready
-// slots no lease holds, the `ready` most recently used are kept. Each of the rest is a candidate
-// when all of these hold:
+// candidates returns the pool's slots that prune may remove, in state.json's order. The idle
+// slots are the ready ones no lease holds whose directory exists and git lists; a slot missing
+// from either is left to doctor, and takes no place among those kept. Of the idle slots, the
+// `ready` most recently used are kept. Each of the rest is a candidate when all of these hold:
 //   - it has been idle for shrink_after, since its last_used or, with none, since its directory
 //     was made (A42);
 //   - no Editor has its Library open, by the ledger or by the instance files ((g) step 0);
-//   - it is clean, define-order noise aside ((f), the definition of clean);
+//   - it is clean, define-order noise aside ((f), the definition of clean), and holds no other
+//     worktree, such as a pass-through or subagent worktree a session in it made (A13), whose
+//     work git worktree remove would delete;
 //   - its HEAD is merged into base, an ancestor of base's commit.
 //
-// A slot whose directory is gone, or that git does not list, is left to doctor. Leased, parked and
-// every other state are never candidates.
+// Leased, parked and every other state are never candidates.
 func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	repo := pr.repo()
 	r := poolPrune{Repo: repo, Candidates: []pruneCandidate{}}
 	cfg, err := config.Load(config.Inputs{Getenv: pr.inv.getenv, Repo: repo, Home: pr.inv.home})
+	if err != nil {
+		return poolPrune{}, err
+	}
+	if cfg.Ready.Value < 0 {
+		return poolPrune{}, output.Fail(output.CodeCommandFailed, "ready is %d for %s, from %s; "+
+			"it must be 0 or more", cfg.Ready.Value, repo, cfg.Ready.Source)
+	}
+	listed, err := worktreeKeys(ctx, pr.g, repo)
 	if err != nil {
 		return poolPrune{}, err
 	}
@@ -189,16 +199,18 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 		if s.State != pool.StateReady || s.Lease != nil {
 			continue
 		}
+		key, err := paths.Key(s.Path)
+		if err != nil {
+			return poolPrune{}, err
+		}
+		if info, err := os.Stat(s.Path); err != nil || !info.IsDir() || !listed[key] {
+			continue
+		}
 		since := s.LastUsed
 		if since.IsZero() {
-			made, err := clone.Made(s.Path)
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			if err != nil {
+			if since, err = clone.Made(s.Path); err != nil {
 				return poolPrune{}, err
 			}
-			since = made
 		}
 		idle = append(idle, idleSlot{s, since})
 	}
@@ -209,10 +221,6 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	beyond := idle[cfg.Ready.Value:]
 
 	base, err := pr.g.Commit(ctx, repo, pr.rp.pool.Base)
-	if err != nil {
-		return poolPrune{}, err
-	}
-	listed, err := worktreeKeys(ctx, pr.g, repo)
 	if err != nil {
 		return poolPrune{}, err
 	}
@@ -227,21 +235,11 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 		if idleFor < shrink {
 			continue
 		}
-		if key, err := paths.Key(s.Path); err != nil || !listed[key] {
-			continue
-		}
-		live, err := pr.editorIn(editors, s.Path)
+		why, err := pr.kept(ctx, editors, listed, s.Path)
 		if err != nil {
 			return poolPrune{}, err
 		}
-		if live {
-			continue
-		}
-		dirty, err := pool.DirtyBesideNoise(ctx, pr.g, s.Path)
-		if err != nil {
-			return poolPrune{}, err
-		}
-		if len(dirty) > 0 {
+		if why != "" {
 			continue
 		}
 		head, err := pr.g.Head(ctx, s.Path)
@@ -270,6 +268,31 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	return r, nil
 }
 
+// kept returns why the slot at dir must stay whatever its age, or "": an Editor has its Library
+// open, it is dirty, define-order noise aside, or it holds another worktree git lists, in listed
+// by key. remove asks again once the slot is out of circulation.
+func (pr pruner) kept(ctx context.Context, editors ledger.Ledger, listed map[string]bool,
+	dir string) (string, error) {
+	live, err := pr.editorIn(editors, dir)
+	if err != nil || live {
+		return "an Editor has it open", err
+	}
+	dirty, err := pool.DirtyBesideNoise(ctx, pr.g, dir)
+	if err != nil || len(dirty) > 0 {
+		return "it is dirty: " + strings.Join(dirty, "; "), err
+	}
+	key, err := paths.Key(dir)
+	if err != nil {
+		return "", err
+	}
+	for k := range listed {
+		if k != key && paths.Within(k, key) {
+			return "it holds the worktree " + k, nil
+		}
+	}
+	return "", nil
+}
+
 // editorIn reports whether an Editor has the Library at dir open: one the ledger records with a
 // running process, or any Editor, by the instance files it keeps there.
 func (pr pruner) editorIn(editors ledger.Ledger, dir string) (bool, error) {
@@ -283,10 +306,13 @@ func (pr pruner) editorIn(editors ledger.Ledger, dir string) (bool, error) {
 
 // remove removes the candidate c ((f) transition 15). Under the lock it takes the slot's entry out
 // of state.json, if the slot is still ready, unleased and as prune read it, so that no take hands
-// it out while it goes. Then it reverts define-order noise, checks again that the slot is clean
-// and that no Editor has it open, and runs `git worktree remove` without --force, which refuses a
-// worktree with changes. If any of that fails, the entry is put back as it was and c says why;
-// otherwise the slot's kept scene list goes too (A8).
+// it out while it goes; a clone meanwhile does not reuse its name, which nextName keeps while the
+// directory is on disk. Then it reverts define-order noise, asks again whether the slot must stay
+// (kept), and runs `git worktree remove` without --force, which refuses a worktree with changes.
+// If that fails before git has let go of the worktree, the entry is put back as it was and c says
+// why. If git no longer lists it, only part of its directory went, and the entry stays out, since
+// a slot git does not list cannot be handed out: c names what is left for a person to delete.
+// Otherwise the slot's kept scene list goes too (A8).
 func (pr pruner) remove(ctx context.Context, c *pruneCandidate) {
 	home, key := pr.inv.home, pr.rp.repo.Key
 	var taken pool.Slot
@@ -313,6 +339,13 @@ func (pr pruner) remove(ctx context.Context, c *pruneCandidate) {
 	}
 	if err := pr.removeTaken(ctx, taken); err != nil {
 		c.Error = err.Error()
+		listed, lerr := worktreeKeys(ctx, pr.g, pr.repo())
+		slotKey, kerr := paths.Key(taken.Path)
+		if lerr == nil && kerr == nil && !listed[slotKey] {
+			c.Error += "; git no longer lists it, so it is out of the pool: delete what is left " +
+				"of " + taken.Path + " by hand"
+			return
+		}
 		if perr := pool.Update(ctx, home, key, func(p *pool.Pool) error {
 			if slices.ContainsFunc(p.Slots, func(s pool.Slot) bool {
 				return s.Name == taken.Name
@@ -339,23 +372,20 @@ func (pr pruner) removeTaken(ctx context.Context, s pool.Slot) error {
 	if _, err := pool.RevertNoise(ctx, pr.g, s.Path); err != nil {
 		return err
 	}
-	dirty, err := pool.Dirty(ctx, pr.g, s.Path)
-	if err != nil {
-		return err
-	}
-	if len(dirty) > 0 {
-		return fmt.Errorf("it is dirty now: %s", strings.Join(dirty, "; "))
-	}
 	editors, err := ledger.Load(pr.inv.home)
 	if err != nil {
 		return err
 	}
-	live, err := pr.editorIn(editors, s.Path)
+	listed, err := worktreeKeys(ctx, pr.g, pr.repo())
 	if err != nil {
 		return err
 	}
-	if live {
-		return errors.New("an Editor has it open now")
+	why, err := pr.kept(ctx, editors, listed, s.Path)
+	if err != nil {
+		return err
+	}
+	if why != "" {
+		return errors.New(why + " now")
 	}
 	return pr.g.WorktreeRemoveClean(ctx, pr.repo(), s.Path)
 }
