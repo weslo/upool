@@ -86,6 +86,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- README.md describes upool as M0 to M4 shipped it (#105): `upool init` clones the first slot;
+  a session's slot opens within a couple of seconds, and with every slot taken the session waits
+  up to 20 seconds and then fails, saying to run `upool refresh`; a slot's Editor opens in well
+  under a minute; a slot holding a commit no branch holds is parked as well as one with
+  uncommitted work; and `upool prune` collects a subagent's worktree. A test runs the
+  quickstart's commands as written, and checks its `brew install` against the formula the release
+  publishes.
 - The clone recipe records a new slot's `last_used` as it marks it ready, so that its idle time
   starts at its clone; a slot cloned before that, with none, counts as idle since its directory
   was made (docs/contracts.md A42).
