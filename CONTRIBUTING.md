@@ -7,7 +7,8 @@ upool is built one GitHub issue at a time against a settled design. Read
 
 Requirements: Go 1.27 or later (the version in `go.mod`, which CI uses),
 [golangci-lint](https://golangci-lint.run) v2, and [GoReleaser](https://goreleaser.com) v2 for
-`release-dry-run` only.
+`release-dry-run` only: release.yml pins the version a dry run was last checked with, 2.18.3, since
+later ones may stop writing the Homebrew formula (docs/contracts.md A16).
 
 | Command | What it does |
 |---|---|
