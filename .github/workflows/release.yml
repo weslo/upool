@@ -43,6 +43,7 @@ jobs:
             ${{ secrets.HOMEBREW_TAP_TOKEN == '' && '--skip=homebrew' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Fine-grained token with contents write on weslo/homebrew-tap only.
-          # The secret does not exist yet: it is created in M4 (Hygiene and release).
+          # Fine-grained token with contents write on weslo/homebrew-tap only, which the
+          # maintainer creates as docs/manual-gates/M4.md, "Tap token", says; with no secret, the
+          # release skips Homebrew.
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
