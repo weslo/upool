@@ -85,6 +85,12 @@ type Config struct {
 	// ShrinkAfter is how long a slot beyond ready stays idle before prune may remove it;
 	// default 14d.
 	ShrinkAfter Setting[time.Duration]
+	// MaxDisk is the disk, in GB, a pool's slots may use, by the private size status --du
+	// reports (A32), past which prune removes idle ready slots, least recently used first. It is
+	// optional, unset unless a layer sets it, and a machine's setting, which the repo file does
+	// not take (docs/design.md, "Disk: 0.4 GB per persistent slot; disk is not what limits the
+	// count"; #101).
+	MaxDisk Setting[float64]
 	// AgentTTL is how old a subagent worktree gets before prune may collect it; default 24h.
 	AgentTTL Setting[time.Duration]
 	// ConfirmTimeout is how long a create-hook lease waits for take --confirm; default 60s.
@@ -94,7 +100,7 @@ type Config struct {
 // keys are every setting's key, in Config's order.
 var keys = []string{
 	"ready", "max_slots", "base", "max_cold_imports", "editor_ram_budget_gb", "editor_ram_gb",
-	"helper_ram_gb", "max_editors", "shrink_after", "agent_ttl", "confirm_timeout",
+	"helper_ram_gb", "max_editors", "shrink_after", "max_disk", "agent_ttl", "confirm_timeout",
 }
 
 // repoKeys are the keys the repo file accepts: the data docs/design.md lists for it. Its lane
@@ -184,6 +190,7 @@ func Load(in Inputs) (Config, error) {
 	c.MaxEditors = lookup(&r, "max_editors", parseInt, nil, user.MaxEditors)
 	c.ShrinkAfter = or(lookup(&r, "shrink_after", parseDuration, nil,
 		(*time.Duration)(user.ShrinkAfter)), 14*day)
+	c.MaxDisk = lookup(&r, "max_disk", parseFloat, nil, user.MaxDisk)
 	c.AgentTTL = or(lookup(&r, "agent_ttl", parseDuration, nil,
 		(*time.Duration)(user.AgentTTL)), 24*time.Hour)
 	c.ConfirmTimeout = or(lookup(&r, "confirm_timeout", parseDuration, nil,
@@ -274,6 +281,7 @@ type file struct {
 	HelperRAMGB       *float64  `toml:"helper_ram_gb"`
 	MaxEditors        *int      `toml:"max_editors"`
 	ShrinkAfter       *duration `toml:"shrink_after"`
+	MaxDisk           *float64  `toml:"max_disk"`
 	AgentTTL          *duration `toml:"agent_ttl"`
 	ConfirmTimeout    *duration `toml:"confirm_timeout"`
 }

@@ -8,8 +8,8 @@ import (
 	"runtime"
 )
 
-// privateSizes is whether this platform reports private sizes: off darwin there is no APFS.
-const privateSizes = false
+// PrivateSizes is whether this platform reports private sizes: off darwin there is no APFS.
+const PrivateSizes = false
 
 // privateSize returns an error wrapping errors.ErrUnsupported: off darwin there is no APFS private
 // size to read.
