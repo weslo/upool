@@ -188,13 +188,7 @@ func TestPruneAllAndItsRefusals(t *testing.T) {
 	elsewhere := tempDir(t)
 	r := runIn(t, p.Env, elsewhere, "prune", "--all", "--json")
 	var data pruneReport
-	raw, err := json.Marshal(decode(t, r.stdout).Data)
-	if err == nil {
-		err = json.Unmarshal(raw, &data)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
+	decodeData(t, r.stdout, &data)
 	if r.code != output.ExitOK || !data.DryRun || len(data.Pools) != 1 ||
 		len(data.Pools[0].Candidates) != 1 || data.Pools[0].Candidates[0].Slot != "slot-2" ||
 		!data.Pools[0].Candidates[0].IdleSince.Equal(monthAgo) {
