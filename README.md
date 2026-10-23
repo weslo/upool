@@ -28,10 +28,10 @@ cd <project> && upool init
 ```
 
 `upool init` runs once per Unity project, from Terminal, inside the repository, with the project's
-Unity Editor closed. It makes the project a pool and clones its first slot from your checkout, then
-registers upool's hooks, the skill and the instruction blocks in that project alone, and touches no
-other repository. Upgrade with `brew upgrade upool`, then run `upool init` again in each project to
-refresh them.
+Unity Editor closed. It installs the skill and the instruction blocks, makes the project a pool and
+clones its first slot from your checkout, then registers upool's hooks, all in that project alone,
+and touches no other repository. Upgrade with `brew upgrade upool`, then run `upool init` again in
+each project to refresh them.
 
 ## 🏊 How a session gets a slot
 

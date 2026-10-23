@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/weslo/upool/internal/output"
@@ -57,15 +58,19 @@ func TestReadmeQuickstart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var out, errOut bytes.Buffer
-	d := dispatcher{commands: commandTable, hooks: hookTable, stdin: strings.NewReader(stdin),
-		stdout: &out, stderr: &errOut, getenv: e.Getenv, environ: e.Environ,
-		now: func() time.Time { return clock }, pid: os.Getpid()}
-	if code := d.run([]string{"hook", "worktree-create"}); code != output.ExitOK {
-		t.Fatalf("create hook: exit = %d, want %d; stderr %q", code, output.ExitOK,
-			errOut.String())
-	}
-	if want := slotPath(e) + "\n"; out.String() != want {
-		t.Errorf("create hook: stdout = %q, want exactly %q", out.String(), want)
-	}
+	// The hook waits for a free slot on its clock, so it runs on testing/synctest's, which moves,
+	// and a slot-1 that is not free fails the test after the wait rather than hanging it.
+	synctest.Test(t, func(t *testing.T) {
+		var out, errOut bytes.Buffer
+		d := dispatcher{commands: commandTable, hooks: hookTable, stdin: strings.NewReader(stdin),
+			stdout: &out, stderr: &errOut, getenv: e.Getenv, environ: e.Environ, now: time.Now,
+			pid: os.Getpid()}
+		if code := d.run([]string{"hook", "worktree-create"}); code != output.ExitOK {
+			t.Fatalf("create hook: exit = %d, want %d; stderr %q", code, output.ExitOK,
+				errOut.String())
+		}
+		if want := slotPath(e) + "\n"; out.String() != want {
+			t.Errorf("create hook: stdout = %q, want exactly %q", out.String(), want)
+		}
+	})
 }
