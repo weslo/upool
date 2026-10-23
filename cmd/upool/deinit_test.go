@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -203,14 +204,15 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 		name, want string
 		setup      func(t *testing.T, p harnessPool)
 	}{
-		{"bare take", "slot-1 is leased to an upool take with no --holder, which may still " +
-			"be running",
+		{"bare take", "slot-1 is leased by an upool take with no --holder: once that work " +
+			"is done, run upool release",
 			func(t *testing.T, p harnessPool) {
 				if r := runIn(t, p.Env, p.Repo, "take", "feature"); r.code != output.ExitOK {
 					t.Fatalf("take: exit = %d; stderr %q", r.code, r.stderr)
 				}
 			}},
-		{"live holder", "slot-2 is leased to session-1, which may still be running",
+		{"live holder", "slot-2 is leased to session-1, process 4242, which upool cannot " +
+			"show has ended: archive the session",
 			func(t *testing.T, p harnessPool) {
 				p.update(t, func(pl *pool.Pool) {
 					pl.Slots[1].State = pool.StateLeased
@@ -219,7 +221,8 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 						AcquiredAt: clock}
 				})
 			}},
-		{"unconfirmed", "slot-1 is leased to session-2, which may still be running",
+		{"unconfirmed", "slot-1 has an unconfirmed lease from session-2, which a session " +
+			"starting in it may yet confirm",
 			func(t *testing.T, p harnessPool) {
 				p.update(t, func(pl *pool.Pool) {
 					pl.Slots[0].State = pool.StateLeasedUnconfirmed
@@ -230,6 +233,16 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 		{"parked", "slot-2 is parked, holding work",
 			func(t *testing.T, p harnessPool) {
 				p.update(t, func(pl *pool.Pool) { pl.Slots[1].State = pool.StateParked })
+			}},
+		{"parked, unlisted", "slot-2 is parked, holding work",
+			func(t *testing.T, p harnessPool) {
+				p.Git("worktree", "remove", p.slot("slot-2"))
+				p.WriteFile(".claude/worktrees/slot-2/work.txt", "work\n")
+				p.update(t, func(pl *pool.Pool) { pl.Slots[1].State = pool.StateParked })
+			}},
+		{"locked", "slot-1 is locked in git",
+			func(t *testing.T, p harnessPool) {
+				p.Git("worktree", "lock", p.slot("slot-1"))
 			}},
 		{"dirty", "slot-1 stays, since it is dirty",
 			func(t *testing.T, p harnessPool) {
@@ -268,9 +281,11 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 	}
 }
 
-// A slot leased to a holder that is shown dead, clean, goes like any other (#191).
+// A slot leased to a holder that is shown dead, clean, goes like any other, unlocked first if an
+// earlier upool locked it, as every end of a lease unlocks it (A27; #191).
 func TestDeinitTakesASlotWhoseHolderIsDead(t *testing.T) {
 	p := newHarnessPool(t)
+	p.Git("worktree", "lock", p.slot("slot-1")) // as a v0.1.0 take locked its slot (A27)
 	pid, start := 4242, time.Unix(1, 0)
 	p.update(t, func(pl *pool.Pool) {
 		pl.Slots[0].State = pool.StateLeased
@@ -315,11 +330,13 @@ func TestDeinitRemovesCleanAgentWorktrees(t *testing.T) {
 	checkGone(t, p)
 }
 
-// A slot whose directory is already gone loses only its entry; one that git does not list keeps
-// its directory, which deinit says to delete by hand (#191).
+// A slot whose directory is already gone loses its entry, and git prunes its worktree; one that
+// git does not list keeps its directory, which deinit says to delete by hand (#191).
 func TestDeinitDropsGoneAndUnlistedSlots(t *testing.T) {
 	p := newHarnessPool(t)
-	p.Git("worktree", "remove", p.slot("slot-1"))
+	if err := os.RemoveAll(p.slot("slot-1")); err != nil {
+		t.Fatal(err)
+	}
 	p.Git("worktree", "remove", p.slot("slot-2"))
 	p.WriteFile(".claude/worktrees/slot-2/left.txt", "left\n")
 	r := runDeinit(t, p, procsAlive(), "--yes")
@@ -331,6 +348,9 @@ func TestDeinitDropsGoneAndUnlistedSlots(t *testing.T) {
 		if !strings.Contains(r.stdout, want) {
 			t.Errorf("stdout = %q, want %q", r.stdout, want)
 		}
+	}
+	if p.listed(p.slot("slot-1")) {
+		t.Error("git still lists slot-1, want it pruned")
 	}
 	if readFile(t, p.Env, ".claude/worktrees/slot-2/left.txt") != "left\n" {
 		t.Error("slot-2's directory is gone, want it left")
@@ -393,4 +413,83 @@ func TestDeinitKeepsASkillDirectoryWithOtherFiles(t *testing.T) {
 	if !strings.Contains(r.stdout, want) {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
 	}
+}
+
+// The advice deinit gives for a bare take's lease clears it: once `upool release <path>` has run,
+// deinit goes ahead (#191).
+func TestDeinitAdviceClearsABareTake(t *testing.T) {
+	p := newHarnessPool(t)
+	if r := runIn(t, p.Env, p.Repo, "take", "feature"); r.code != output.ExitOK {
+		t.Fatalf("take: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	advice := "run upool release " + p.slot("slot-1")
+	if r := runDeinit(t, p, procsAlive(), "--yes"); r.code != output.ExitFailure ||
+		!strings.Contains(r.stderr, advice) {
+		t.Fatalf("deinit: exit %d, stderr %q; want %q", r.code, r.stderr, advice)
+	}
+	if r := runIn(t, p.Env, p.Repo, "release", p.slot("slot-1")); r.code != output.ExitOK {
+		t.Fatalf("release: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	if r := runDeinit(t, p, procsAlive(), "--yes"); r.code != output.ExitOK {
+		t.Fatalf("deinit after release: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	checkGone(t, p)
+}
+
+// startsLater is a proc.Checker with one process, pid, which is not running for its first n
+// Start calls and is from then on.
+type startsLater struct {
+	pid, n int
+}
+
+func (c *startsLater) Start(pid int) (time.Time, error) {
+	if pid != c.pid {
+		return time.Time{}, proc.ErrNoProcess
+	}
+	if c.n > 0 {
+		c.n--
+		return time.Time{}, proc.ErrNoProcess
+	}
+	return time.Unix(1, 0), nil
+}
+
+func (c *startsLater) Alive(pid int, _ time.Time) (bool, error) {
+	_, err := c.Start(pid)
+	return err == nil, nil
+}
+
+// A slot deinit cannot remove stops it with the pool still working: here an Editor opens in slot-2
+// after deinit checked it. slot-1 is gone, but slot-2's entry is back, the registry entry, the
+// pool's state and upool's hooks stay, and deinit in slot-2 is still refused. Once the Editor is
+// gone, a second deinit finishes the job (#191).
+func TestDeinitThatStopsLeavesAWorkingPool(t *testing.T) {
+	p := newHarnessPool(t)
+	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 5151,
+		OpenedByUpool: true})
+	r := runDeinit(t, p, &startsLater{pid: 5151, n: 1}, "--yes")
+	if want := "stopped at slot-2"; r.code != output.ExitFailure ||
+		!strings.Contains(r.stderr, want) {
+		t.Fatalf("exit %d, stderr %q; want %d and %q", r.code, r.stderr, output.ExitFailure, want)
+	}
+	if _, ok, err := registry.Lookup(p.Home, p.Repo); err != nil || !ok {
+		t.Errorf("registry lookup = %v, %v; want the entry kept", ok, err)
+	}
+	if got := p.slotNames(t); !slices.Equal(got, []string{"slot-2"}) {
+		t.Errorf("slots = %v, want slot-2 alone", got)
+	}
+	if !p.listed(p.slot("slot-2")) || p.listed(p.slot("slot-1")) {
+		t.Error("want slot-2 listed and slot-1 gone")
+	}
+	if got := readFile(t, p.Env, projectSettings); !strings.Contains(got, `"hook"`) {
+		t.Errorf("%s = %s, want upool's hooks kept", projectSettings, got)
+	}
+	in := runProcs(t, p.Env, p.slot("slot-2"), procsAlive(), func() time.Time { return clock },
+		"deinit", "--yes")
+	if in.code != output.ExitFailure || !strings.Contains(in.stderr, "is a worktree of the pool") {
+		t.Errorf("deinit in slot-2: exit %d, stderr %q; want it refused", in.code, in.stderr)
+	}
+	if r := runDeinit(t, p, procsAlive(), "--yes"); r.code != output.ExitOK {
+		t.Fatalf("second deinit: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	checkGone(t, p)
 }

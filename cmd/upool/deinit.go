@@ -239,10 +239,11 @@ func checkMainCheckout(home, canonical string) error {
 // plan lists in r the pool's slots and its subagent worktrees, or refuses, naming every slot in
 // the way, when deinit would take a slot that is in use or holds work: a leased slot whose holder
 // is not shown dead, a slot an upool process is still cloning or warming, a parked slot whose
-// directory is still there, and a slot an Editor has open, that is dirty, define-order noise
-// aside, or that holds another worktree; and while a detached `upool refresh` is topping the pool
-// up. A subagent worktree that prune's checks would keep is left, and listed with why; one whose
-// directory is gone, or that git does not list, goes with the pool's state.
+// directory is still there, a slot git has locked with no lease deinit ends, and a slot an Editor
+// has open, that is dirty, define-order noise aside, or that holds another worktree; and while a
+// detached `upool refresh` is topping the pool up. A subagent worktree that prune's checks would
+// keep is left, and listed with why; one whose directory is gone, or that git does not list, goes
+// with the pool's state.
 func (d deiniter) plan(ctx context.Context, p pool.Pool, r *deinitReport) error {
 	cfg, err := config.Load(config.Inputs{Getenv: d.inv.getenv, Repo: d.top, Home: d.inv.home})
 	if err != nil {
@@ -255,6 +256,18 @@ func (d deiniter) plan(ctx context.Context, p pool.Pool, r *deinitReport) error 
 	listed, err := worktreeKeys(ctx, d.g, d.top)
 	if err != nil {
 		return err
+	}
+	wts, err := d.g.WorktreeList(ctx, d.top)
+	if err != nil {
+		return err
+	}
+	locked := map[string]bool{}
+	for _, wt := range wts {
+		key, err := paths.Key(wt.Path)
+		if err != nil {
+			return err
+		}
+		locked[key] = wt.Locked
 	}
 	var blocked []string
 	if j := p.RefreshJob; j != nil {
@@ -279,7 +292,7 @@ func (d deiniter) plan(ctx context.Context, p pool.Pool, r *deinitReport) error 
 			return fmt.Errorf("checking %s: %w", s.Path, err)
 		}
 		ds.Unlisted = !ds.Gone && (!info.IsDir() || !listed[key])
-		why, err := d.inUse(ctx, s, cfg, editors, listed, ds.Gone || ds.Unlisted)
+		why, err := d.inUse(ctx, s, cfg, editors, listed, ds.Gone, ds.Unlisted, locked[key])
 		if err != nil {
 			return err
 		}
@@ -315,10 +328,10 @@ func (d deiniter) plan(ctx context.Context, p pool.Pool, r *deinitReport) error 
 }
 
 // inUse returns why deinit must not take the slot s, after its name, and how to clear it, or "".
-// absent says whether its directory is gone or git does not list it, so that only its entry
-// would go.
+// gone says whether its directory is gone, unlisted whether git does not list it, and locked
+// whether git has it locked.
 func (d deiniter) inUse(ctx context.Context, s pool.Slot, cfg config.Config,
-	editors ledger.Ledger, listed map[string]bool, absent bool) (string, error) {
+	editors ledger.Ledger, listed map[string]bool, gone, unlisted, locked bool) (string, error) {
 	if s.OwnerPID != nil {
 		live, err := d.alive(*s.OwnerPID, s.OwnerPIDStart)
 		if err != nil || live {
@@ -327,32 +340,43 @@ func (d deiniter) inUse(ctx context.Context, s pool.Slot, cfg config.Config,
 		}
 	}
 	if l := s.Lease; l != nil {
-		var live bool
-		var err error
-		switch {
-		case !l.Confirmed:
-			live = !s.ConfirmExpired(d.inv.now(), cfg.ConfirmTimeout.Value)
-		case l.HolderPID == nil:
-			live = true
-		default:
-			live, err = d.alive(*l.HolderPID, l.HolderPIDStart)
-		}
 		holder := l.Holder
 		if holder == "" {
-			holder = "an upool take with no --holder"
+			holder = "a session"
 		}
-		if err != nil || live {
-			return fmt.Sprintf("is leased to %s, which may still be running: archive the "+
-				"session with the desktop app's Archive button, or run upool release %s",
-				holder, s.Name), err
+		switch {
+		case !l.Confirmed:
+			timeout := cfg.ConfirmTimeout.Value
+			if !s.ConfirmExpired(d.inv.now(), timeout) {
+				return fmt.Sprintf("has an unconfirmed lease from %s, which a session starting "+
+					"in it may yet confirm: wait up to %s for it to be confirmed or to expire, "+
+					"then run upool deinit again", holder, leaseAge(timeout)), nil
+			}
+		case l.HolderPID == nil:
+			return fmt.Sprintf("is leased by an upool take with no --holder: once that work is "+
+				"done, run upool release %s", s.Path), nil
+		default:
+			live, err := d.alive(*l.HolderPID, l.HolderPIDStart)
+			if err != nil || live {
+				return fmt.Sprintf("is leased to %s, process %d, which upool cannot show has "+
+					"ended: archive the session with the desktop app's Archive button, or end "+
+					"the process, then run upool deinit again", holder, *l.HolderPID), err
+			}
 		}
 	}
-	if absent {
+	if gone {
 		return "", nil
 	}
 	if s.State == pool.StateParked {
 		return fmt.Sprintf("is parked, holding work: save what you need from it, remove it "+
 			"with git worktree remove --force %s, then run upool deinit again", s.Path), nil
+	}
+	if unlisted {
+		return "", nil
+	}
+	if locked && s.Lease == nil {
+		return fmt.Sprintf("is locked in git: once nothing needs the lock, run git worktree "+
+			"unlock %s, then upool deinit again", s.Path), nil
 	}
 	why, err := d.pr.kept(ctx, editors, listed, s.Path)
 	if err != nil || why == "" {
@@ -433,18 +457,13 @@ func (d deiniter) planFiles(r *deinitReport) (registration, error) {
 	return hooks, nil
 }
 
-// remove takes upool out of the project, as r lists it. The registry entry goes first, so that
-// the hooks pass every later session through and no take or refresh finds the pool. Then each
-// slot goes, as removeSlot says; one that cannot stops deinit with its entry kept, the pool's state
-// and the project's files untouched, so that a later deinit finishes the job. Then the clean
-// subagent worktrees, as prune removes them, the pool's state, and init's files.
+// remove takes upool out of the project, as r lists it. Each slot goes first, as removeSlot
+// says; one that cannot stops deinit with its entry kept, and the registry entry, the pool's state
+// and the project's files untouched, so that the pool still works and a later deinit finishes the
+// job. Then the clean subagent worktrees go, as prune removes them, then the registry entry and
+// the pool's state, the entry put back if the state cannot go, and last init's files.
 func (d deiniter) remove(ctx context.Context, r *deinitReport, hooks registration) (any,
 	[]string, error) {
-	if r.Registered {
-		if _, err := registry.Remove(ctx, d.inv.home, d.top); err != nil {
-			return r, nil, err
-		}
-	}
 	for i := range r.Slots {
 		if err := d.removeSlot(ctx, r.Key, &r.Slots[i]); err != nil {
 			r.Slots[i].Error = err.Error()
@@ -453,8 +472,19 @@ func (d deiniter) remove(ctx context.Context, r *deinitReport, hooks registratio
 				r.Slots[i].Name, err)
 		}
 	}
+	if slices.ContainsFunc(r.Slots, func(s deinitSlot) bool { return s.Gone }) {
+		// git keeps a worktree whose directory went without it, until it is pruned.
+		if err := d.g.WorktreePrune(ctx, d.top); err != nil {
+			return r, nil, err
+		}
+	}
 	for i := range r.Agents {
 		d.pr.removeAgent(ctx, &r.Agents[i])
+	}
+	if r.Registered {
+		if _, err := registry.Remove(ctx, d.inv.home, d.top); err != nil {
+			return r, nil, err
+		}
 	}
 	err := pool.Delete(ctx, d.inv.home, r.Key, func(p pool.Pool) error {
 		if len(p.Slots) > 0 {
@@ -463,6 +493,11 @@ func (d deiniter) remove(ctx context.Context, r *deinitReport, hooks registratio
 		return nil
 	})
 	if err != nil {
+		if r.Registered {
+			if _, aerr := registry.Add(ctx, d.inv.home, d.top); aerr != nil {
+				err = fmt.Errorf("%w; putting its registry entry back: %v", err, aerr)
+			}
+		}
 		return r, nil, fmt.Errorf("removing %s: %w", r.State, err)
 	}
 	r.stateRemoved = true
@@ -476,8 +511,9 @@ func (d deiniter) remove(ctx context.Context, r *deinitReport, hooks registratio
 
 // removeSlot removes the slot s as deinit read it. Under the lock it takes the entry out of
 // state.json, if it is still as read, so that nothing hands the slot out meanwhile. Unless its
-// directory is gone or git does not list it, it then reverts define-order noise, asks prune's kept
-// again, and runs `git worktree remove` without --force, which refuses a worktree with changes. If
+// directory is gone or git does not list it, it then unlocks a slot whose lease it ends, reverts
+// define-order noise, asks prune's kept again, and runs `git worktree remove` without --force,
+// which refuses a worktree with changes. If
 // that fails while git still lists the slot, the entry goes back; if git has let go of it, the
 // entry stays out, and s names what is left to delete.
 func (d deiniter) removeSlot(ctx context.Context, key string, s *deinitSlot) error {
@@ -497,11 +533,19 @@ func (d deiniter) removeSlot(ctx context.Context, key string, s *deinitSlot) err
 	if err != nil {
 		return err
 	}
-	if s.Gone || s.Unlisted {
+	// A lease deinit ends unlocks the slot, if an earlier upool locked it, as every end of a
+	// lease does (A27); git prunes no locked worktree, even one whose directory is gone.
+	if s.slot.Lease != nil {
+		err = pool.Unlock(ctx, d.g, d.top, s.Path)
+	}
+	if err == nil && (s.Gone || s.Unlisted) {
 		s.Removed = true
 		return nil
 	}
-	if err := d.pr.removeTaken(ctx, s.slot); err != nil {
+	if err == nil {
+		err = d.pr.removeTaken(ctx, s.slot)
+	}
+	if err != nil {
 		listed, lerr := worktreeKeys(ctx, d.g, d.top)
 		slotKey, kerr := paths.Key(s.Path)
 		if lerr == nil && kerr == nil && !listed[slotKey] {
