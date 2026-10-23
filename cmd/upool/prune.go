@@ -19,6 +19,7 @@ import (
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
 )
 
@@ -27,17 +28,19 @@ const pruneUsage = "prune [--all] [--yes] [--json]"
 
 // pruneCommand is `upool prune`: in the pool containing the working directory, or with --all in
 // every registered pool, it lists the ready slots beyond `ready` that are idle, merged and clean,
-// and with --yes removes them (docs/design.md, "One binary, a dozen commands, one JSON file per
+// and the subagent worktrees whose parent is gone or that agent_ttl has passed, and with --yes
+// removes them (docs/design.md, "One binary, a dozen commands, one JSON file per
 // pool", the `prune` row; "Disk: 0.4 GB per persistent slot; disk is not what limits the count":
 // dry run unless --yes, with no override flags; docs/contracts.md (f) transition 15; A31; #100).
 // With max_disk set it also lists, least recently used first, idle ready slots past those
-// `ready` keeps while the pool's disk use is over max_disk (#101). Agent worktrees join it in a
-// later issue.
+// `ready` keeps while the pool's disk use is over max_disk (#101), and collects agent worktrees
+// (#102).
 var pruneCommand = command{
 	usage: pruneUsage,
 	setup: func(fs *flag.FlagSet) handler {
 		all := fs.Bool("all", false, "prune every registered pool")
-		yes := fs.Bool("yes", false, "remove the slots listed, rather than only listing them")
+		yes := fs.Bool("yes", false, "remove the slots and agent worktrees listed, rather than "+
+			"only listing them")
 		return func(inv *invocation) (any, []string, error) { return prune(inv, *all, *yes) }
 	},
 }
@@ -49,10 +52,31 @@ type pruneReport struct {
 	DryRun bool `json:"dry_run"`
 }
 
-// poolPrune is one pool's candidates, least recently used first.
+// poolPrune is one pool's candidates, least recently used first, then its agent worktrees.
 type poolPrune struct {
 	Repo       string           `json:"repo"`
 	Candidates []pruneCandidate `json:"candidates"`
+	// Agents are the subagent worktrees prune may collect, and KeptAgents those it keeps though
+	// their parent is gone or agent_ttl has passed, with why (#102).
+	Agents     []agentCandidate `json:"agents"`
+	KeptAgents []keptAgent      `json:"kept_agents"`
+}
+
+// agentCandidate is a subagent worktree prune may collect, and why.
+type agentCandidate struct {
+	Path      string    `json:"path"`
+	ParentPID int       `json:"parent_pid"`
+	CreatedAt time.Time `json:"created_at"`
+	Why       string    `json:"why"`
+	// Removed is whether --yes removed it, and Error why it could not.
+	Removed bool   `json:"removed"`
+	Error   string `json:"error,omitempty"`
+}
+
+// keptAgent is a subagent worktree prune would collect but keeps, and why.
+type keptAgent struct {
+	Path string `json:"path"`
+	Why  string `json:"why"`
 }
 
 // pruneCandidate is a slot prune may remove, and why.
@@ -73,22 +97,32 @@ type pruneCandidate struct {
 func (r pruneReport) Human() string {
 	var lines []string
 	found := false
+	// say adds the line for something prune would remove, removed or could not remove.
+	say := func(what, why, failed string, removed bool) {
+		found = true
+		switch {
+		case r.DryRun:
+			lines = append(lines, fmt.Sprintf("  would remove %s: %s", what, why))
+		case removed:
+			lines = append(lines, fmt.Sprintf("  removed %s: %s", what, why))
+		default:
+			lines = append(lines, fmt.Sprintf("  did not remove %s: %s", what, failed))
+		}
+	}
 	for _, p := range r.Pools {
-		if len(p.Candidates) == 0 {
+		if len(p.Candidates)+len(p.Agents)+len(p.KeptAgents) == 0 {
 			lines = append(lines, p.Repo+": nothing to prune")
 			continue
 		}
 		lines = append(lines, p.Repo+":")
 		for _, c := range p.Candidates {
-			found = true
-			switch {
-			case r.DryRun:
-				lines = append(lines, fmt.Sprintf("  would remove %s: %s", c.Slot, c.Why))
-			case c.Removed:
-				lines = append(lines, fmt.Sprintf("  removed %s: %s", c.Slot, c.Why))
-			default:
-				lines = append(lines, fmt.Sprintf("  did not remove %s: %s", c.Slot, c.Error))
-			}
+			say(c.Slot, c.Why, c.Error, c.Removed)
+		}
+		for _, a := range p.Agents {
+			say("agent worktree "+a.Path, a.Why, a.Error, a.Removed)
+		}
+		for _, k := range p.KeptAgents {
+			lines = append(lines, fmt.Sprintf("  keeping agent worktree %s: %s", k.Path, k.Why))
 		}
 	}
 	if len(r.Pools) == 0 {
@@ -139,9 +173,15 @@ func prune(inv *invocation, all, yes bool) (any, []string, error) {
 		if err != nil {
 			return nil, nil, err
 		}
+		if err := pr.agents(ctx, &p); err != nil {
+			return nil, nil, err
+		}
 		if yes {
 			for i := range p.Candidates {
 				pr.remove(ctx, &p.Candidates[i])
+			}
+			for i := range p.Agents {
+				pr.removeAgent(ctx, &p.Agents[i])
 			}
 		}
 		r.Pools = append(r.Pools, p)
@@ -188,7 +228,8 @@ type idleSlot struct {
 // while the pool's disk use is over it. Leased, parked and every other state are never candidates.
 func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 	repo := pr.repo()
-	r := poolPrune{Repo: repo, Candidates: []pruneCandidate{}}
+	r := poolPrune{Repo: repo, Candidates: []pruneCandidate{}, Agents: []agentCandidate{},
+		KeptAgents: []keptAgent{}}
 	cfg, err := config.Load(config.Inputs{Getenv: pr.inv.getenv, Repo: repo, Home: pr.inv.home})
 	if err != nil {
 		return poolPrune{}, err
@@ -480,4 +521,117 @@ func (pr pruner) removeTaken(ctx context.Context, s pool.Slot) error {
 		return errors.New(why + " now")
 	}
 	return pr.g.WorktreeRemoveClean(ctx, pr.repo(), s.Path)
+}
+
+// agents adds to r the pool's subagent worktrees that prune may collect, and those it keeps
+// (docs/design.md, "Route Claude Code's worktrees through the pool: three branches in one hook":
+// nothing releases a subagent's worktree, so prune collects it; docs/contracts.md (e), Agent
+// worktree; (f): agent worktrees are not slots; #102). One is due once its parent, the session's
+// CLI, is gone, or it is older than agent_ttl. The parent's start time is not recorded, so any
+// process at its PID keeps it alive, the safe mistake, and off macOS, where that cannot be read,
+// the parent counts as alive. A due worktree is a candidate when kept gives no reason to keep it:
+// it is clean as (f) defines it, so no commit of the subagent's on a detached HEAD is lost, no
+// Editor has it open, and it holds no other worktree. One kept is listed, with why. One whose
+// directory is gone, or that git does not list, is left out of both.
+func (pr pruner) agents(ctx context.Context, r *poolPrune) error {
+	cfg, err := config.Load(config.Inputs{Getenv: pr.inv.getenv, Repo: pr.repo(),
+		Home: pr.inv.home})
+	if err != nil {
+		return err
+	}
+	if len(pr.rp.pool.AgentWorktrees) == 0 {
+		return nil
+	}
+	listed, err := worktreeKeys(ctx, pr.g, pr.repo())
+	if err != nil {
+		return err
+	}
+	editors, err := ledger.Load(pr.inv.home)
+	if err != nil {
+		return err
+	}
+	now, ttl := pr.inv.now(), cfg.AgentTTL.Value
+	for _, a := range pr.rp.pool.AgentWorktrees {
+		key, err := paths.Key(a.Path)
+		if err != nil {
+			return err
+		}
+		if info, err := os.Stat(a.Path); err != nil || !info.IsDir() || !listed[key] {
+			continue
+		}
+		var due string
+		_, err = pr.inv.checker().Start(a.ParentPID)
+		switch {
+		case errors.Is(err, proc.ErrNoProcess):
+			due = fmt.Sprintf("its parent, process %d, is gone", a.ParentPID)
+		case err != nil && !errors.Is(err, errors.ErrUnsupported):
+			return fmt.Errorf("checking the parent of %s, process %d: %w", a.Path, a.ParentPID,
+				err)
+		case now.Sub(a.CreatedAt) >= ttl:
+			due = fmt.Sprintf("made %s ago, past agent_ttl %s", leaseAge(now.Sub(a.CreatedAt)),
+				leaseAge(ttl))
+		default:
+			continue
+		}
+		why, err := pr.kept(ctx, editors, listed, a.Path)
+		if err != nil {
+			return err
+		}
+		if why != "" {
+			r.KeptAgents = append(r.KeptAgents, keptAgent{Path: a.Path,
+				Why: due + ", but " + why})
+			continue
+		}
+		r.Agents = append(r.Agents, agentCandidate{Path: a.Path, ParentPID: a.ParentPID,
+			CreatedAt: a.CreatedAt.UTC(), Why: due + "; clean"})
+	}
+	return nil
+}
+
+// removeAgent removes the agent worktree c as remove removes a slot: its entry out of state.json
+// first, under the lock and only if it is still the one prune read, then kept asked again, define-
+// order noise reverted, and `git worktree remove` without --force. If that fails while git still
+// lists the worktree, the entry is put back; if git no longer lists it, the entry stays out, and c
+// names what is left to delete.
+func (pr pruner) removeAgent(ctx context.Context, c *agentCandidate) {
+	home, key := pr.inv.home, pr.rp.repo.Key
+	var taken pool.AgentWorktree
+	err := pool.Update(ctx, home, key, func(p *pool.Pool) error {
+		i := slices.IndexFunc(p.AgentWorktrees, func(a pool.AgentWorktree) bool {
+			return a.Path == c.Path
+		})
+		if i < 0 {
+			return fmt.Errorf("it left state.json meanwhile")
+		}
+		if a := p.AgentWorktrees[i]; a.ParentPID != c.ParentPID || !a.CreatedAt.Equal(c.CreatedAt) {
+			return fmt.Errorf("it changed in state.json meanwhile")
+		}
+		taken = p.AgentWorktrees[i]
+		p.AgentWorktrees = slices.Delete(p.AgentWorktrees, i, i+1)
+		return nil
+	})
+	if err != nil {
+		c.Error = err.Error()
+		return
+	}
+	if err := pr.removeTaken(ctx, pool.Slot{Path: taken.Path}); err != nil {
+		c.Error = err.Error()
+		listed, lerr := worktreeKeys(ctx, pr.g, pr.repo())
+		k, kerr := paths.Key(taken.Path)
+		if lerr == nil && kerr == nil && !listed[k] {
+			c.Error += "; git no longer lists it: delete what is left of " + taken.Path +
+				" by hand"
+			return
+		}
+		if perr := pool.Update(ctx, home, key, func(p *pool.Pool) error {
+			p.AgentWorktrees = append(p.AgentWorktrees, taken)
+			return nil
+		}); perr != nil {
+			c.Error += "; putting its entry back: " + perr.Error()
+		} else {
+			c.Error += "; it stays"
+		}
+		return
+	}
+	c.Removed = true
 }

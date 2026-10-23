@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool prune` collects subagent worktrees (#102), which nothing else releases (docs/design.md,
+  "Route Claude Code's worktrees through the pool"). One is due once its parent, the session's
+  CLI, is gone, or once it is older than `agent_ttl` (24 h). A due worktree that is clean as (f)
+  defines it, so that no commit on its detached HEAD is lost, with no Editor in it and no
+  worktree inside it, is listed and, with `--yes`, removed, its entry and its worktree; one that
+  is not is listed as kept, with why. The parent's start time is not recorded, so any process at
+  its PID keeps it alive, the safe mistake. One whose directory is gone, or that git does not
+  list, is left out.
+
 - `max_disk` (#101): an optional machine setting, in GB, in the user file or `UPOOL_MAX_DISK`,
   which `.upool.toml` does not take. With it set, `upool prune` also lists, least recently used
   first, idle ready slots past the `ready` it keeps, whatever their age, while the pool's disk use
