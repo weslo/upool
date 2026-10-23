@@ -105,6 +105,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- A tag with a pre-release suffix, such as `v0.4.0-rc.1`, is published as a GitHub pre-release,
+  its Homebrew formula still written, so that a milestone's gate can install from the tap before
+  the version is tagged (#106; docs/design.md, versioning).
 - README.md describes upool as M0 to M4 shipped it (#105): `upool init` clones the first slot;
   a session's slot opens within a couple of seconds, and with every slot taken the session waits
   up to 20 seconds and then fails, saying to run `upool refresh`; a slot's Editor opens in well
