@@ -24,7 +24,7 @@ type Disk struct {
 // Editor's Temp/ files are, is left out. Off macOS it fails with an error wrapping
 // errors.ErrUnsupported, since only APFS reports a private size.
 func DiskUse(dir string) (Disk, error) {
-	if !privateSizes {
+	if !PrivateSizes {
 		return Disk{}, fmt.Errorf("reading private sizes on %s: %w", runtime.GOOS,
 			errors.ErrUnsupported)
 	}

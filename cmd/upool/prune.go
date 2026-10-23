@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -48,7 +49,7 @@ type pruneReport struct {
 	DryRun bool `json:"dry_run"`
 }
 
-// poolPrune is one pool's candidates, in state.json's order.
+// poolPrune is one pool's candidates, least recently used first.
 type poolPrune struct {
 	Repo       string           `json:"repo"`
 	Candidates []pruneCandidate `json:"candidates"`
@@ -196,6 +197,9 @@ func (pr pruner) candidates(ctx context.Context) (poolPrune, error) {
 		return poolPrune{}, output.Fail(output.CodeCommandFailed, "ready is %d for %s, from %s; "+
 			"it must be 0 or more", cfg.Ready.Value, repo, cfg.Ready.Source)
 	}
+	if err := pr.checkMaxDisk(cfg); err != nil {
+		return poolPrune{}, err
+	}
 	listed, err := worktreeKeys(ctx, pr.g, repo)
 	if err != nil {
 		return poolPrune{}, err
@@ -273,10 +277,6 @@ const gigabyte = 1 << 30
 // lists. It never goes below `ready` ready slots, since beyond leaves them out.
 func (pr pruner) overDisk(ctx context.Context, cfg config.Config, editors ledger.Ledger,
 	listed map[string]bool, base string, beyond []idleSlot, r *poolPrune) error {
-	if cfg.MaxDisk.Value < 0 {
-		return output.Fail(output.CodeCommandFailed, "max_disk is %v GB, from %s; it must be 0 "+
-			"or more", cfg.MaxDisk.Value, cfg.MaxDisk.Source)
-	}
 	measure := pr.measure
 	if measure == nil {
 		measure = clone.DiskUse
@@ -288,9 +288,6 @@ func (pr pruner) overDisk(ctx context.Context, cfg config.Config, editors ledger
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			continue
-		case errors.Is(err, errors.ErrUnsupported):
-			return output.Fail(output.CodeCommandFailed, "max_disk is measured in APFS private "+
-				"sizes, as status --du measures them, which only macOS has: %v", err)
 		case err != nil:
 			return fmt.Errorf("measuring %s: %w", s.Name, err)
 		}
@@ -302,7 +299,10 @@ func (pr pruner) overDisk(ctx context.Context, cfg config.Config, editors ledger
 		listedAlready[c.Slot] = true
 		total -= private[c.Slot]
 	}
-	limit := int64(cfg.MaxDisk.Value * gigabyte)
+	limit := int64(math.MaxInt64) // a budget past what an int64 counts is no limit
+	if b := cfg.MaxDisk.Value * gigabyte; b < math.MaxInt64 {
+		limit = int64(b)
+	}
 	for i := len(beyond) - 1; i >= 0 && total > limit; i-- {
 		is := beyond[i]
 		if listedAlready[is.slot.Name] {
@@ -321,6 +321,26 @@ func (pr pruner) overDisk(ctx context.Context, cfg config.Config, editors ledger
 				"%d; clean, and merged into %s", leaseAge(pr.inv.now().Sub(is.since)),
 				bytesSize(total), bytesSize(limit), cfg.Ready.Value, pr.rp.pool.Base)})
 		total -= private[is.slot.Name]
+	}
+	return nil
+}
+
+// checkMaxDisk refuses a max_disk that is no budget, before prune looks at any slot, so that
+// every pool's prune refuses it alike: one that is not a finite number of 0 or more, such as nan
+// or inf, which a float parses, and, off macOS, any max_disk at all, since no private size can be
+// read there to measure the pool by (A32).
+func (pr pruner) checkMaxDisk(cfg config.Config) error {
+	if !cfg.MaxDisk.Set() {
+		return nil
+	}
+	if v := cfg.MaxDisk.Value; !(v >= 0) || math.IsInf(v, 0) {
+		return output.Fail(output.CodeCommandFailed, "max_disk is %v GB, from %s; it must be a "+
+			"number of 0 or more", v, cfg.MaxDisk.Source)
+	}
+	if pr.measure == nil && !clone.PrivateSizes {
+		return output.Fail(output.CodeCommandFailed, "max_disk is set, from %s, but a pool's "+
+			"disk use is measured in APFS private sizes, as status --du measures it, which only "+
+			"macOS has", cfg.MaxDisk.Source)
 	}
 	return nil
 }

@@ -211,6 +211,18 @@ func TestPruneAllAndItsRefusals(t *testing.T) {
 	}
 }
 
+// decodeData decodes the data of the envelope on stdout into v.
+func decodeData(t *testing.T, stdout string, v any) {
+	t.Helper()
+	raw, err := json.Marshal(decode(t, stdout).Data)
+	if err == nil {
+		err = json.Unmarshal(raw, v)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // prunerFor is the pruner prune would run over p's pool, as this process, at the test clock, with
 // procs as the process table.
 func prunerFor(t *testing.T, p harnessPool, procs *editorProcs) pruner {
@@ -524,6 +536,22 @@ func TestPruneMaxDiskTakesOnlyIdleReadySlots(t *testing.T) {
 			writeLedger(t, p, ledger.Editor{Project: p.slot("slot-3"), PID: os.Getpid(),
 				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 		}, []string{"slot-2"}},
+		{"slot-3 dirty", func(t *testing.T, p harnessPool) {
+			p.WriteFile(".claude/worktrees/slot-3/left-behind.txt", "x\n")
+		}, []string{"slot-2"}},
+		{"slot-3 not merged into base", func(t *testing.T, p harnessPool) {
+			slot := p.slot("slot-3")
+			p.Git("-C", slot, "checkout", "-q", "-b", "elsewhere")
+			p.WriteFile(".claude/worktrees/slot-3/elsewhere.txt", "x\n")
+			p.Git("-C", slot, "add", "elsewhere.txt")
+			p.Git("-C", slot, "commit", "-q", "-m", "a commit base does not have")
+			p.Git("-C", slot, "checkout", "-q", "--detach")
+		}, []string{"slot-2"}},
+		{"slot-3 holding a worktree", func(t *testing.T, p harnessPool) {
+			p.WriteFile(".git/info/exclude", ".claude/worktrees/\n")
+			p.Git("-C", p.slot("slot-3"), "worktree", "add", "-q", "--detach",
+				filepath.Join(p.slot("slot-3"), ".claude", "worktrees", "inner"))
+		}, []string{"slot-2"}},
 		{"slot-3 past shrink_after", func(t *testing.T, p harnessPool) {
 			p.update(t, func(pl *pool.Pool) { pl.Slots[2].LastUsed = monthAgo })
 		}, []string{"slot-3"}},
@@ -545,13 +573,22 @@ func TestPruneMaxDiskTakesOnlyIdleReadySlots(t *testing.T) {
 	}
 }
 
-// A negative max_disk is no budget: prune fails, saying where it came from.
-func TestPruneRefusesANegativeMaxDisk(t *testing.T) {
-	p := maxDiskPool(t)
-	p.Setenv(config.EnvName("max_disk"), "-1")
-	r := runIn(t, p.Env, p.Repo, "prune")
-	if want := "upool: max_disk is -1 GB, from env; it must be 0 or more\n"; r.code !=
-		output.ExitFailure || r.stderr != want {
-		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
+// A max_disk that is no budget, negative, nan or inf, is refused, saying where it came from, before
+// prune looks at a slot: on a pool with no idle slot past ready, too, where there is nothing to
+// measure.
+func TestPruneRefusesAMaxDiskThatIsNoBudget(t *testing.T) {
+	for _, value := range []string{"-1", "nan", "inf"} {
+		t.Run(value, func(t *testing.T) {
+			p := prunePool(t)
+			p.Setenv(config.EnvName("ready"), "2")
+			p.Setenv(config.EnvName("max_disk"), value)
+			r := runIn(t, p.Env, p.Repo, "prune")
+			want := "; it must be a number of 0 or more\n"
+			if r.code != output.ExitFailure || !strings.HasPrefix(r.stderr, "upool: max_disk is ") ||
+				!strings.HasSuffix(r.stderr, ", from env"+want) {
+				t.Errorf("exit %d, stderr %q; want 1 and a refusal of max_disk %s", r.code,
+					r.stderr, value)
+			}
+		})
 	}
 }

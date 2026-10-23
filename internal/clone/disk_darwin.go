@@ -7,8 +7,8 @@ import (
 	"unsafe"
 )
 
-// privateSizes is whether this platform reports private sizes: APFS does.
-const privateSizes = true
+// PrivateSizes is whether this platform reports private sizes: APFS does.
+const PrivateSizes = true
 
 // The getattrlist(2) constants privateSize uses, from <sys/attr.h>.
 const (
