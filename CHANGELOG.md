@@ -9,6 +9,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool deinit [--yes]` takes upool out of a project, the inverse of `upool init` (#191). Like
+  `prune` it only lists what it would remove unless `--yes`. It refuses, naming each slot and
+  changing nothing, while a slot is leased to a holder it cannot show dead, is being cloned or
+  warmed by a live upool, is parked or dirty, has an Editor open or holds another worktree, and
+  while a top-up runs. Otherwise it removes every slot and every clean subagent worktree with
+  `git worktree remove`, without `--force`; the pool's directory under `~/.upool/pools/` and its
+  entry in `~/.upool/registry.json`; upool's hook handlers in `.claude/settings.local.json`, with
+  any group, event or `hooks` object they leave empty, every other key kept in order; the skill
+  under `.claude/skills/upool/` and `.agents/skills/upool/`; upool's block in `CLAUDE.md` and
+  `AGENTS.md`, with the blank line `init` put before it, a file left empty deleted; and
+  `.upool.toml`. It keeps the `.gitignore` line, every branch and upool itself, and leaves a dirty
+  subagent worktree as the ordinary git worktree it is. A slot it cannot remove stops it with
+  the rest in place, for a second `upool deinit --yes` to finish.
+
 - `upool prune` collects subagent worktrees (#102), which nothing else releases (docs/design.md,
   "Route Claude Code's worktrees through the pool"). One is due once its parent, the session's
   CLI, is gone, or once it is older than `agent_ttl` (24 h). A due worktree that is clean as (f)

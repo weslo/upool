@@ -369,3 +369,22 @@ func TestContainingMatchesAPrefixButNotTheWorktreesDirectory(t *testing.T) {
 		t.Errorf("Containing with no registry = %t, %v; want none", ok, err)
 	}
 }
+
+// Remove drops one repository's entry and keeps the others; a second Remove finds none.
+func TestRemoveDropsOneEntry(t *testing.T) {
+	home := tempDir(t)
+	a, b := checkout(t), checkout(t)
+	add(t, home, a)
+	rb := add(t, home, b)
+	for _, want := range []bool{true, false} {
+		if got, err := Remove(context.Background(), home, a); err != nil || got != want {
+			t.Errorf("Remove = %v, %v; want %v", got, err, want)
+		}
+	}
+	if _, ok := lookup(t, home, a); ok {
+		t.Errorf("Lookup(%q) found the entry Remove dropped", a)
+	}
+	if got, ok := lookup(t, home, b); !ok || got != rb {
+		t.Errorf("Lookup(%q) = %+v, %v; want %+v kept", b, got, ok, rb)
+	}
+}

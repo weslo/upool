@@ -149,6 +149,34 @@ func Update(ctx context.Context, home, path string,
 	return write(file, data)
 }
 
+// RemoveAll removes the directory at dir, relative to ~/.upool under home, and everything in it,
+// under the lock, once fn has returned nil; when fn returns an error, RemoveAll returns it as it
+// is and removes nothing. fn runs while the lock is held, so it may Read but must not call Update
+// or Lock. A directory already gone is no error. Waiting for the lock gives up when ctx ends, as
+// Lock does.
+func RemoveAll(ctx context.Context, home, dir string, fn func() error) (err error) {
+	path, err := stateFile(home, dir)
+	if err != nil {
+		return err
+	}
+	l, err := Lock(ctx, home)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if uerr := l.Unlock(); uerr != nil && err == nil {
+			err = uerr
+		}
+	}()
+	if err := fn(); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(path); err != nil {
+		return fmt.Errorf("removing %s: %w", path, err)
+	}
+	return nil
+}
+
 // Read returns the contents of the state file at path, which is relative to ~/.upool under home; a
 // missing file reads as empty. It takes no lock and creates nothing, because every write replaces
 // a file whole, by rename. A caller that needs several files to agree takes Lock around its reads.

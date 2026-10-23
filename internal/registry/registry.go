@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/statefile"
@@ -162,6 +163,33 @@ func Add(ctx context.Context, home, path string) (Repo, error) {
 		return Repo{}, err
 	}
 	return added, nil
+}
+
+// Remove drops path's entry under the lock, and reports whether there was one; with none, what
+// registry.json holds stays as it is. Waiting for the lock gives up when ctx ends, as Add's does
+// (`upool deinit`, #191).
+func Remove(ctx context.Context, home, path string) (bool, error) {
+	canonical, err := paths.Key(path)
+	if err != nil {
+		return false, err
+	}
+	removed := false
+	err = statefile.Update(ctx, home, file, func(old []byte) ([]byte, error) {
+		reg, err := decode(old)
+		if err != nil {
+			return nil, err
+		}
+		n := len(reg.Repos)
+		reg.Repos = slices.DeleteFunc(reg.Repos, func(r Repo) bool { return r.Path == canonical })
+		if removed = len(reg.Repos) < n; !removed {
+			return old, nil
+		}
+		return encode(reg)
+	})
+	if err != nil {
+		return false, err
+	}
+	return removed, nil
 }
 
 // find returns the entry of reg whose path is the key canonical.

@@ -29,10 +29,10 @@ type Block struct {
 	Body string
 }
 
-// Action is what an upsert did.
+// Action is what an upsert or a removal did.
 type Action string
 
-// The actions, as init's --json reports them.
+// The actions of an upsert, as init's --json reports them.
 const (
 	// Created means the file did not exist, and now holds the block alone.
 	Created Action = "created"
@@ -46,6 +46,17 @@ const (
 	// KeptNewer means the file had a block of a higher version, which was kept: a newer upool
 	// wrote it.
 	KeptNewer Action = "kept_newer"
+)
+
+// The actions of a removal, as deinit's --json reports them.
+const (
+	// Removed means the file had a block, of any version, which is gone.
+	Removed Action = "removed"
+	// Deleted means the file held the block alone, as an upsert that created it leaves it, and is
+	// gone.
+	Deleted Action = "deleted"
+	// Absent means the file had no block, or did not exist, and was not written.
+	Absent Action = "absent"
 )
 
 // markerLine matches a marker line, without its line ending.
@@ -132,6 +143,56 @@ func Apply(doc []byte, b Block) ([]byte, Action, error) {
 		return doc, Unchanged, nil
 	}
 	return out, Replaced, nil
+}
+
+// Remove removes upool's block from file, as Strip does, and writes the file only if that changed
+// it, in place, as Upsert writes; a file left with nothing in it is deleted, since an upsert into
+// a missing file creates it holding the block alone (`upool deinit`, #191).
+func Remove(file string) (Action, error) {
+	doc, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return Absent, nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("reading %s: %w", file, err)
+	}
+	out, found, err := Strip(doc)
+	if err != nil {
+		return "", fmt.Errorf("removing upool's block from %s: %w", file, err)
+	}
+	if !found {
+		return Absent, nil
+	}
+	if len(out) == 0 {
+		if err := os.Remove(file); err != nil {
+			return "", fmt.Errorf("deleting %s: %w", file, err)
+		}
+		return Deleted, nil
+	}
+	if err := os.WriteFile(file, out, 0o644); err != nil {
+		return "", fmt.Errorf("writing %s: %w", file, err)
+	}
+	return Removed, nil
+}
+
+// Strip returns doc without its block, of whatever version, and whether it had one. It undoes
+// Apply's insert: the block's lines go and, when nothing follows them, so does the blank line
+// before them, so that a file the block was appended to after its last line reads as it did. Every
+// other byte stays. Markers that do not pair into one block are an error, as for Apply.
+func Strip(doc []byte) ([]byte, bool, error) {
+	begin, end, found, err := find(doc)
+	if err != nil || !found {
+		return doc, false, err
+	}
+	head := doc[:begin.start]
+	if end.next == len(doc) {
+		head = bytes.TrimSuffix(head, []byte("\n"))
+		if !bytes.HasSuffix(head, []byte("\n")) {
+			head = doc[:begin.start]
+		}
+	}
+	out := append(append([]byte(nil), head...), doc[end.next:]...)
+	return out, true, nil
 }
 
 // marker is one marker line in a file.
