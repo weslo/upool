@@ -581,7 +581,8 @@ func TestPruneRefusesAMaxDiskThatIsNoBudget(t *testing.T) {
 			p.Setenv(config.EnvName("max_disk"), value)
 			r := runIn(t, p.Env, p.Repo, "prune")
 			want := "; it must be a number of 0 or more\n"
-			if r.code != output.ExitFailure || !strings.HasPrefix(r.stderr, "upool: max_disk is ") ||
+			if r.code != output.ExitFailure ||
+				!strings.HasPrefix(r.stderr, "upool: max_disk is ") ||
 				!strings.HasSuffix(r.stderr, ", from env"+want) {
 				t.Errorf("exit %d, stderr %q; want 1 and a refusal of max_disk %s", r.code,
 					r.stderr, value)
@@ -763,6 +764,15 @@ func TestPruneLeavesAMissingAgentWorktreeOut(t *testing.T) {
 		}},
 		{"removed from git", func(t *testing.T, p harnessPool, agent string) {
 			p.Git("worktree", "remove", agent)
+		}},
+		{"not in git's list, its directory still there", func(t *testing.T, p harnessPool,
+			agent string) {
+			if err := os.RemoveAll(p.Path(".git/worktrees/" + filepath.Base(agent))); err != nil {
+				t.Fatal(err)
+			}
+			if p.listed(agent) {
+				t.Fatal("git still lists the agent worktree")
+			}
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
