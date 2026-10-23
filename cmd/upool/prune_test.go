@@ -341,8 +341,36 @@ func TestPruneRemovalThatFails(t *testing.T) {
 }
 
 // remove asks again, once the slot is out of circulation, what candidates asked: a slot leased
-// meanwhile is refused and left as it is, and one an Editor opened meanwhile is put back.
+// meanwhile, used and released meanwhile, or held meanwhile as a clone's seed or by refresh's move
+// is refused and left as it is, and one an Editor opened meanwhile is put back.
 func TestPruneChecksAgainBeforeItRemoves(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		change func(s *pool.Slot)
+		state  pool.State
+	}{
+		{"used and released meanwhile", func(s *pool.Slot) { s.LastUsed = clock },
+			pool.StateReady},
+		{"held as a seed meanwhile", func(s *pool.Slot) {
+			pid := os.Getpid()
+			s.State, s.OwnerPID, s.OwnerPIDStart = pool.StateWarming, &pid, &clock
+		}, pool.StateWarming},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := prunePool(t)
+			pr := prunerFor(t, p, procsAlive(os.Getpid()))
+			c := slot2Candidate(t, pr)
+			p.update(t, func(pl *pool.Pool) { tt.change(&pl.Slots[1]) })
+			pr.remove(t.Context(), &c)
+			if c.Removed || c.Error == "" {
+				t.Errorf("candidate = %+v, want it refused", c)
+			}
+			s := p.loadPool(t).Slots[1]
+			if s.Name != "slot-2" || s.State != tt.state || !p.listed(s.Path) {
+				t.Errorf("slot-2 = %+v, want it %s and in git's list", s, tt.state)
+			}
+		})
+	}
 	t.Run("leased meanwhile", func(t *testing.T) {
 		p := prunePool(t)
 		pr := prunerFor(t, p, procsAlive(os.Getpid()))

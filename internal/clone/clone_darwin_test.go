@@ -302,6 +302,22 @@ func TestCloneStampsLastUsed(t *testing.T) {
 	}
 }
 
+// A slot-N directory with no entry, one prune is removing or one left behind, is not reserved:
+// the clone takes the next name, and the directory is left as it is.
+func TestCloneSkipsANameWhoseDirectoryIsOnDisk(t *testing.T) {
+	e := testenv.New(t)
+	excludeWorktrees(e)
+	r := newPool(t, e, CP{})
+	e.WriteFile(".claude/worktrees/slot-1/left.txt", "x\n")
+	slot := mustClone(t, e, r)
+	if slot.Name != "slot-2" {
+		t.Errorf("cloned %s, want slot-2, past slot-1's directory", slot.Name)
+	}
+	if !exists(t, e.Repo, ".claude/worktrees/slot-1/left.txt") {
+		t.Error("slot-1's directory lost its file")
+	}
+}
+
 // With no Refresher, a stale seed is refused before anything is written.
 func TestCloneRefusesAStaleSeed(t *testing.T) {
 	e := testenv.New(t, testenv.StaleLibrary())
