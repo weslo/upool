@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/paths"
@@ -42,6 +43,23 @@ var instanceFiles = []string{"Library/EditorInstance.json", "Library/ProtocolIns
 
 const pipelineDir = "Library/Pipeline"
 
+// InstanceFile returns the first of the Editor's instance files that exists in the checkout at
+// dir, which an open Editor keeps in its Library, or "" when none does: a seed, or a slot prune
+// would remove, with one has a live Library (docs/contracts.md (g) step 0; docs/design.md, "Slot
+// lifecycle": the tool never prunes inside a live Library).
+func InstanceFile(dir string) (string, error) {
+	for _, name := range instanceFiles {
+		_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(name)))
+		if err == nil {
+			return name, nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf("checking for %s in %s: %w", name, dir, err)
+		}
+	}
+	return "", nil
+}
+
 // Recipe is what the clone recipe runs with.
 type Recipe struct {
 	// Git runs every git call, each with UNITY_SKIP_HOOKS set (internal/git).
@@ -65,6 +83,9 @@ type Recipe struct {
 	MaxSlots int
 	// Refresher refreshes a stale seed in step 1; with none, a stale seed is refused.
 	Refresher *SeedRefresher
+	// Now stamps the slot's last_used as step 8 marks it ready, so that its idle time starts at
+	// its clone (A42); nil is the system clock.
+	Now func() time.Time
 }
 
 // ErrPoolFull is the error Clone wraps when the pool already has MaxSlots slots.
@@ -122,6 +143,14 @@ func (r Recipe) Clone(ctx context.Context, home, key, seed string) (pool.Slot, e
 	return r.finish(ctx, home, key, slot.Name, s, pending)
 }
 
+// now is Now's time, or the system clock's without it.
+func (r Recipe) now() time.Time {
+	if r.Now == nil {
+		return time.Now()
+	}
+	return r.Now()
+}
+
 // reserve is step 2: under the lock, it adds the next free slot-N to the pool as creating, with
 // this process as its owner, and returns the slot and the pool's repo and base.
 func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, repo,
@@ -143,7 +172,11 @@ func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, 
 		if err != nil {
 			return err
 		}
-		name := nextName(p.Slots)
+		dir := filepath.Join(p.Repo, filepath.FromSlash(worktreesDir))
+		name := nextName(p.Slots, func(name string) bool {
+			_, err := os.Lstat(filepath.Join(dir, name))
+			return err == nil
+		})
 		pid := r.OwnerPID
 		slot = pool.Slot{
 			Name:          name,
@@ -162,14 +195,17 @@ func (r Recipe) reserve(ctx context.Context, home, key string) (slot pool.Slot, 
 	return slot, repo, base, nil
 }
 
-// nextName returns slot-N for the lowest N from 1 that no slot in slots has.
-func nextName(slots []pool.Slot) string {
+// nextName returns slot-N for the lowest N from 1 that no slot in slots has and whose directory
+// onDisk, when it is not nil, does not report on disk: a directory with no entry is one prune is
+// removing, or one left behind, and `git worktree add` would refuse it.
+func nextName(slots []pool.Slot, onDisk func(name string) bool) string {
 	taken := make(map[string]bool, len(slots))
 	for _, s := range slots {
 		taken[s.Name] = true
 	}
 	for n := 1; ; n++ {
-		if name := slotPrefix + strconv.Itoa(n); !taken[name] {
+		name := slotPrefix + strconv.Itoa(n)
+		if !taken[name] && (onDisk == nil || !onDisk(name)) {
 			return name
 		}
 	}
@@ -399,7 +435,8 @@ func (r Recipe) checkListed(ctx context.Context, repo, slot string) error {
 }
 
 // finish marks the slot ready under the lock, with no owner, the seed's HEAD and dirtiness
-// recorded, and reimport_pending set if step 7 changed its cache key, and returns it as written. The slot must still be the creating one this process
+// recorded, reimport_pending set if step 7 changed its cache key, and last_used the time it was
+// marked (A42), and returns it as written. The slot must still be the creating one this process
 // reserved.
 func (r Recipe) finish(ctx context.Context, home, key, name string, s Staleness,
 	reimportPending bool) (pool.Slot, error) {
@@ -420,6 +457,7 @@ func (r Recipe) finish(ctx context.Context, home, key, name string, s Staleness,
 			}
 			sl.State, sl.OwnerPID, sl.OwnerPIDStart = state, nil, nil
 			sl.SeedHead, sl.SeedDirty, sl.ReimportPending = s.Head, s.Dirty, reimportPending
+			sl.LastUsed = r.now().UTC()
 			slot = *sl
 			return nil
 		}

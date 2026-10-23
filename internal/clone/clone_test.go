@@ -3,29 +3,35 @@ package clone
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/weslo/upool/internal/pool"
 )
 
+// The next name is the lowest slot-N that no slot has and whose directory is not on disk: one
+// with a directory but no entry is a slot prune is removing, or one left behind.
 func TestNextNameTakesTheLowestFreeNumber(t *testing.T) {
 	tests := []struct {
-		slots []string
-		want  string
+		slots, onDisk []string
+		want          string
 	}{
-		{nil, "slot-1"},
-		{[]string{"slot-1"}, "slot-2"},
-		{[]string{"slot-2", "slot-3"}, "slot-1"},
-		{[]string{"slot-1", "slot-3"}, "slot-2"},
+		{nil, nil, "slot-1"},
+		{[]string{"slot-1"}, nil, "slot-2"},
+		{[]string{"slot-2", "slot-3"}, nil, "slot-1"},
+		{[]string{"slot-1", "slot-3"}, nil, "slot-2"},
+		{[]string{"slot-1"}, []string{"slot-2"}, "slot-3"},
+		{nil, []string{"slot-1", "slot-2"}, "slot-3"},
 	}
 	for _, tt := range tests {
 		var slots []pool.Slot
 		for _, name := range tt.slots {
 			slots = append(slots, pool.Slot{Name: name})
 		}
-		if got := nextName(slots); got != tt.want {
-			t.Errorf("nextName(%v) = %s, want %s", tt.slots, got, tt.want)
+		onDisk := func(name string) bool { return slices.Contains(tt.onDisk, name) }
+		if got := nextName(slots, onDisk); got != tt.want {
+			t.Errorf("nextName(%v, on disk %v) = %s, want %s", tt.slots, tt.onDisk, got, tt.want)
 		}
 	}
 }

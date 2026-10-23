@@ -22,6 +22,7 @@ var commandTable = map[string]command{
 	"init":    initCommand,
 	"open":    openCommand,
 	"path":    pathCommand,
+	"prune":   pruneCommand,
 	"release": releaseCommand,
 	"refresh": refreshCommand,
 	"run":     runCommand,
