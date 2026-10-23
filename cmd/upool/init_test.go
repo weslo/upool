@@ -201,7 +201,7 @@ func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 			if u != nil {
 				want := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 					{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-					{"close", e.Repo, "--format", "json"}}
+					{"close", e.Repo, "--force", "--format", "json"}}
 				if got := unityArgs(u); !slices.EqualFunc(got, want, slices.Equal) {
 					t.Errorf("unity calls = %q, want open, status and close of the main checkout",
 						got)

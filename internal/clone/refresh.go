@@ -62,9 +62,10 @@ var ErrEditorLeft = errors.New("its Editor could not be closed, so it stays in t
 //     OwnerPID (A12).
 //  3. It waits with `unity status --until-ready` for A37's timeout, the cold-import one for a cold
 //     seed, checking the Editor's process, and ends a cold import once the Editor is ready (A39).
-//  4. It closes the Editor with `unity close <seed>`, without save_all, since an Editor upool
-//     opened only to refresh holds no work, waits for its process to exit, and takes it out of the
-//     ledger.
+//  4. It closes the Editor with `unity close <seed> --force`, without save_all, since an Editor
+//     upool opened only to refresh holds no work, waits for its process to exit, and takes it out
+//     of the ledger. --force asks the Editor to quit first, and terminates one the CLI cannot
+//     reach, as an Editor in the middle of a cold import is (A40; #224).
 //
 // An Editor that is not ready in time is closed the same way, as A40 does for a re-warm, and the
 // refresh fails; one that exited is withdrawn from the ledger. If the close fails, the Editor stays
@@ -117,7 +118,8 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if ready == nil && cold {
 		ready = ledger.EndColdImport(ctx, r.Home, r.Proc, r.Budget, seed)
 	}
-	closed, more, err := r.Unity.Shut(ctx, seed)
+	// --force, since an Editor that is not ready may be one the CLI cannot reach (A40).
+	closed, more, err := r.Unity.Shut(ctx, seed, true)
 	warnings = append(warnings, more...)
 	if err == nil {
 		err = unity.WaitGone(r.Proc, seed, []int{pid, closed.PID}, r.Now)

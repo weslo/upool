@@ -92,16 +92,17 @@ func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 		return closeReport{}, nil, output.Fail(code, "not closing the Editor of %s, since "+
 			"saving its scenes failed: %v", s.Path, err)
 	}
-	return shutSlotEditor(ctx, inv, rp, s)
+	return shutSlotEditor(ctx, inv, rp, s, false)
 }
 
 // shutSlotEditor is closeSlotEditor's work after the save, steps 2 to 4: `unity close <slot>`, the
 // wait for the Editor's process to be gone, the ledger, and the scene list. refresh runs it alone
-// on a re-warm Editor that was not ready in time, which holds no work to save (A40).
+// on a re-warm Editor that was not ready in time, which holds no work to save, with force, since
+// the CLI may not reach such an Editor (A40; #224).
 func shutSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
-	s pool.Slot) (closeReport, []string, error) {
+	s pool.Slot, force bool) (closeReport, []string, error) {
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
-	closed, warnings, err := client.Shut(ctx, s.Path)
+	closed, warnings, err := client.Shut(ctx, s.Path, force)
 	if err != nil {
 		return closeReport{}, warnings, err
 	}

@@ -37,6 +37,11 @@ var (
 	statusNoInstances = fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
 	closeHeadless     = fake.Reply{Capture: "close-headless.json", Vars: spike}
 	spike             = []pathvars.Var{{Name: "spike", Path: "/spike"}}
+	// closeUnreachable and closeForced are the replies of `unity close` and `unity close --force`
+	// to an Editor in the middle of a cold import, which the first leaves running (#224).
+	closeUnreachable = fake.Reply{Capture: "close-unreachable.json", Vars: repoVar, Exit: 6}
+	closeForced      = fake.Reply{Capture: "close-force-unreachable.json", Vars: repoVar}
+	repoVar          = []pathvars.Var{{Name: "repo", Path: "/repo"}}
 )
 
 // refreshProcs is the process table of a refresh: the cloning process alive throughout, and the
@@ -113,7 +118,7 @@ func editors(t *testing.T, home string) []ledger.Editor {
 }
 
 // refreshCalls are the calls of a refresh of repo: open headless, the wait for 120 s (A37) and,
-// with closed, the close, each with repo positional or targeted.
+// with closed, the close, forced (A40; #224), each with repo positional or targeted.
 func refreshCalls(repo string, closed bool) [][]string {
 	return refreshCallsWaiting(repo, "120", closed)
 }
@@ -123,7 +128,7 @@ func refreshCallsWaiting(repo, timeout string, closed bool) [][]string {
 	calls := [][]string{{"open", repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", timeout, "--format", "json"}}
 	if closed {
-		calls = append(calls, []string{"close", repo, "--format", "json"})
+		calls = append(calls, []string{"close", repo, "--force", "--format", "json"})
 	}
 	return calls
 }
@@ -188,8 +193,9 @@ func TestSeedRefresherOpensWaitsAndCloses(t *testing.T) {
 }
 
 // A refresh that does not end with a ready Editor fails. An Editor still running when the wait
-// runs out is closed without save_all, as A40 does for a re-warm; if that close fails, the Editor
-// stays in the ledger, since it may still be up. An Editor that exited is withdrawn.
+// runs out is closed without save_all and with --force, as A40 does for a re-warm, since plain
+// `unity close` cannot reach an Editor in the middle of a cold import (#224); if that close fails,
+// the Editor stays in the ledger, since it may still be up. An Editor that exited is withdrawn.
 func TestSeedRefresherFailures(t *testing.T) {
 	notReady := fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
 	for _, tt := range []struct {
@@ -200,8 +206,8 @@ func TestSeedRefresherFailures(t *testing.T) {
 		// kept is whether the Editor stays in the ledger.
 		kept bool
 	}{
-		{"not ready, closed", []fake.Reply{notReady, closeHeadless}, false, true, false},
-		{"not ready, the close failed", []fake.Reply{notReady, statusNoInstances}, false, true,
+		{"not ready, closed", []fake.Reply{notReady, closeForced}, false, true, false},
+		{"not ready, the close failed", []fake.Reply{notReady, closeUnreachable}, false, true,
 			true},
 		{"exited before ready", []fake.Reply{notReady}, true, false, false},
 	} {

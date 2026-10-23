@@ -13,6 +13,7 @@ import (
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/testenv"
@@ -27,6 +28,15 @@ import (
 
 // The fake's reply to `unity close` on a headless Editor.
 var closeHeadlessReply = fake.Reply{Capture: "close-headless.json", Vars: spikeVars}
+
+// closeUnreachableReply and closeForcedReply are the replies of `unity close` and `unity close
+// --force` to an Editor in the middle of a cold import, which the first leaves running (#224).
+var (
+	closeUnreachableReply = fake.Reply{Capture: "close-unreachable.json",
+		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}, Exit: 6}
+	closeForcedReply = fake.Reply{Capture: "close-force-unreachable.json",
+		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}}
+)
 
 // fetchPool is a harness pool with slot-2 leased, slot-1 with a Library, so that its re-warm is
 // not a cold import, and an origin, a bare repository holding main as the pool's main checkout has
@@ -285,9 +295,9 @@ func TestRefreshMovesToTheLocalBase(t *testing.T) {
 
 // A re-warm that fails is a warning, and the moved slot goes back to ready with reimport_pending
 // set, so that its next open is charged as the cold import the re-warm did not finish (A40). An
-// Editor still running when the wait ran out is closed without save_all; one that exited is
-// already out of the ledger. If the close fails, the Editor stays in the ledger and the slot
-// warming.
+// Editor still running when the wait ran out is closed without save_all and with --force, which
+// an Editor in the middle of a cold import needs (#224); one that exited is already out of the
+// ledger. If the close fails, the Editor stays in the ledger and the slot warming.
 func TestRefreshRewarmFailures(t *testing.T) {
 	notReady := "the Editor of %s was not ready after 5m0s: "
 	for _, tt := range []struct {
@@ -301,8 +311,8 @@ func TestRefreshRewarmFailures(t *testing.T) {
 		warning string
 		closed  bool
 	}{
-		{"not ready, closed", &closeHeadlessReply, false, notReady, true},
-		{"not ready, the close failed", &statusNoInstances, false, notReady, false},
+		{"not ready, closed", &closeForcedReply, false, notReady, true},
+		{"not ready, the close failed", &closeUnreachableReply, false, notReady, false},
 		{"exited before ready", nil, true, "the Editor of %s, process 25147, exited before " +
 			"it was ready", true},
 	} {
@@ -332,7 +342,7 @@ func TestRefreshRewarmFailures(t *testing.T) {
 				{"open", slot, "--args", "-batchmode", "--format", "json"},
 				{"status", "--until-ready", "--timeout", "300", "--format", "json"}}
 			if tt.close != nil {
-				want = append(want, []string{"close", slot, "--format", "json"})
+				want = append(want, []string{"close", slot, "--force", "--format", "json"})
 			}
 			if got := callArgs(t, p, u); !slices.EqualFunc(got, want, slices.Equal) {
 				t.Errorf("unity calls = %q, want %q: no save_all", got, want)

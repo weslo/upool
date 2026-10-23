@@ -158,7 +158,7 @@ desktop worktree session's `/clear` does the same was not tried.
 | `test` | **no**: from `/tmp` with the variable set, `COMMAND_FAILED: Not a Unity project (ProjectVersion.txt not found at /private/tmp).`, exit 6 | positional `[project]`; `unity test <path> --mode EditMode` works | S§2 T6.6; `unity/test-not-a-unity-project.json`, `unity/test-positional.json` |
 | `run` | **no**: same error, exit 6 | positional `[project]`; `unity run <path> --command <name>` reaches a live Editor instead of booting one | S§8 B.3; `unity/run-not-a-unity-project.json` |
 | `build` | **no**: same error | positional `[project]`; no `--project-path` | S§8 B.3; `evidence/unity-projections/build-not-a-unity-project.json` |
-| `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors | S§8 B.5, C.6; D-editors; `unity/close-gui.json` |
+| `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors. Without `--force` it cannot close an Editor in the middle of a cold import, which has no graceful-close channel (exit 6, `PROJECTS_CLOSE_UNREACHABLE`); `--force` closes it (A40) | S§8 B.5, C.6; D-editors; `unity/close-gui.json`; `unity/close-unreachable.json`; `unity/close-force-unreachable.json` |
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
 | `projects verify` | not tested with the variable | positional: `unity projects verify --strict <slot>` reported that slot as its `project` | #86; `unity/projects-verify-pass.json`, `unity/projects-verify-fail.json` |
 | `vcs doctor` | not tested with the variable | positional `[path]`, defaults to cwd: `unity vcs doctor <repo>` reported that repository; upool never passes `--fix`, which repairs (A35) | #88; `unity/vcs-doctor.json`, `unity/vcs-doctor-fix.json` |
@@ -958,6 +958,16 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   `ready` ((f) transition 18), with a warning. If the close fails, the Editor stays in the ledger
   and the slot stays `warming`, until refresh has exited and the Editor is gone ((f) transition
   22) (maintainer decision, 2026-10-22; A20; A37; A39).
+
+  **Amended** ([#224](https://github.com/weslo/upool/issues/224)). The M4 gate's check 2
+  (2026-10-23, CLI 1.0.0-beta.13, Editor 6000.4.11f1) closed a headless Editor 30 s into a cold
+  import. Plain `unity close <slot>` cannot reach such an Editor: it exits 6 with
+  `PROJECTS_CLOSE_UNREACHABLE`, `closed: false`, `method: none`, and leaves it running
+  (`unity/close-unreachable.json`). `unity close <slot> --force` closed the same Editor in 1 s,
+  `method: forced` (`unity/close-force-unreachable.json`); the CLI's `--force` asks the Editor to
+  quit first and terminates it only when it cannot. So refresh's close of an Editor that is not
+  ready, the re-warm's and the seed refresh's, runs `unity close <slot> --force`. `upool close` and
+  `release`, which run `save_all` first, keep the graceful close (maintainer decision, 2026-10-23).
 
 - **41. Which way a refresh moves a slot** ([#97](https://github.com/weslo/upool/issues/97)). Every
   `refresh` moves ready slots to the current base, the pool's base or `origin/<base>` with
