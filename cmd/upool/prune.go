@@ -589,8 +589,8 @@ func (pr pruner) agents(ctx context.Context, r *poolPrune) error {
 }
 
 // removeAgent removes the agent worktree c as remove removes a slot: its entry out of state.json
-// first, under the lock and only if it is still the one prune read, then kept asked again, define-
-// order noise reverted, and `git worktree remove` without --force. If that fails while git still
+// first, under the lock and only if it is still the one prune read, then define-order noise
+// reverted, kept asked again, and `git worktree remove` without --force. If that fails while git still
 // lists the worktree, the entry is put back; if git no longer lists it, the entry stays out, and c
 // names what is left to delete.
 func (pr pruner) removeAgent(ctx context.Context, c *agentCandidate) {
