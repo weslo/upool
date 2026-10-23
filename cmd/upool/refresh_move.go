@@ -196,7 +196,7 @@ func (m mover) unwarmed(ctx context.Context, s pool.Slot, err error) (movedSlot,
 	}
 	var notReady *unity.NotReadyError
 	if errors.As(err, &notReady) {
-		_, warnings, closeErr := shutSlotEditor(ctx, m.inv, m.rp, s)
+		_, warnings, closeErr := shutSlotEditor(ctx, m.inv, m.rp, s, true)
 		for _, w := range warnings {
 			m.warn(w)
 		}

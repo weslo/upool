@@ -122,6 +122,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   close, moved into `internal/unity` (docs/design.md, the layout), where the clone recipe's
   refresh uses them too. Their behaviour is unchanged.
 
+### Fixed
+
+- refresh closes an Editor that is not ready with `unity close <slot> --force`: the re-warm's
+  after A37's 300 s, and the seed refresh's (#224; docs/contracts.md A40). Plain `unity close`
+  cannot reach a headless Editor in the middle of a cold import, so it left the Editor running and
+  the slot warming. `upool close` and `release`, which save first, still close gracefully.
+
 ## [0.3.0] - 2026-10-22
 
 ### Added

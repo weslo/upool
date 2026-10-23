@@ -117,7 +117,8 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if ready == nil && cold {
 		ready = ledger.EndColdImport(ctx, r.Home, r.Proc, r.Budget, seed)
 	}
-	closed, more, err := r.Unity.Shut(ctx, seed)
+	// --force, since an Editor that is not ready may be one the CLI cannot reach (A40).
+	closed, more, err := r.Unity.Shut(ctx, seed, true)
 	warnings = append(warnings, more...)
 	if err == nil {
 		err = unity.WaitGone(r.Proc, seed, []int{pid, closed.PID}, r.Now)

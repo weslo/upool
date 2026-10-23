@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "command": "close",
+  "data": {
+    "project": "${repo}/.claude/worktrees/slot-1",
+    "pid": 60422,
+    "closed": true,
+    "method": "forced",
+    "reason": "closed"
+  },
+  "errors": [],
+  "warnings": []
+}

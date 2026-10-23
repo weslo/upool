@@ -1,0 +1,18 @@
+{
+  "success": false,
+  "command": "close",
+  "data": {
+    "project": "${repo}/.claude/worktrees/slot-1",
+    "pid": 60422,
+    "closed": false,
+    "method": "none",
+    "reason": "unreachable"
+  },
+  "errors": [
+    {
+      "code": "PROJECTS_CLOSE_UNREACHABLE",
+      "message": "The editor for \"${repo}/.claude/worktrees/slot-1\" is running (PID 60422) but has no graceful-close channel. Re-run with --force to terminate it."
+    }
+  ],
+  "warnings": []
+}

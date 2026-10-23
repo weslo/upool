@@ -129,7 +129,7 @@ func TestInitRefreshesAStaleLibrary(t *testing.T) {
 	}
 	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-		{"close", e.Repo, "--format", "json"}}
+		{"close", e.Repo, "--force", "--format", "json"}}
 	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {
 		t.Errorf("unity calls = %q, want open, status and close of the main checkout first", got)
 	}

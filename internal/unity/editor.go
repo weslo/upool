@@ -159,11 +159,18 @@ type Closed struct {
 
 // Shut runs `unity close <project>`, the project positional (docs/contracts.md (c)), and returns
 // what it reported and the CLI's warnings. `unity close` exits without saving: `upool close`
-// saves with SaveAll first, and only an Editor that holds no work is shut without it (A40).
-func (c Client) Shut(ctx context.Context, project string) (Closed, []string, error) {
+// saves with SaveAll first, and only an Editor that holds no work is shut without it (A40). With
+// force it adds --force, which terminates an Editor the CLI cannot ask to quit, such as one in
+// the middle of a cold import, which plain `unity close` leaves running
+// (testdata/captures/unity/close-unreachable.json; A40; #224).
+func (c Client) Shut(ctx context.Context, project string, force bool) (Closed, []string, error) {
 	ctx, cancel := context.WithTimeout(ctx, closeTimeout)
 	defer cancel()
-	reply, err := c.Call(ctx, VerbClose, project)
+	var args []string
+	if force {
+		args = append(args, "--force")
+	}
+	reply, err := c.Call(ctx, VerbClose, project, args...)
 	if err == nil {
 		err = reply.Err()
 	}
