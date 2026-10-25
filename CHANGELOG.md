@@ -26,8 +26,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with its directory if nothing else is in it. It never writes into a file git tracks: a block or
   skill there stays, and `init` warns, naming the file, for you to take it out in a commit. A
   `CLAUDE.md` or `AGENTS.md` whose upool markers do not pair is left as it is, with a warning,
-  where `init` used to refuse. `upool deinit` follows the same rules, and `init --json` drops
-  `claude_md_block`, `agents_md_block` and `skills` for `retired`.
+  where `init` used to refuse. `upool deinit` removes the block and skill under the same rules,
+  never from a tracked file, and still refuses a file whose markers do not pair. `init --json`
+  drops `claude_md_block`, `agents_md_block` and `skills` for `retired`.
 
 ## [0.4.0-rc.1] - 2026-10-23
 

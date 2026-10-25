@@ -186,8 +186,9 @@ func retireAgentFiles(ctx context.Context, g git.Client, repo string) ([]retired
 		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return nil, nil, fmt.Errorf("removing %s: %w", file, err)
 		}
-		// A directory that still holds anything else stays: Remove fails on it.
-		_ = os.Remove(filepath.Dir(file))
+		if err := removeSkillDir(filepath.Dir(file)); err != nil {
+			return nil, nil, err
+		}
 		out = append(out, retired{Path: file, What: "skill"})
 	}
 	return out, warnings, nil
@@ -204,9 +205,10 @@ func trackedWarning(file, what string) string {
 // tracked reports whether git tracks the file at rel, relative to repo, or the file it names once
 // its symlinks are resolved: CLAUDE.md is often a link to AGENTS.md, and .claude/skills to
 // .agents/skills, and `git ls-files` names nothing past a link. A file that resolves outside repo
-// is judged by rel alone.
+// is judged by rel alone. Names match in any case, since APFS opens a tracked claude.md as
+// CLAUDE.md, while git matches a pathspec by its case.
 func tracked(ctx context.Context, g git.Client, repo, rel string) (bool, error) {
-	files, err := g.LsFiles(ctx, repo, ":(literal)"+rel)
+	files, err := g.LsFiles(ctx, repo, trackedSpec+rel)
 	if err != nil || len(files) > 0 {
 		return len(files) > 0, err
 	}
@@ -222,11 +224,32 @@ func tracked(ctx context.Context, g git.Client, repo, rel string) (bool, error) 
 		return false, fmt.Errorf("resolving %s: %w", filepath.Join(repo, rel), err)
 	}
 	realRel, err := filepath.Rel(top, real)
-	if err != nil || !filepath.IsLocal(realRel) || filepath.ToSlash(realRel) == rel {
+	if err != nil || !filepath.IsLocal(realRel) || strings.EqualFold(filepath.ToSlash(realRel),
+		rel) {
 		return false, nil
 	}
-	files, err = g.LsFiles(ctx, repo, ":(literal)"+filepath.ToSlash(realRel))
+	files, err = g.LsFiles(ctx, repo, trackedSpec+filepath.ToSlash(realRel))
 	return len(files) > 0, err
+}
+
+// trackedSpec is the pathspec magic tracked asks git with: the path as it is, glob characters and
+// all, in any case.
+const trackedSpec = ":(literal,icase)"
+
+// removeSkillDir removes dir, the directory of a SKILL.md upool has just removed, if nothing else is
+// in it. A link is never removed, since the project made it: the directory it resolves to is
+// removed instead, under the same rule.
+func removeSkillDir(dir string) error {
+	real, err := filepath.EvalSymlinks(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("resolving %s: %w", dir, err)
+	}
+	// Remove fails on a directory that still holds anything else, which then stays.
+	_ = os.Remove(real)
+	return nil
 }
 
 // upoolSkill reports whether file is a SKILL.md an upool wrote: one whose front matter names the

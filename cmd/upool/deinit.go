@@ -31,8 +31,9 @@ const deinitUsage = "deinit [--yes] [--json]"
 // --yes. It refuses, changing nothing, while a slot is in use or holds work; otherwise it removes
 // the slots and the clean subagent worktrees with `git worktree remove`, without --force, the
 // pool's state and registry entry, and what init installed in the project: upool's hook handlers,
-// as init recognises them (A24; A26), the skill, the instruction blocks and .upool.toml. The
-// .gitignore line, every branch and upool itself stay.
+// as init recognises them (A24; A26), and .upool.toml, with the skill and the instruction blocks an
+// earlier upool's init installed, from files git does not track (A43). The .gitignore line, every
+// branch and upool itself stay.
 var deinitCommand = command{
 	usage: deinitUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -620,7 +621,10 @@ func (d deiniter) removeFile(f *deinitFile, hooks registration) error {
 			!errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("removing %s: %w", filepath.Join(dir, "SKILL.md"), err)
 		}
-		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := removeSkillDir(dir); err != nil {
+			return err
+		}
+		if _, err := os.Stat(dir); err == nil {
 			f.Note = "kept " + dir + ": something other than upool's SKILL.md is in it"
 		}
 	case "repo_file":

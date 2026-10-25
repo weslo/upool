@@ -482,6 +482,43 @@ func TestDeinitKeepsTheProjectsOwnSkill(t *testing.T) {
 	}
 }
 
+// deinit, as init does, keeps a link at the skill's directory, removing upool's SKILL.md through it
+// and the directory it resolves to only when nothing else is in it, and names a kept one (#230).
+func TestDeinitKeepsALinkedSkillDirectory(t *testing.T) {
+	const target = "../../.agents/skills/upool"
+	for _, notes := range []bool{false, true} {
+		t.Run(map[bool]string{false: "nothing else", true: "another file"}[notes], func(t *testing.T) {
+			p := newHarnessPool(t)
+			p.WriteFile(skillFiles[1], assets.Skill)
+			if notes {
+				p.WriteFile(".agents/skills/upool/notes.md", "notes\n")
+			}
+			link := p.Path(filepath.Dir(skillFiles[0]))
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			r := runDeinit(t, p, procsAlive(), "--yes")
+			if r.code != output.ExitOK {
+				t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+			}
+			if got, err := os.Readlink(link); err != nil || got != target {
+				t.Errorf("%s -> %q, %v; want the link kept", link, got, err)
+			}
+			if _, err := os.Lstat(p.Path(skillFiles[1])); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("%s: %v, want upool's skill removed", skillFiles[1], err)
+			}
+			dir := p.Path(filepath.Dir(skillFiles[1]))
+			if _, err := os.Lstat(dir); notes != (err == nil) {
+				t.Errorf("%s: %v, want it kept only when another file is in it", dir, err)
+			}
+			kept := "kept " + link + ": something other than upool's SKILL.md is in it"
+			if strings.Contains(r.stdout, kept) != notes {
+				t.Errorf("stdout = %q, want %q only when another file is in it", r.stdout, kept)
+			}
+		})
+	}
+}
+
 // The advice deinit gives for a bare take's lease clears it: once `upool release <path>` has run,
 // deinit goes ahead (#191).
 func TestDeinitAdviceClearsABareTake(t *testing.T) {

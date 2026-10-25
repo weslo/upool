@@ -348,6 +348,117 @@ func TestInitWarnsOfAnEarlierUpoolsTrackedFiles(t *testing.T) {
 	}
 }
 
+// The upgrade path of #230: run again in a project it registered, init removes what an earlier
+// upool wrote there, as a first run does, and warns of what it leaves in a tracked file.
+func TestInitAgainRemovesAnEarlierUpoolsAgentFiles(t *testing.T) {
+	e := newInitEnv(t)
+	mustInit(t, e)
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if _, err := block.Upsert(e.Path(claudeMD), b); err != nil {
+		t.Fatal(err)
+	}
+	e.Git("add", "-f", claudeMD)
+	e.Git("commit", "-q", "-m", "an earlier upool's CLAUDE.md")
+	before := projectFiles(t, e)
+	if _, err := block.Upsert(e.Path(agentsMD), b); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range skillFiles {
+		e.WriteFile(name, assets.Skill)
+	}
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	if !strings.HasPrefix(r.stdout, e.Repo+" is already registered as pool ") {
+		t.Errorf("stdout = %q, want the repository already registered", r.stdout)
+	}
+	for _, line := range []string{"removed upool's block from " + e.Path(agentsMD),
+		"removed the upool skill, " + e.Path(skillFiles[0]),
+		"removed the upool skill, " + e.Path(skillFiles[1])} {
+		if want := line + ", which upool no longer writes\n"; !strings.Contains(r.stdout, want) {
+			t.Errorf("stdout = %q, want the line %q", r.stdout, want)
+		}
+	}
+	if w := trackedWarning(e.Path(claudeMD), "the block"); !strings.Contains(r.stderr,
+		"upool: warning: "+w+"\n") {
+		t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+	}
+}
+
+// git matches a pathspec by its case and APFS opens a file in any: a block an earlier upool wrote
+// into AGENTS.md, which opened the project's tracked agents.md, stays, with a warning (#230).
+func TestInitWarnsOfATrackedFileInAnotherCase(t *testing.T) {
+	e := newInitEnv(t)
+	if err := os.Remove(e.Path(agentsMD)); err != nil {
+		t.Fatal(err)
+	}
+	e.WriteFile("agents.md", "# Fake project\n\nIts own guidance.\n")
+	if _, err := os.Stat(e.Path(agentsMD)); err != nil {
+		t.Skipf("the volume is case-sensitive, so AGENTS.md is not agents.md: %v", err)
+	}
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if _, err := block.Upsert(e.Path(agentsMD), b); err != nil {
+		t.Fatal(err)
+	}
+	e.Git("add", "-f", "agents.md")
+	e.Git("commit", "-q", "-m", "an earlier upool's block")
+	before := projectFiles(t, e)
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	if w := trackedWarning(e.Path(agentsMD), "the block"); !strings.Contains(r.stderr,
+		"upool: warning: "+w+"\n") {
+		t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+	}
+}
+
+// A link at a skill's directory is the project's own: init removes upool's SKILL.md through it and
+// keeps the link, tracked or not, removing the directory it resolves to only when nothing else is
+// in it (#230).
+func TestInitKeepsALinkedSkillDirectory(t *testing.T) {
+	const target = "../../.agents/skills/upool"
+	for _, tt := range []struct {
+		name           string
+		tracked, notes bool
+	}{
+		{"a tracked link", true, false},
+		{"a link to a directory with another file", false, true},
+		{"a link to a directory with nothing else", false, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInitEnv(t)
+			e.WriteFile(skillFiles[1], assets.Skill)
+			if tt.notes {
+				e.WriteFile(".agents/skills/upool/notes.md", "notes\n")
+			}
+			link := e.Path(filepath.Dir(skillFiles[0]))
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			if tt.tracked {
+				e.Git("add", "-f", filepath.Dir(skillFiles[0]))
+				e.Git("commit", "-q", "-m", "the project's link")
+			}
+			mustInit(t, e)
+			if got, err := os.Readlink(link); err != nil || got != target {
+				t.Errorf("%s -> %q, %v; want the link kept", link, got, err)
+			}
+			if _, err := os.Lstat(e.Path(skillFiles[1])); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("%s: %v, want upool's skill removed", skillFiles[1], err)
+			}
+			dir := e.Path(filepath.Dir(skillFiles[1]))
+			if _, err := os.Lstat(dir); tt.notes != (err == nil) {
+				t.Errorf("%s: %v, want it kept only when another file is in it", dir, err)
+			}
+			if tt.notes && readFile(t, e, ".agents/skills/upool/notes.md") != "notes\n" {
+				t.Error("notes.md changed, want it kept")
+			}
+			if status := gitIn(t, e, e.Repo, "status", "--porcelain", "--",
+				filepath.Dir(skillFiles[0])); status != "" {
+				t.Errorf("git status of the link = %q, want nothing", status)
+			}
+		})
+	}
+}
+
 // A CLAUDE.md or an AGENTS.md whose upool markers do not pair is left as it is, with a warning
 // naming it, rather than guessed at; init writes neither, so it goes on (internal/block; #230).
 func TestInitLeavesAFileWhoseMarkersDoNotPair(t *testing.T) {
