@@ -379,9 +379,9 @@ func TestHookSuccessPrintsOnlyThePath(t *testing.T) {
 	}
 }
 
-// A hook that succeeds with no path, as session-start does, leaves stdout empty: Claude Code adds a
-// SessionStart hook's stdout to the session's context. The real session-start, for a session in
-// no slot, does nothing and says nothing.
+// A hook that succeeds with nothing to print leaves stdout empty: Claude Code adds a SessionStart
+// hook's stdout to the session's context. The real session-start, for a session in no slot, does
+// nothing and says nothing (A43).
 func TestHookWithNoPathPrintsNothing(t *testing.T) {
 	var out, errOut bytes.Buffer
 	env := testEnv(t)

@@ -271,7 +271,7 @@ func slotStdin(t *testing.T, p harnessPool, file, dir string) string {
 // session in a slot and its subagent, the one line of context that gives them upool's
 // instructions, and exit 0 (A43; #229). A startup whose confirm is refused still prints it, with
 // the refusal on stderr.
-func TestHookStartsPrintTheInstructions(t *testing.T) {
+func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
 	p := newHarnessPool(t)
 	p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
 	slot := p.slot("slot-1")

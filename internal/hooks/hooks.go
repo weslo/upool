@@ -1,9 +1,9 @@
 // Package hooks is the logic of the Claude Code hooks that `upool hook <event>` runs: it decodes a
-// hook's stdin, tells who sent it, and handles it. A handler returns the worktree path and an
-// error, and only the dispatcher writes stdout, where Claude Code takes the path from, so that
-// nothing else can reach it (docs/design.md, "Repository, CI and Homebrew distribution": the
-// layout and the rules after it; docs/contracts.md (a), "WorktreeCreate output and app
-// behaviour").
+// hook's stdin, tells who sent it, and handles it. A handler returns what the hook prints, the
+// worktree path for WorktreeCreate and the context document for SessionStart and SubagentStart, and
+// an error, and only the dispatcher writes stdout, where Claude Code reads them, so that nothing
+// else can reach it (docs/design.md, "Repository, CI and Homebrew distribution": the layout and the
+// rules after it; docs/contracts.md (a), "WorktreeCreate output and app behaviour"; (b); A43).
 package hooks
 
 import (
