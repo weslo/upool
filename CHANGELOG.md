@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0-rc.2] - 2026-10-24
+
 ### Added
 
 - upool honours a project's `.worktreeinclude`, Claude Code's list of gitignored files to copy into
