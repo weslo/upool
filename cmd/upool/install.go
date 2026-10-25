@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/weslo/upool/internal/block"
+	"github.com/weslo/upool/internal/git"
 )
 
-// The files init installs in a project beside the hooks it registers there: the upool skill and
-// the instruction blocks (A26; docs/design.md, "Hooks route, skills teach, leases and lanes keep
-// agents from colliding", the three layers), and the helpers that write them.
+// What init writes into a project, which is only the hooks it registers there, and what it takes
+// out of the agent files an earlier upool wrote into (A43; docs/design.md, "Hooks route, skills
+// teach, leases and lanes keep agents from colliding", the three layers), and the helpers for both.
 
 // protectedFolders are the folders of a home directory that the desktop app's helper, which runs
 // the hooks, cannot read a file in: under ~/Documents, `bash` could not open a script and `head`
@@ -24,13 +26,9 @@ var protectedFolders = []string{"Documents", "Desktop", "Downloads"}
 // upoolName is the name init looks for upool by on PATH.
 const upoolName = "upool"
 
-// skillMode is the mode of an installed SKILL.md.
-const skillMode fs.FileMode = 0o644
-
-// skillFiles are where init installs the skill, relative to the repository: Claude Code's project
-// skills, and the shared directory other agents read skills from (docs/design.md, "Hooks route,
-// skills teach, leases and lanes keep agents from colliding"). The confirm's agent-file copy
-// carries both into the slots.
+// skillFiles are where an earlier upool's init installed the skill, relative to the repository:
+// Claude Code's project skills, and the shared directory other agents read skills from. upool no
+// longer installs it, and retireAgentFiles and deinit take it out (A43).
 var skillFiles = []string{".claude/skills/upool/SKILL.md", ".agents/skills/upool/SKILL.md"}
 
 // change is what init did to one file.
@@ -119,45 +117,165 @@ func findOnPath(pathList, exe string) (string, error) {
 		upoolName, exe)
 }
 
-// checkBlock refuses an instruction file that upool's block b cannot be upserted into, such as one
-// whose markers do not pair, without writing it. A missing file is fine: the upsert creates it.
-func checkBlock(file string, b block.Block) error {
-	doc, err := os.ReadFile(file)
+// retired is something of an earlier upool's that init took out of the project's agent files.
+type retired struct {
+	Path string `json:"path"`
+	// What is "block", upool's marked block, or "skill", the upool skill's SKILL.md.
+	What string `json:"what"`
+}
+
+// retireAgentFiles takes out of the project at repo what an earlier upool's init wrote into its
+// agent files, which upool no longer writes, since they are the project authors' (docs/contracts.md
+// A43; #230): its marked block from CLAUDE.md and AGENTS.md, deleting a file the block alone
+// filled, and its SKILL.md from each of skillFiles, with the directory when nothing else is in it.
+// It never writes into a file git tracks: a block or a skill there stays, with a warning naming it,
+// so that its owner takes it out in a commit. A file whose markers do not pair is left as it is,
+// with a warning. It returns what it took out and the warnings.
+func retireAgentFiles(ctx context.Context, g git.Client, repo string) ([]retired, []string,
+	error) {
+	var out []retired
+	var warnings []string
+	for _, name := range []string{claudeMD, agentsMD} {
+		file := filepath.Join(repo, name)
+		doc, err := os.ReadFile(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, nil, fmt.Errorf("reading %s: %w", file, err)
+		}
+		_, found, err := block.Strip(doc)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("left %s as it is, since its upool markers "+
+				"do not pair: %v", file, err))
+			continue
+		}
+		if !found {
+			continue
+		}
+		isTracked, err := tracked(ctx, g, repo, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		if isTracked {
+			warnings = append(warnings, trackedWarning(file, "the block"))
+			continue
+		}
+		if _, err := block.Remove(file); err != nil {
+			return nil, nil, err
+		}
+		out = append(out, retired{Path: file, What: "block"})
+	}
+	for _, name := range skillFiles {
+		file := filepath.Join(repo, filepath.FromSlash(name))
+		ours, err := upoolSkill(file)
+		if err != nil || !ours {
+			if err != nil {
+				return nil, nil, err
+			}
+			continue
+		}
+		isTracked, err := tracked(ctx, g, repo, name)
+		if err != nil {
+			return nil, nil, err
+		}
+		if isTracked {
+			warnings = append(warnings, trackedWarning(file, "the upool skill"))
+			continue
+		}
+		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, fmt.Errorf("removing %s: %w", file, err)
+		}
+		if err := removeSkillDir(filepath.Dir(file)); err != nil {
+			return nil, nil, err
+		}
+		out = append(out, retired{Path: file, What: "skill"})
+	}
+	return out, warnings, nil
+}
+
+// trackedWarning says that file, which git tracks, still holds what, written by an earlier upool,
+// and that upool leaves it there (A43).
+func trackedWarning(file, what string) string {
+	return fmt.Sprintf("%s, which git tracks, still holds %s an earlier upool wrote: upool no "+
+		"longer writes it and never writes into a tracked file, so take it out in a commit",
+		file, what)
+}
+
+// tracked reports whether git tracks the file at rel, relative to repo, or the file it names once
+// its symlinks are resolved: CLAUDE.md is often a link to AGENTS.md, and .claude/skills to
+// .agents/skills, and `git ls-files` names nothing past a link. A file that resolves outside repo
+// is judged by rel alone. Names match in any case, since APFS opens a tracked claude.md as
+// CLAUDE.md, while git matches a pathspec by its case.
+func tracked(ctx context.Context, g git.Client, repo, rel string) (bool, error) {
+	files, err := g.LsFiles(ctx, repo, trackedSpec+rel)
+	if err != nil || len(files) > 0 {
+		return len(files) > 0, err
+	}
+	top, err := filepath.EvalSymlinks(repo)
+	if err != nil {
+		return false, fmt.Errorf("resolving %s: %w", repo, err)
+	}
+	real, err := filepath.EvalSymlinks(filepath.Join(repo, filepath.FromSlash(rel)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("resolving %s: %w", filepath.Join(repo, rel), err)
+	}
+	realRel, err := filepath.Rel(top, real)
+	if err != nil || !filepath.IsLocal(realRel) || strings.EqualFold(filepath.ToSlash(realRel),
+		rel) {
+		return false, nil
+	}
+	files, err = g.LsFiles(ctx, repo, trackedSpec+filepath.ToSlash(realRel))
+	return len(files) > 0, err
+}
+
+// trackedSpec is the pathspec magic tracked asks git with: the path as it is, glob characters and
+// all, in any case.
+const trackedSpec = ":(literal,icase)"
+
+// removeSkillDir removes dir, the directory of a SKILL.md upool has just removed, if nothing else is
+// in it. A link is never removed, since the project made it: the directory it resolves to is
+// removed instead, under the same rule.
+func removeSkillDir(dir string) error {
+	real, err := filepath.EvalSymlinks(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", file, err)
+		return fmt.Errorf("resolving %s: %w", dir, err)
 	}
-	if _, _, err := block.Apply(doc, b); err != nil {
-		return fmt.Errorf("upserting upool's block into %s: %w", file, err)
-	}
+	// Remove fails on a directory that still holds anything else, which then stays.
+	_ = os.Remove(real)
 	return nil
 }
 
-// installFile writes content to file with mode, unless file already holds it with that mode.
-func installFile(file, content string, mode fs.FileMode) (installed, error) {
-	info, err := os.Lstat(file)
-	exists := err == nil
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return installed{}, fmt.Errorf("checking %s: %w", file, err)
+// upoolSkill reports whether file is a SKILL.md an upool wrote: one whose front matter names the
+// skill upool, as assets.Skill's does. A file that is missing is not.
+func upoolSkill(file string) (bool, error) {
+	b, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
 	}
-	if exists && info.Mode().IsRegular() && info.Mode().Perm() == mode {
-		old, err := os.ReadFile(file)
-		if err != nil {
-			return installed{}, fmt.Errorf("reading %s: %w", file, err)
+	if err != nil {
+		return false, fmt.Errorf("reading %s: %w", file, err)
+	}
+	front, ok := strings.CutPrefix(string(b), "---\n")
+	if !ok {
+		return false, nil
+	}
+	front, _, ok = strings.Cut(front, "\n---\n")
+	if !ok {
+		return false, nil
+	}
+	for line := range strings.Lines(front) {
+		if strings.TrimSpace(line) == "name: upool" {
+			return true, nil
 		}
-		if string(old) == content {
-			return installed{Path: file, Change: unchanged}, nil
-		}
 	}
-	if err := writeAtomic(file, []byte(content), mode); err != nil {
-		return installed{}, err
-	}
-	if exists {
-		return installed{Path: file, Change: updated}, nil
-	}
-	return installed{Path: file, Change: created}, nil
+	return false, nil
 }
 
 // writeAtomic writes data to file with mode. The write goes to a temporary file beside it that is

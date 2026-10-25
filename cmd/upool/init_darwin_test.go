@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -148,10 +149,6 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	want := "added .claude/worktrees/ to .gitignore\n" +
 		"base is main, the current branch: origin has no default branch\n" +
 		"wrote .upool.toml: ready = 1, max_slots = 3, base = \"main\"\n" +
-		"added upool's block to CLAUDE.md\n" +
-		"added upool's block to AGENTS.md\n" +
-		"created " + e.Path(skillFiles[0]) + "\n" +
-		"created " + e.Path(skillFiles[1]) + "\n" +
 		"cloned slot-1 into " + slotPath(e) + "\n" +
 		"registered " + e.Repo + " as pool " + key + "\n" +
 		"the hooks run " + pathUpool(e) + "\n" +
@@ -200,60 +197,289 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	}
 }
 
-// init upserts upool's block into the repository's CLAUDE.md, leaving the text around it as it
-// was, and the first slot carries the file, which the environment's .gitignore ignores.
-func TestInitWritesBlock(t *testing.T) {
+// projectFiles is what repoFiles reads in e's repository, without what init writes there itself:
+// .gitignore, .upool.toml, the hooks' settings and the slots.
+func projectFiles(t *testing.T, e *testenv.Env) map[string]string {
+	t.Helper()
+	files := repoFiles(t, e.Repo)
+	for rel := range files {
+		if rel == ".gitignore" || rel == ".upool.toml" || rel == projectSettings ||
+			strings.HasPrefix(rel, ".claude/worktrees/") {
+			delete(files, rel)
+		}
+	}
+	return files
+}
+
+// checkProjectFiles fails the test unless projectFiles reads before in e's repository.
+func checkProjectFiles(t *testing.T, e *testenv.Env, before map[string]string) {
+	t.Helper()
+	after := projectFiles(t, e)
+	for _, k := range slices.Sorted(maps.Keys(before)) {
+		if after[k] != before[k] {
+			t.Errorf("%s = %q, want it as it was: %q", k, after[k], before[k])
+		}
+	}
+	for _, k := range slices.Sorted(maps.Keys(after)) {
+		if _, ok := before[k]; !ok {
+			t.Errorf("%s appeared: %q", k, after[k])
+		}
+	}
+}
+
+// earlierUpool writes into e's repository what an earlier upool's init wrote: its block, upserted
+// into each of CLAUDE.md and AGENTS.md, and the skill at each of skillFiles.
+func earlierUpool(t *testing.T, e *testenv.Env) {
+	t.Helper()
 	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
-	current := string(b.Render())
-	stale := block.Begin(b.Version) + "\nA text upool no longer writes.\n" +
-		block.End(b.Version) + "\n"
-	newer := string(block.Block{Version: b.Version + 1, Body: "A newer text.\n"}.Render())
-	const before, after = "# Fake project\n\n", "\n## Testing\n\nRun the tests.\n"
-	// write returns a setup that writes doc as CLAUDE.md.
-	write := func(doc string) func(*testing.T, *testenv.Env) {
-		return func(_ *testing.T, e *testenv.Env) { e.WriteFile("CLAUDE.md", doc) }
+	for _, name := range []string{claudeMD, agentsMD} {
+		if _, err := block.Upsert(e.Path(name), b); err != nil {
+			t.Fatal(err)
+		}
 	}
-	tests := []struct {
-		name  string
-		setup func(*testing.T, *testenv.Env)
-		want  func(original string) string // CLAUDE.md after init, given it before
-		line  string
+	for _, name := range skillFiles {
+		e.WriteFile(name, assets.Skill)
+	}
+}
+
+// The acceptance test of #230: init writes nothing into the project's agent files. Run twice in
+// the harness project, it leaves CLAUDE.md, AGENTS.md, .claude/skills/ and .agents/skills/, and
+// every other file but its own, byte for byte as they were, and writes nothing under ~/.claude,
+// ~/.agents or ~/.codex (A43).
+func TestInitLeavesTheAgentFilesAlone(t *testing.T) {
+	e := newInitEnv(t)
+	before := projectFiles(t, e)
+	for _, name := range []string{claudeMD, agentsMD, testenv.SkillLink,
+		".agents/skills/x/SKILL.md"} {
+		if _, ok := before[name]; !ok {
+			t.Fatalf("the harness project has no %s, so the test shows nothing", name)
+		}
+	}
+	mustInit(t, e)
+	mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	for _, dir := range []string{".claude", ".agents", ".codex"} {
+		if _, err := os.Lstat(filepath.Join(e.Home, dir)); err == nil {
+			t.Errorf("~/%s exists, want init to write nothing under the home directory's", dir)
+		}
+	}
+}
+
+// The acceptance test of #230: in a project carrying an earlier upool's block and skill in files
+// git does not track, init removes exactly those. CLAUDE.md is left with its own text, an
+// AGENTS.md the block alone filled is deleted, and each skill goes with its directory (A43).
+func TestInitRemovesAnEarlierUpoolsAgentFiles(t *testing.T) {
+	e := newInitEnv(t)
+	if err := os.Remove(e.Path(agentsMD)); err != nil {
+		t.Fatal(err)
+	}
+	before, claude := projectFiles(t, e), readFile(t, e, claudeMD)
+	earlierUpool(t, e)
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	for _, line := range []string{"removed upool's block from " + e.Path(claudeMD),
+		"removed upool's block from " + e.Path(agentsMD),
+		"removed the upool skill, " + e.Path(skillFiles[0]),
+		"removed the upool skill, " + e.Path(skillFiles[1])} {
+		if want := line + ", which upool no longer writes\n"; !strings.Contains(r.stdout, want) {
+			t.Errorf("stdout = %q, want the line %q", r.stdout, want)
+		}
+	}
+	for _, name := range skillFiles {
+		dir := filepath.Dir(e.Path(name))
+		if _, err := os.Lstat(dir); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("%s: %v, want the skill's directory gone", dir, err)
+		}
+	}
+	slot := filepath.Join(slotPath(e), claudeMD)
+	if b, err := os.ReadFile(slot); err != nil || string(b) != claude {
+		t.Errorf("%s = %q, %v; want the main checkout's without upool's block: slot-1 is cloned "+
+			"after init removes it", slot, b, err)
+	}
+}
+
+// init removes a SKILL.md only when an upool wrote it, and a skill's directory only when nothing
+// else is in it (#230).
+func TestInitRemovesOnlyUpoolsSkill(t *testing.T) {
+	e := newInitEnv(t)
+	const theirs = "---\nname: pool-notes\ndescription: The project's own notes.\n---\n"
+	e.WriteFile(skillFiles[0], assets.Skill)
+	e.WriteFile(".claude/skills/upool/notes.md", "notes\n")
+	e.WriteFile(skillFiles[1], theirs)
+	mustInit(t, e)
+	if _, err := os.Lstat(e.Path(skillFiles[0])); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("%s: %v, want upool's skill removed", skillFiles[0], err)
+	}
+	if got := readFile(t, e, ".claude/skills/upool/notes.md"); got != "notes\n" {
+		t.Errorf("notes.md = %q, want it and its directory kept", got)
+	}
+	if got := readFile(t, e, skillFiles[1]); got != theirs {
+		t.Errorf("%s = %q, want the project's own skill kept: %q", skillFiles[1], got, theirs)
+	}
+}
+
+// The acceptance test of #230: init writes into no file git tracks. A block in a tracked CLAUDE.md
+// and a skill in a tracked SKILL.md stay byte for byte, the latter also through a link git does
+// not track, and init warns, naming each file (A43).
+func TestInitWarnsOfAnEarlierUpoolsTrackedFiles(t *testing.T) {
+	e := newInitEnv(t)
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if _, err := block.Upsert(e.Path(claudeMD), b); err != nil {
+		t.Fatal(err)
+	}
+	e.WriteFile(skillFiles[1], assets.Skill)
+	e.Git("add", "-f", claudeMD, skillFiles[1])
+	e.Git("commit", "-q", "-m", "an earlier upool's files")
+	if err := os.Symlink("../../.agents/skills/upool", e.Path(".claude/skills/upool")); err != nil {
+		t.Fatal(err)
+	}
+	before := projectFiles(t, e)
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	for _, w := range []string{trackedWarning(e.Path(claudeMD), "the block"),
+		trackedWarning(e.Path(skillFiles[0]), "the upool skill"),
+		trackedWarning(e.Path(skillFiles[1]), "the upool skill")} {
+		if !strings.Contains(r.stderr, "upool: warning: "+w+"\n") {
+			t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+		}
+	}
+	if strings.Contains(r.stdout, "removed") {
+		t.Errorf("stdout = %q, want nothing removed", r.stdout)
+	}
+}
+
+// The upgrade path of #230: run again in a project it registered, init removes what an earlier
+// upool wrote there, as a first run does, and warns of what it leaves in a tracked file.
+func TestInitAgainRemovesAnEarlierUpoolsAgentFiles(t *testing.T) {
+	e := newInitEnv(t)
+	mustInit(t, e)
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if _, err := block.Upsert(e.Path(claudeMD), b); err != nil {
+		t.Fatal(err)
+	}
+	e.Git("add", "-f", claudeMD)
+	e.Git("commit", "-q", "-m", "an earlier upool's CLAUDE.md")
+	before := projectFiles(t, e)
+	if _, err := block.Upsert(e.Path(agentsMD), b); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range skillFiles {
+		e.WriteFile(name, assets.Skill)
+	}
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	if !strings.HasPrefix(r.stdout, e.Repo+" is already registered as pool ") {
+		t.Errorf("stdout = %q, want the repository already registered", r.stdout)
+	}
+	for _, line := range []string{"removed upool's block from " + e.Path(agentsMD),
+		"removed the upool skill, " + e.Path(skillFiles[0]),
+		"removed the upool skill, " + e.Path(skillFiles[1])} {
+		if want := line + ", which upool no longer writes\n"; !strings.Contains(r.stdout, want) {
+			t.Errorf("stdout = %q, want the line %q", r.stdout, want)
+		}
+	}
+	if w := trackedWarning(e.Path(claudeMD), "the block"); !strings.Contains(r.stderr,
+		"upool: warning: "+w+"\n") {
+		t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+	}
+}
+
+// git matches a pathspec by its case and APFS opens a file in any: a block an earlier upool wrote
+// into AGENTS.md, which opened the project's tracked agents.md, stays, with a warning (#230).
+func TestInitWarnsOfATrackedFileInAnotherCase(t *testing.T) {
+	e := newInitEnv(t)
+	if err := os.Remove(e.Path(agentsMD)); err != nil {
+		t.Fatal(err)
+	}
+	e.WriteFile("agents.md", "# Fake project\n\nIts own guidance.\n")
+	if _, err := os.Stat(e.Path(agentsMD)); err != nil {
+		t.Skipf("the volume is case-sensitive, so AGENTS.md is not agents.md: %v", err)
+	}
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	if _, err := block.Upsert(e.Path(agentsMD), b); err != nil {
+		t.Fatal(err)
+	}
+	e.Git("add", "-f", "agents.md")
+	e.Git("commit", "-q", "-m", "an earlier upool's block")
+	before := projectFiles(t, e)
+	r := mustInit(t, e)
+	checkProjectFiles(t, e, before)
+	if w := trackedWarning(e.Path(agentsMD), "the block"); !strings.Contains(r.stderr,
+		"upool: warning: "+w+"\n") {
+		t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+	}
+}
+
+// A link at a skill's directory is the project's own: init removes upool's SKILL.md through it and
+// keeps the link, tracked or not, removing the directory it resolves to only when nothing else is
+// in it (#230).
+func TestInitKeepsALinkedSkillDirectory(t *testing.T) {
+	const target = "../../.agents/skills/upool"
+	for _, tt := range []struct {
+		name           string
+		tracked, notes bool
 	}{
-		{"after the file's text", func(*testing.T, *testenv.Env) {},
-			func(o string) string { return o + "\n" + current },
-			"added upool's block to CLAUDE.md"},
-		{"a missing file", func(t *testing.T, e *testenv.Env) {
-			if err := os.Remove(e.Path("CLAUDE.md")); err != nil {
-				t.Fatal(err)
-			}
-		}, func(string) string { return current }, "created CLAUDE.md with upool's block"},
-		{"a stale copy, in place", write(before + stale + after),
-			func(string) string { return before + current + after },
-			"updated upool's block in CLAUDE.md to v1"},
-		{"the current copy, kept", write(before + current + after),
-			func(o string) string { return o }, "CLAUDE.md already has upool's block"},
-		{"a newer copy, kept", write(before + newer + after),
-			func(o string) string { return o },
-			"kept the newer upool block in CLAUDE.md: this upool writes v1"},
-	}
-	for _, tt := range tests {
+		{"a tracked link", true, false},
+		{"a link to a directory with another file", false, true},
+		{"a link to a directory with nothing else", false, false},
+	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := newInitEnv(t)
-			tt.setup(t, e)
-			want := tt.want(readFile(t, e, "CLAUDE.md"))
-			r := mustInit(t, e)
-			if !strings.Contains(r.stdout, "\n"+tt.line+"\n") {
-				t.Errorf("stdout = %q, want the line %q", r.stdout, tt.line)
+			e.WriteFile(skillFiles[1], assets.Skill)
+			if tt.notes {
+				e.WriteFile(".agents/skills/upool/notes.md", "notes\n")
 			}
-			if got := readFile(t, e, "CLAUDE.md"); got != want {
-				t.Errorf("CLAUDE.md =\n%s\nwant\n%s", got, want)
+			link := e.Path(filepath.Dir(skillFiles[0]))
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
 			}
-			slotFile, err := os.ReadFile(filepath.Join(slotPath(e), "CLAUDE.md"))
-			if err != nil || string(slotFile) != want {
-				t.Errorf("slot-1/CLAUDE.md = %q, %v, want the main checkout's: %q", slotFile, err,
-					want)
+			if tt.tracked {
+				e.Git("add", "-f", filepath.Dir(skillFiles[0]))
+				e.Git("commit", "-q", "-m", "the project's link")
+			}
+			mustInit(t, e)
+			if got, err := os.Readlink(link); err != nil || got != target {
+				t.Errorf("%s -> %q, %v; want the link kept", link, got, err)
+			}
+			if _, err := os.Lstat(e.Path(skillFiles[1])); !errors.Is(err, fs.ErrNotExist) {
+				t.Errorf("%s: %v, want upool's skill removed", skillFiles[1], err)
+			}
+			dir := e.Path(filepath.Dir(skillFiles[1]))
+			if _, err := os.Lstat(dir); tt.notes != (err == nil) {
+				t.Errorf("%s: %v, want it kept only when another file is in it", dir, err)
+			}
+			if tt.notes && readFile(t, e, ".agents/skills/upool/notes.md") != "notes\n" {
+				t.Error("notes.md changed, want it kept")
+			}
+			if status := gitIn(t, e, e.Repo, "status", "--porcelain", "--",
+				filepath.Dir(skillFiles[0])); status != "" {
+				t.Errorf("git status of the link = %q, want nothing", status)
 			}
 		})
+	}
+}
+
+// A CLAUDE.md or an AGENTS.md whose upool markers do not pair is left as it is, with a warning
+// naming it, rather than guessed at; init writes neither, so it goes on (internal/block; #230).
+func TestInitLeavesAFileWhoseMarkersDoNotPair(t *testing.T) {
+	e := newInitEnv(t)
+	claude := "# Fake project\n\n" + block.Begin(1) + "\nA block with no end.\n"
+	const agents = "Use tabs.\n<!-- upool:begin v1 -->\nno end marker\n"
+	e.WriteFile(claudeMD, claude)
+	e.WriteFile(agentsMD, agents)
+	r := mustInit(t, e)
+	for name, doc := range map[string]string{claudeMD: claude, agentsMD: agents} {
+		if got := readFile(t, e, name); got != doc {
+			t.Errorf("%s = %q, want it unchanged: %q", name, got, doc)
+		}
+	}
+	for _, w := range []string{"left " + e.Path(claudeMD) + " as it is, since its upool " +
+		"markers do not pair: line 3 begins a upool block that no line after it ends",
+		"left " + e.Path(agentsMD) + " as it is, since its upool markers do not pair: line 2 " +
+			"begins a upool block that no line after it ends"} {
+		if !strings.Contains(r.stderr, w) {
+			t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+		}
 	}
 }
 
@@ -276,8 +502,6 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	claude := readFile(t, e, "CLAUDE.md")
 	r := mustInit(t, e)
 	want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n" +
-		"CLAUDE.md already has upool's block\n" + "AGENTS.md already has upool's block\n" +
-		e.Path(skillFiles[0]) + " is up to date\n" + e.Path(skillFiles[1]) + " is up to date\n" +
 		"the hooks run " + pathUpool(e) + "\n" + e.Path(projectSettings) + " is up to date\n"
 	if r.stdout != want {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
@@ -467,12 +691,8 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 		"base_source":        "current_branch",
 		"gitignore_updated":  true,
 		"repo_file_written":  true,
-		"claude_md_block":    "inserted",
-		"agents_md_block":    "inserted",
-		"skills": []any{map[string]any{"path": e.Path(skillFiles[0]), "change": "created"},
-			map[string]any{"path": e.Path(skillFiles[1]), "change": "created"}},
-		"upool": pathUpool(e),
-		"hooks": map[string]any{"path": e.Path(projectSettings), "change": "updated"},
+		"upool":              pathUpool(e),
+		"hooks":              map[string]any{"path": e.Path(projectSettings), "change": "updated"},
 		"slots": []any{map[string]any{
 			"name":       "slot-1",
 			"path":       slotPath(e),
@@ -490,10 +710,7 @@ func TestInitJSONGivesTheEnvelope(t *testing.T) {
 	data, _ = json.Marshal(env.Data) // as above
 	want = map[string]any{"repo": e.Repo, "key": repoKey(t, e), "already_registered": true,
 		"gitignore_updated": false, "repo_file_written": false, "upool": pathUpool(e),
-		"hooks":           map[string]any{"path": e.Path(projectSettings), "change": "unchanged"},
-		"claude_md_block": "unchanged", "agents_md_block": "unchanged",
-		"skills": []any{map[string]any{"path": e.Path(skillFiles[0]), "change": "unchanged"},
-			map[string]any{"path": e.Path(skillFiles[1]), "change": "unchanged"}}}
+		"hooks": map[string]any{"path": e.Path(projectSettings), "change": "unchanged"}}
 	if string(data) != string(mustJSON(t, want)) {
 		t.Errorf("data when already registered = %s, want %s", data, mustJSON(t, want))
 	}
@@ -623,44 +840,6 @@ func TestInitRegistersHooks(t *testing.T) {
 		filepath.Join(e.Home, ".claude", "settings.json")} {
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s exists, want init to leave it unmade", path)
-		}
-	}
-}
-
-// The acceptance test of #174: init installs both copies of the skill in the project and one
-// block in each of its CLAUDE.md and AGENTS.md, keeping their own text, and a later init rewrites
-// a copy of the skill that differs, as an upgraded upool's would; nothing is written under
-// ~/.claude, ~/.agents or ~/.codex (A26).
-func TestInitInstallsSkillAndBlocks(t *testing.T) {
-	e := newInitEnv(t)
-	originals := map[string]string{"CLAUDE.md": readFile(t, e, "CLAUDE.md"),
-		"AGENTS.md": readFile(t, e, "AGENTS.md")}
-	mustInit(t, e)
-	e.WriteFile(skillFiles[1], "an older skill\n")
-	r := mustInit(t, e)
-	if want := "updated " + e.Path(skillFiles[1]) + "\n"; !strings.Contains(r.stdout, want) {
-		t.Errorf("second init: stdout = %q, want a line %q", r.stdout, want)
-	}
-	for _, name := range skillFiles {
-		if got := readFile(t, e, name); got != assets.Skill {
-			t.Errorf("%s = %q, want the skill", name, got)
-		}
-		checkMode(t, e.Path(name), skillMode)
-	}
-	rendered := string(block.Block{Version: assets.ClaudeMDBlockVersion,
-		Body: assets.ClaudeMDBlock}.Render())
-	for name, original := range originals {
-		got := readFile(t, e, name)
-		if n := strings.Count(got, block.Begin(assets.ClaudeMDBlockVersion)); n != 1 {
-			t.Errorf("%s has %d upool blocks, want 1", name, n)
-		}
-		if !strings.HasPrefix(got, original) || !strings.Contains(got, rendered) {
-			t.Errorf("%s = %q, want its own text and then the block", name, got)
-		}
-	}
-	for _, dir := range []string{".claude", ".agents", ".codex"} {
-		if _, err := os.Lstat(filepath.Join(e.Home, dir)); err == nil {
-			t.Errorf("~/%s exists, want init to write nothing under the home directory's", dir)
 		}
 	}
 }

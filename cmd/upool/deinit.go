@@ -31,8 +31,9 @@ const deinitUsage = "deinit [--yes] [--json]"
 // --yes. It refuses, changing nothing, while a slot is in use or holds work; otherwise it removes
 // the slots and the clean subagent worktrees with `git worktree remove`, without --force, the
 // pool's state and registry entry, and what init installed in the project: upool's hook handlers,
-// as init recognises them (A24; A26), the skill, the instruction blocks and .upool.toml. The
-// .gitignore line, every branch and upool itself stay.
+// as init recognises them (A24; A26), and .upool.toml, with the skill and the instruction blocks an
+// earlier upool's init installed, from files git does not track (A43). The .gitignore line, every
+// branch and upool itself stay.
 var deinitCommand = command{
 	usage: deinitUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -208,14 +209,15 @@ func deinit(inv *invocation, yes bool) (any, []string, error) {
 			return nil, nil, err
 		}
 	}
-	hooks, err := d.planFiles(&r)
+	hooks, warnings, err := d.planFiles(ctx, &r)
 	if err != nil {
 		return nil, nil, err
 	}
 	if !yes {
-		return r, nil, nil
+		return r, warnings, nil
 	}
-	return d.remove(ctx, &r, hooks)
+	data, more, err := d.remove(ctx, &r, hooks)
+	return data, append(warnings, more...), err
 }
 
 // checkMainCheckout refuses canonical, a repository's top level, when it is a slot or a worktree
@@ -404,12 +406,16 @@ func (d deiniter) alive(pid int, start *time.Time) (bool, error) {
 }
 
 // planFiles lists in r what init installed in the project that is still there, and returns the
-// change to .claude/settings.local.json. An instruction file whose markers do not pair is refused,
-// as init refuses it, before anything is changed.
-func (d deiniter) planFiles(r *deinitReport) (registration, error) {
+// change to .claude/settings.local.json, and warnings. An instruction file whose markers do not
+// pair is refused before anything is changed. A block or a skill an earlier upool wrote into a file
+// git tracks is left, with a warning naming it, since deinit never writes into a tracked file, and
+// a SKILL.md is upool's only when its front matter names the upool skill (A43; #230).
+func (d deiniter) planFiles(ctx context.Context, r *deinitReport) (registration, []string,
+	error) {
+	var warnings []string
 	hooks, err := planDeregistration(filepath.Join(d.top, projectSettings))
 	if err != nil {
-		return registration{}, err
+		return registration{}, nil, err
 	}
 	if hooks.changed {
 		r.Files = append(r.Files, deinitFile{Path: hooks.file, What: "hooks"})
@@ -421,29 +427,49 @@ func (d deiniter) planFiles(r *deinitReport) (registration, error) {
 			continue
 		}
 		if err != nil {
-			return registration{}, fmt.Errorf("reading %s: %w", file, err)
+			return registration{}, nil, fmt.Errorf("reading %s: %w", file, err)
 		}
 		_, found, err := block.Strip(doc)
 		if err != nil {
-			return registration{}, fmt.Errorf("removing upool's block from %s: %w", file, err)
+			return registration{}, nil, fmt.Errorf("removing upool's block from %s: %w", file,
+				err)
 		}
-		if found {
-			r.Files = append(r.Files, deinitFile{Path: file, What: "block"})
+		if !found {
+			continue
 		}
+		isTracked, err := tracked(ctx, d.g, d.top, name)
+		if err != nil {
+			return registration{}, nil, err
+		}
+		if isTracked {
+			warnings = append(warnings, trackedWarning(file, "the block"))
+			continue
+		}
+		r.Files = append(r.Files, deinitFile{Path: file, What: "block"})
 	}
 	var seen []string
 	for _, name := range skillFiles {
 		dir := filepath.Dir(filepath.Join(d.top, filepath.FromSlash(name)))
-		if _, err := os.Lstat(filepath.Join(dir, "SKILL.md")); err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			return registration{}, fmt.Errorf("checking %s: %w", dir, err)
+		ours, err := upoolSkill(filepath.Join(dir, "SKILL.md"))
+		if err != nil {
+			return registration{}, nil, err
+		}
+		if !ours {
+			continue
+		}
+		isTracked, err := tracked(ctx, d.g, d.top, name)
+		if err != nil {
+			return registration{}, nil, err
+		}
+		if isTracked {
+			warnings = append(warnings, trackedWarning(filepath.Join(dir, "SKILL.md"),
+				"the upool skill"))
+			continue
 		}
 		// .claude/skills is often a link to .agents/skills, and then both copies are one.
 		real, err := filepath.EvalSymlinks(dir)
 		if err != nil {
-			return registration{}, fmt.Errorf("resolving %s: %w", dir, err)
+			return registration{}, nil, fmt.Errorf("resolving %s: %w", dir, err)
 		}
 		if slices.Contains(seen, real) {
 			continue
@@ -456,9 +482,9 @@ func (d deiniter) planFiles(r *deinitReport) (registration, error) {
 	if _, err := os.Lstat(repoFile); err == nil {
 		r.Files = append(r.Files, deinitFile{Path: repoFile, What: "repo_file"})
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		return registration{}, fmt.Errorf("checking %s: %w", repoFile, err)
+		return registration{}, nil, fmt.Errorf("checking %s: %w", repoFile, err)
 	}
-	return hooks, nil
+	return hooks, warnings, nil
 }
 
 // remove takes upool out of the project, as r lists it. Each slot goes first, as removeSlot
@@ -595,7 +621,10 @@ func (d deiniter) removeFile(f *deinitFile, hooks registration) error {
 			!errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("removing %s: %w", filepath.Join(dir, "SKILL.md"), err)
 		}
-		if err := os.Remove(dir); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := removeSkillDir(dir); err != nil {
+			return err
+		}
+		if _, err := os.Stat(dir); err == nil {
 			f.Note = "kept " + dir + ": something other than upool's SKILL.md is in it"
 		}
 	case "repo_file":
