@@ -1,0 +1,12 @@
+{
+  "session_id": "cc258504-900f-4b84-bf43-b4b716a75e21",
+  "transcript_path": "${home}/.claude/projects/${repo_key}/cc258504-900f-4b84-bf43-b4b716a75e21.jsonl",
+  "cwd": "${repo}",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}/cc258504-900f-4b84-bf43-b4b716a75e21/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "seconds_since_last_response": 33,
+  "context_tokens": 40730,
+  "prompt_cache_likely_expired": false,
+  "estimated_cache_write_usd": 0.3258
+}

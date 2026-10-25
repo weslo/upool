@@ -1,0 +1,8 @@
+{
+  "session_id": "56a2fc6c-c252-4558-805b-2abf841eb976",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976.jsonl",
+  "cwd": "${repo}/.claude/worktrees/upool-claude-md-probe-words-814115",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976/scratchpad",
+  "hook_event_name": "SessionStart",
+  "source": "startup"
+}

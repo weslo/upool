@@ -132,8 +132,14 @@ hook's parent PID.
 | `"clear"` | `/clear` in an interactive `claude --worktree` session | the same one, with a new `session_id`; the old session's `SessionEnd` says `reason: "clear"` | `hooks/session-start-clear.json` |
 
 In a desktop session without a worktree, `/clear` sent no `"clear"`: it started a new CLI session
-whose `SessionStart` said `"startup"` (testdata/README.md, `session-start-clear.json`). Whether a
-desktop worktree session's `/clear` does the same was not tried.
+whose `SessionStart` said `"startup"` (testdata/README.md, `session-start-clear.json`). A desktop
+worktree session's `/clear` does the same: a new session, with a new `session_id`, whose
+`SessionStart` says `"startup"` and names the same worktree (desktop app 3.6556.2;
+`hooks/desktop-clear-session-start.json`; question 43).
+
+A `claude -p --resume` launched from the main checkout runs `SessionStart` with `source: "resume"`
+and `cwd` the main checkout, not the session's worktree, and its `transcript_path` is keyed by the
+main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43).
 
 ### `CLAUDE_ENV_FILE`
 
@@ -997,22 +1003,31 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   the slot, and the remove hook parked the slot for upool's own copies. The maintainer asked for the
   instructions to come from upool's own hook output instead (2026-10-23).
 
-  **Measured** (2026-10-23, Claude Code 2.1.305, the desktop app;
-  `evidence/session-context-probe/probe.txt`). A probe registered as a scratch repository's
-  project-scope `SessionStart` hook printed a context naming a marker, in hook-made worktrees under
-  `.claude/worktrees/`:
-  - Both `hookSpecificOutput.additionalContext` JSON and plain stdout reached the model, in
-    `claude -p --worktree` and in a desktop worktree session. A 3.5 KB context arrived whole. Claude
-    Code's docs cap a hook's context at 10,000 characters.
-  - The context came again on every start. A resumed session had `source: resume`, and a compacted
-    one `source: compact`. In the desktop app, `/clear` started a new session, with a new session id
-    and `source: startup`. The transcript records the context as a `hook_additional_context`
-    attachment.
+  **Measured** (2026-10-23 and 2026-10-24, Claude Code 2.1.305, desktop app 3.6556.2;
+  `evidence/session-context-probe/probe.txt` and `imports.txt`). A probe registered as a scratch
+  repository's project-scope `SessionStart` hook printed a context naming a marker:
+  - `hookSpecificOutput.additionalContext` JSON reached the model in `claude -p --worktree` and in
+    a desktop worktree session. Plain stdout reached it in `claude -p --worktree`; it was not run in
+    the desktop app. A 3.5 KB context arrived whole in `claude -p`.
+  - The context came again on the starts that were seen: `resume` in `claude -p`; `compact`, whose
+    context reached the model in the desktop app; and a desktop `/clear`, which started a new
+    session with a new session id and `source: startup`. No `clear` or `fork` start, and no
+    interactive CLI session, was run. The transcript records the context as a
+    `hook_additional_context` attachment.
+  - A `claude -p --resume` launched from the main checkout ran the hook with `cwd` the main
+    checkout, not the session's worktree. A hook that decides by `cwd`, as #229's does, cannot tell
+    that session is in a slot. The resumed session still had the context its first start gave.
   - A subagent did not see `SessionStart` context. A `SubagentStart` hook's `additionalContext` did
     reach a subagent in `claude -p`.
-  - Claude Code loads `CLAUDE.md`, and the files it imports, before `SessionStart` runs. A
-    `CLAUDE.md` the hook copied into the worktree was not read in that session, in the CLI or the
-    desktop app. It was read by the next session to start there.
+  - Claude Code reads `CLAUDE.md`, and the files it imports, before `SessionStart` runs. A
+    `CLAUDE.md` the hook copied into the worktree was not read in that session, in `claude -p` or
+    the desktop app; the next session to start there read it. In `claude -p`, a file `CLAUDE.md`
+    imports with `@`, written by the hook, was likewise not read in that session, and was read when
+    it was there at the start.
+
+  Claude Code's documentation, not measured here, caps a hook's context at 10,000 characters.
+  Every hook-run record of the probe ran in a hook-made worktree under `.claude/worktrees/`, but for
+  the three resumes.
 
   **A43.** upool writes nothing into a project's instruction files or skill directories. Its
   instructions come as context:
@@ -1023,7 +1038,8 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
 
   `init` writes neither the block nor the skill, and removes what an older upool wrote, but never
   from a file git tracks: there it warns instead (#230). `.claude/settings.local.json` stays the one
-  file `init` writes, because per-project hooks live there (A26). Files a slot should keep current,
+  agent file `init` writes, because per-project hooks live there (A26); `init` also still writes
+  `.upool.toml` and the `.gitignore` line, as before. Files a slot should keep current,
   such as gitignored local notes, are mirrored into free slots before a handout, not at session
   start, because `CLAUDE.md` and its imports load first (#231; #233) (maintainer decisions,
   2026-10-23 and 2026-10-24).
