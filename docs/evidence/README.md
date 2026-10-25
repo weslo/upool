@@ -88,3 +88,13 @@ ran.
 | File | What it shows |
 |---|---|
 | `probe.txt` | a small C program that prints `getattrlist`'s `ATTR_CMNEXT_PRIVATESIZE` for each path, and its run: a 20 MB file and its `cp -c` clone at 0 private bytes each while `du` reports 20 MB each; both at 2 MB after 2 MB of the clone was rewritten; and the original at 20 MB again once the clone is deleted |
+
+## session-context-probe/
+
+The probe behind [contracts.md](../contracts.md) A43
+([#228](https://github.com/weslo/upool/issues/228), 2026-10-23; Claude Code 2.1.305, the desktop
+app), recorded as it ran, with paths as variables. The probe is `scripts/sessionprobe`.
+
+| File | What it shows |
+|---|---|
+| `probe.txt` | The scratch repository's hooks and the probe's log, one line per hook run. It holds every `claude -p` answer: the context reaching the model as JSON `additionalContext` and as plain stdout, whole at 3.5 KB, and again on resume and after compaction; a subagent without it, and with it from a `SubagentStart` hook; and a `CLAUDE.md` the hook copied into the worktree not loading in that session, but loading in the next. It also holds the maintainer's desktop session: its answers, with `/clear` starting a new session whose `source` is `startup`; its transcripts' `hook_additional_context` attachments; and the hook stdin the probe recorded |
