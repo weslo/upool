@@ -42,10 +42,12 @@ which it names for you to change in a commit.
   topped up in the background. With every slot taken, it waits up to 20 seconds for one, then fails
   to start, saying to run `upool refresh`.
 - The slot is a full copy of your checkout, Library and agent files included, so Unity opens it in
-  well under a minute instead of re-importing everything.
-- upool's hooks tell the session, and its subagents, how to work in the slot, so nothing of
-  upool's goes into your agent files.
-- The session's `unity` commands reach the slot's own Editor, never another session's.
+  well under a minute instead of re-importing everything. Gitignored files you want kept current,
+  such as local notes, go in a `.worktreeinclude`, as for Claude Code's own worktrees: upool
+  copies your checkout's into the free slots before each session.
+- upool's hooks tell the session, and its subagents, how to work in the slot, writing nothing into
+  your agent files, and the session's `unity` commands reach the slot's own Editor, never another
+  session's.
 - When you archive the session, the slot goes back to the pool; if it holds uncommitted work, or a
   commit no branch holds, it is parked for you to look at, never reset.
 - Subagents and repositories without a pool get ordinary git worktrees. Once a subagent's session

@@ -12,6 +12,7 @@ import (
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
+	"github.com/weslo/upool/internal/mirror"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -53,6 +54,9 @@ type releaseReport struct {
 
 	// Editor is the Editor upool opened in the slot, which release saved and closed first, or nil.
 	Editor *closeReport `json:"editor,omitempty"`
+	// Mirrored are the pool's free slots whose .worktreeinclude files release changed afterwards,
+	// this one among them when it is ready (A44).
+	Mirrored []mirroredSlot `json:"mirrored,omitempty"`
 
 	// base is what a ready slot was reset to, for the human form.
 	base string
@@ -67,6 +71,9 @@ func (r releaseReport) Human() string {
 	}
 	if r.Editor != nil {
 		line = r.Editor.Human() + "\n" + line
+	}
+	for _, m := range r.Mirrored {
+		line += "\n" + describeMirrored(m)
 	}
 	return line
 }
@@ -135,6 +142,11 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	}
 	r := releaseReport{Slot: s.Name, Path: s.Path, State: state, Repo: repo, Editor: editor,
 		base: rp.pool.Base}
+	// The slot is released whatever the mirror does, so its failures are warnings.
+	warn := func(w string) { warnings = append(warnings, w) }
+	if r.Mirrored, err = mirrorFree(ctx, inv, g, repo, rp.repo.Key, warn); err != nil {
+		warn(fmt.Sprintf("did not mirror %s's files into the free slots: %v", mirror.File, err))
+	}
 	if !clean {
 		r.Dirty = dirty
 		for _, d := range dirty {

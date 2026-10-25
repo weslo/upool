@@ -20,7 +20,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/mirror"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
@@ -189,9 +191,10 @@ func passThroughWorktree(ctx context.Context, env Env, req Request) (string, err
 }
 
 // subagentWorktree is the subagent branch: an ordinary worktree, detached at the repository's
-// HEAD, at <cwd>/.claude/worktrees/<name>, which is what Claude Code would have made itself. A
-// subagent never gets a pool slot, since no WorktreeRemove ever comes for it (spike §9 F.3). If cwd
-// is in a registered pool, the worktree is recorded in its state.json for `prune` to collect.
+// HEAD, at <cwd>/.claude/worktrees/<name>, which is what Claude Code would have made itself, with
+// the files .worktreeinclude names copied in (copyIncluded). A subagent never gets a pool slot,
+// since no WorktreeRemove ever comes for it (spike §9 F.3). If cwd is in a registered pool, the
+// worktree is recorded in its state.json for `prune` to collect.
 func subagentWorktree(ctx context.Context, env Env, req Request) (string, error) {
 	if err := checkName(req.Name); err != nil {
 		return "", err
@@ -211,7 +214,25 @@ func subagentWorktree(ctx context.Context, env Env, req Request) (string, error)
 		}
 		return "", err
 	}
+	copyIncluded(ctx, env, req, path)
 	return path, nil
+}
+
+// copyIncluded copies into path, a subagent's worktree git has just made, the gitignored files the
+// main checkout's .worktreeinclude names, as Claude Code copies them into a worktree it makes itself
+// (A44; #233): from the pool's main checkout when cwd is in one, and from cwd otherwise. The
+// request comes from the session's CLI, which can read the project, unlike the desktop app's
+// helper (docs/design.md, "Route Claude Code's worktrees through the pool: three branches in one
+// hook"). A failure is a warning, since the worktree works without them.
+func copyIncluded(ctx context.Context, env Env, req Request, path string) {
+	main := req.Cwd
+	if repo, ok, err := registry.Containing(env.Home, req.Cwd); err == nil && ok {
+		main = repo.Path
+	}
+	if _, err := mirror.Mirror(ctx, env.Git, clone.CP{}, main, path); err != nil {
+		_, _ = fmt.Fprintf(env.Stderr, "upool: warning: copying the files %s names into %s: %v\n",
+			mirror.File, path, err) // stderr is for warnings only
+	}
 }
 
 // recordAgentWorktree adds the agent worktree at path to the state.json of the pool that the

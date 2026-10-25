@@ -162,7 +162,7 @@ Claude Code's documentation, not measured here, caps a hook's context at 10,000 
 | Set for `SessionStart` hooks to `~/.claude/session-env/<SessionStart session_id>/sessionstart-hook-0.sh` | S§2 T7.5 |
 | The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree[^2] | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply) |
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
-| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, re-copies `CLAUDE.md`, `AGENTS.md`, `.claude/` minus `worktrees` and `.agents/` from the main checkout, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14 |
+| upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. It copies no file into the slot: that refresh, and `upool release`, mirror the gitignored files the project's `.worktreeinclude` names into the free slots, ahead of the next handout (A44). That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14; A44 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
 | upool registers no `SessionEnd` hook (A25). At `/exit` of an interactive `claude --worktree` session it says `reason: "prompt_input_exit"`, with `cwd` the **main checkout** though the session ran in the worktree, and carries `prompt_id` and `scratchpad_dir`; `/clear` ends a session with `reason: "clear"`, and quitting the desktop app ended each of its sessions with `reason: "other"`. `CwdChanged` was not exercised | D-env; D-unverified; A15; A25; `hooks/cli-session-end.json`; testdata/README.md (#148) |
 
@@ -730,7 +730,8 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   both, so that `init` writes the hooks' settings and no other agent file, and takes an earlier
   upool's skill and blocks out of the files git does not track (#230). `upool setup`
   goes, and upool never writes the user's own Claude Code settings. The skipped overlay costs
-  nothing: the session-start confirm re-copies the agent files. The work is #173 (`init` registers
+  nothing: the session-start confirm re-copies the agent files (until A44, under which the files a
+  project's `.worktreeinclude` names are mirrored into free slots instead). The work is #173 (`init` registers
   the hooks), #174 (`setup` removed, the skill and blocks per project) and #175 (`doctor`)
   (maintainer decision, 2026-10-20; (a)).
 
@@ -1059,6 +1060,37 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   such as gitignored local notes, are mirrored into free slots before a handout, not at session
   start, because `CLAUDE.md` and its imports load first (#231; #233) (maintainer decisions,
   2026-10-23 and 2026-10-24).
+
+- **44. Which gitignored files a slot keeps current** ([#231](https://github.com/weslo/upool/issues/231)).
+  The confirm at each session start replaced the slot's `CLAUDE.md`, `AGENTS.md`, `.agents/` and
+  `.claude/` (but `worktrees/`) with the main checkout's, whether git tracked, ignored or merely
+  saw them. Where git sees them, the copy made the slot dirty, and the remove hook parked it, as in
+  the M4 gate's first run. upool itself needs none of them kept current once A43 holds: hooks are
+  read from the main checkout (A26), its instructions come as context, and `Library/` is kept
+  current by refresh. Which files a slot keeps current is the project owner's choice.
+
+  **Measured** (2026-10-24, Claude Code 2.1.305, `claude -p --worktree` in a scratch repository
+  with one directory git ignores as a whole per pattern). Claude Code copied a file out of such a
+  directory only when a pattern reached it: `cache/` and `**/gen` matched the directory,
+  `tools/**/x.cfg` named it, and `**/out/build/k.txt` has `out`, the directory's name, after its
+  `**/`. Once `tools/` was reached, `**/config.json` copied `tools/config.json` from it too. It
+  copied nothing for `**/config.json` from `v1/`, for `**/skills/**` from `.claude/`, nor for the
+  slashless `.env` and `notes.local.md` from `v2/` and `v3/a/`: a pattern with no slash but a
+  last one goes by the documented `**/` rule. Outside such directories every ignored file a
+  pattern named was copied, `deep/notes.local.md` in an untracked directory among them.
+
+  **A44.** upool honours the project's `.worktreeinclude`, Claude Code's own list, with Claude
+  Code's semantics as measured above: only files that match it and that git ignores, so a tracked
+  or merely untracked file is never copied, overwritten or deleted, and no slot is made dirty.
+  Claude Code does not process the file for a worktree a hook makes, so upool copies
+  (internal/mirror). Before a handout, the background top-up that every session start launches,
+  and `upool release`, mirror the set into each free slot (ready or needs-reset, unleased, with no
+  Editor): a file missing or different there is copied from the main checkout as an APFS clone,
+  and one the main checkout no longer has is deleted. A subagent's worktree the create hook makes
+  gets the set once, when it is made. The confirm copies nothing: a file mirrored at session start
+  would reach only the next session, since Claude Code reads `CLAUDE.md` and its imports first,
+  and the desktop create hook's helper cannot read the project (A26). With no `.worktreeinclude`,
+  a slot keeps what its clone carried (maintainer decisions, 2026-10-23 and 2026-10-24; #233).
 
 ### Other open questions
 

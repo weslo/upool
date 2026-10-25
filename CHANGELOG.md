@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- upool honours a project's `.worktreeinclude`, Claude Code's list of gitignored files to copy into
+  a new worktree, which Claude Code does not process for the worktrees upool's hook makes (#233;
+  docs/contracts.md A44). The top-up that each session start launches, and `upool release`, mirror
+  the files it names from the main checkout into every free slot: one that is missing or differs
+  is copied as an APFS clone, and one the main checkout no longer has is deleted. A subagent's
+  worktree gets them when the hook makes it. Only files git ignores are touched, by Claude Code's
+  rule for a directory ignored as a whole, so a slot's `Library/` is left alone and no slot is
+  made dirty. `refresh --json` and `release --json` report the slots under `mirrored`.
+
 - `upool hook session-start` gives a session in a slot upool's instructions as context on every
   start (`startup`, `resume`, `clear`, `compact`), as Claude Code's `additionalContext`, and a new
   `upool hook subagent-start` gives them to that session's subagents, which do not see their
@@ -18,6 +27,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- `upool take --confirm`, which each session start runs, no longer copies `CLAUDE.md`,
+  `AGENTS.md`, `.agents/` and `.claude/` from the main checkout into the slot (#233). Where git
+  saw those files, the copy made the slot dirty, and the slot was parked when its session was
+  archived. List the gitignored files a slot should keep current in `.worktreeinclude` instead.
 - `upool init` writes nothing into a project's agent files: no block in `CLAUDE.md` or
   `AGENTS.md`, and no skill under `.claude/skills/` or `.agents/skills/` (#230; docs/contracts.md
   A43). `.claude/settings.local.json`, `.upool.toml` and the `.gitignore` line are all it writes.

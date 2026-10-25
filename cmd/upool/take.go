@@ -42,7 +42,7 @@ var takeCommand = command{
 		timeout := fs.Int("timeout", 0, "seconds to wait for a ready slot, retrying once a second")
 		noCreate := fs.Bool("no-create", false, "never clone a slot; only wait for a ready one")
 		confirmPath := fs.String("confirm", "", "confirm the create hook's lease on the slot at "+
-			"this path, run its deferred reset and refresh its agent files; with no branch name")
+			"this path and run its deferred reset; with no branch name")
 		return func(inv *invocation) (any, []string, error) {
 			if *confirmPath != "" {
 				return confirm(inv, *confirmPath, *base != "" || *holder != "" ||
