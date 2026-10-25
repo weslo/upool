@@ -1,0 +1,30 @@
+#228 follow-up (#235): whether a file CLAUDE.md imports loads when a SessionStart hook writes it.
+Run 2026-10-24 on the maintainer's Mac: Claude Code 2.1.305, claude -p, in the scratch repository of
+session-context-probe/probe.txt (built probe as for its desktop run, mode json, marker pine).
+
+== The second SessionStart hook added for this run, ${home}/.upool-probe/copy-local.sh, registered after
+the probe in the same SessionStart group, and removed afterwards
+#!/bin/sh
+# #228 import probe: copies the main checkout's LOCAL.md into the session's worktree.
+cwd=$(sed -n 's/.*"cwd"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+[ -n "$cwd" ] && cp "$HOME/upool-probe-228/LOCAL.md" "$cwd/LOCAL.md"
+echo "$(date +%Y%m%dT%H%M%S) copied LOCAL.md into $cwd" >> "$HOME/.upool-probe/import-log.txt"
+
+== The main checkout's LOCAL.md (gitignored)
+The LOCAL word is olive.
+
+== CLAUDE.md in the worktree probe-c9, written before both runs
+The CLAUDE.md word is grove.
+
+@LOCAL.md
+
+== Both runs: claude -p inside probe-c9, asked: "What is the CLAUDE.md word, and what is the LOCAL word?
+Reply with the two words only, writing unknown for any you were not told."
+-- run 1, LOCAL.md removed from the worktree first, so only the hook put it there
+   session 3d45ffef-2bac-46e5-bc4b-d8d9253695cf: grove unknown
+-- run 2, LOCAL.md now in the worktree from run 1's hook
+   session 438cccec-7f18-449e-a209-b2eb7521dd85: grove olive
+
+== ${home}/.upool-probe/import-log.txt
+20261024T174422 copied LOCAL.md into ${home}/upool-probe-228/.claude/worktrees/probe-c9
+20261024T174434 copied LOCAL.md into ${home}/upool-probe-228/.claude/worktrees/probe-c9

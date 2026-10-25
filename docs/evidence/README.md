@@ -92,9 +92,17 @@ ran.
 ## session-context-probe/
 
 The probe behind [contracts.md](../contracts.md) A43
-([#228](https://github.com/weslo/upool/issues/228), 2026-10-23; Claude Code 2.1.305, the desktop
-app), recorded as it ran, with paths as variables. The probe is `scripts/sessionprobe`.
+([#228](https://github.com/weslo/upool/issues/228) and
+[#235](https://github.com/weslo/upool/issues/235), 2026-10-23 and 2026-10-24; Claude Code 2.1.305,
+desktop app 3.6556.2), recorded as it ran, with paths as variables. The probe is
+`scripts/sessionprobe`, in three builds:
+- the runs logged up to 20261023T091947, `c1` to `c8`, used an earlier build whose context had no
+  `-<source>` suffix and whose log had no `event=` or `claude_project_dir=` field;
+- the runs from 20261023T092029, `c9`, `c10` and the desktop session, used a build that added the
+  suffix, the `main` file and `claude_project_dir=`;
+- the `SubagentStart` run, `c11`, used the build in the repository, which adds `event=`.
 
 | File | What it shows |
 |---|---|
-| `probe.txt` | The scratch repository's hooks and the probe's log, one line per hook run. It holds every `claude -p` answer: the context reaching the model as JSON `additionalContext` and as plain stdout, whole at 3.5 KB, and again on resume and after compaction; a subagent without it, and with it from a `SubagentStart` hook; and a `CLAUDE.md` the hook copied into the worktree not loading in that session, but loading in the next. It also holds the maintainer's desktop session: its answers, with `/clear` starting a new session whose `source` is `startup`; its transcripts' `hook_additional_context` attachments; and the hook stdin the probe recorded |
+| `probe.txt` | The scratch repository's hooks and the probe's log, one line per hook run. It holds every `claude -p` answer: the context reaching the model as JSON `additionalContext` and as plain stdout, whole at 3.5 KB, and again on resume (the resumes' `cwd` was the main checkout, not the worktree, despite the file's opening line); the hook firing on a compaction; a subagent without the context, and with it from a `SubagentStart` hook; and a `CLAUDE.md` the hook copied into the worktree not loading in that session, but loading in the next. It also holds the maintainer's desktop session: its answers, with `/clear` starting a new session whose `source` is `startup` and a `compact` context reaching the model; its transcripts' `hook_additional_context` attachments; and the hook stdin the probe recorded |
+| `imports.txt` | #235's run: a file `CLAUDE.md` imports with `@`, written into the worktree by a second `SessionStart` hook, not read in that session (`grove unknown`), and read by the next, which found it at the start (`grove olive`) |
