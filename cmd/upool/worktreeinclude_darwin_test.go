@@ -13,6 +13,7 @@ import (
 
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
+	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
 )
 
@@ -215,6 +216,45 @@ func TestWorktreeIncludeNeverTouchesTrackedOrUntrackedFiles(t *testing.T) {
 	}
 	if status := p.Git("-C", slot, "status", "--porcelain"); status != "?? own.local.txt" {
 		t.Errorf("slot-1: git status = %q, want only its own untracked file", status)
+	}
+}
+
+// Only a free slot is mirrored into: at a release, a needs-reset slot is, as the released one is,
+// and a parked slot, which keeps a session's work for a person, or a warming or creating one, is
+// not.
+func TestWorktreeIncludeMirrorsOnlyFreeSlots(t *testing.T) {
+	for _, tt := range []struct {
+		state    pool.State
+		mirrored bool
+	}{
+		{pool.StateNeedsReset, true}, {pool.StateParked, false}, {pool.StateWarming, false},
+		{pool.StateCreating, false},
+	} {
+		t.Run(string(tt.state), func(t *testing.T) {
+			p := includePool(t, worktreeInclude)
+			if r := runIn(t, p.Env, p.Repo, "take", "feature-x"); r.code != output.ExitOK {
+				t.Fatalf("take: exit %d, stderr %q", r.code, r.stderr)
+			}
+			p.update(t, func(pl *pool.Pool) { pl.Slots[1].State = tt.state })
+			p.WriteFile("notes.local.md", "notes\n")
+			got := mirrorRun(t, p, "release", "feature-x")
+			want := []string{"slot-1"}
+			if tt.mirrored {
+				want = append(want, "slot-2")
+			}
+			var names []string
+			for _, m := range got {
+				names = append(names, m.Slot)
+			}
+			if !reflect.DeepEqual(names, want) {
+				t.Errorf("mirrored %q, want %q", names, want)
+			}
+			if tt.mirrored {
+				checkSlotFile(t, p, "slot-2", "notes.local.md", "notes\n")
+			} else {
+				checkSlotFile(t, p, "slot-2", "notes.local.md", "")
+			}
+		})
 	}
 }
 

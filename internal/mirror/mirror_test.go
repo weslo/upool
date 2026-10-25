@@ -175,6 +175,42 @@ func TestMirrorNeverWritesThroughALinkOrOverADirectory(t *testing.T) {
 	}
 }
 
+// A nested repository, such as a slot under .claude/worktrees, which init has git ignore, is never
+// copied, though a pattern names the directory it is in: git lists it as a directory, and only
+// files are mirrored.
+func TestMirrorSkipsANestedRepository(t *testing.T) {
+	e, g := newEnv(t, ".claude/worktrees/\n")
+	slot := slotOf(t, e)
+	e.WriteFile(File, ".claude/\n")
+	got, err := Mirror(context.Background(), g, copyFiles{}, e.Repo, slot)
+	want := []string{".claude/settings.local.json", ".claude/skills/x"}
+	if err != nil || !reflect.DeepEqual(got.Copied, want) {
+		t.Errorf("Mirror = %+v, %v; want %q copied, and no slot", got, err, want)
+	}
+	if _, err := os.Lstat(filepath.Join(slot, ".claude", "worktrees")); err == nil {
+		t.Error("the slot has a .claude/worktrees, want no slot copied into it")
+	}
+}
+
+// A file the slot has where the main checkout now has a file in place of a directory above it is
+// one the main checkout no longer has, and goes, as do the deletions after it.
+func TestMirrorDeletesWhatIsBelowAFileInTheMainCheckout(t *testing.T) {
+	e, g := newEnv(t, "/notes\n/zz.local\n")
+	slot := slotOf(t, e)
+	e.WriteFile(File, "notes\nzz.local\n")
+	for _, f := range []string{"notes/today.md", "zz.local"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(slot, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(slot, f), []byte(f+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e.WriteFile("notes", "a file now\n")
+	mirrorInto(t, e, g, slot, Result{Copied: []string{},
+		Deleted: []string{"notes/today.md", "zz.local"}})
+}
+
 // A directory git ignores as a whole that no pattern reaches, as a slot's Library is, is never
 // touched: nothing is copied into it or deleted from it.
 func TestMirrorLeavesWhatNoPatternReaches(t *testing.T) {

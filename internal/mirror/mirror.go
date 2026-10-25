@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/git"
@@ -224,9 +225,10 @@ func Mirror(ctx context.Context, g git.Client, copier clone.Copier, main,
 			continue
 		}
 		// Only a file main no longer has goes: one main has, but tracks or does not ignore, stays.
+		// ENOTDIR says a directory above it is a file now, so main has no such file either.
 		if _, err := os.Lstat(filepath.Join(main, filepath.FromSlash(f))); err == nil {
 			continue
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		} else if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
 			return r, fmt.Errorf("checking %s: %w", filepath.Join(main, f), err)
 		}
 		file := filepath.Join(dst, filepath.FromSlash(f))
