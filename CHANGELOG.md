@@ -16,6 +16,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   confirm fails. `upool init` registers the new hook; run `upool init` again in each project after
   upgrading, which `upool doctor` reports until then.
 
+### Changed
+
+- `upool init` writes nothing into a project's agent files: no block in `CLAUDE.md` or
+  `AGENTS.md`, and no skill under `.claude/skills/` or `.agents/skills/` (#230; docs/contracts.md
+  A43). `.claude/settings.local.json`, `.upool.toml` and the `.gitignore` line are all it writes.
+  Run again after upgrading, it takes out the block and skill an earlier upool wrote: the block by
+  its markers, deleting a file the block alone filled, and a `SKILL.md` only when upool wrote it,
+  with its directory if nothing else is in it. It never writes into a file git tracks: a block or
+  skill there stays, and `init` warns, naming the file, for you to take it out in a commit. A
+  `CLAUDE.md` or `AGENTS.md` whose upool markers do not pair is left as it is, with a warning,
+  where `init` used to refuse. `upool deinit` follows the same rules, and `init --json` drops
+  `claude_md_block`, `agents_md_block` and `skills` for `retired`.
+
 ## [0.4.0-rc.1] - 2026-10-23
 
 ### Added

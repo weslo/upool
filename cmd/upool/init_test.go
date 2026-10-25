@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
@@ -231,36 +230,6 @@ func TestInitRefusesABaseThatNamesNoCommit(t *testing.T) {
 		"create the branch, or set base to one that exists")
 }
 
-// A CLAUDE.md whose upool markers do not pair is refused before init writes anything, rather than
-// guessed at (internal/block).
-func TestInitRefusesACLAUDEMDWhoseMarkersDoNotPair(t *testing.T) {
-	e := newInitEnv(t)
-	doc := "# Fake project\n\n" + block.Begin(1) + "\nA block with no end.\n"
-	e.WriteFile("CLAUDE.md", doc)
-	gitignore := readFile(t, e, ".gitignore")
-	r := runIn(t, e, e.Repo, "init")
-	if r.code != output.ExitFailure {
-		t.Errorf("exit = %d, want %d", r.code, output.ExitFailure)
-	}
-	want := "upserting upool's block into " + e.Path("CLAUDE.md") + ": line 3 begins a upool " +
-		"block that no line after it ends"
-	if !strings.Contains(r.stderr, want) {
-		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
-	}
-	if got := readFile(t, e, "CLAUDE.md"); got != doc {
-		t.Errorf("CLAUDE.md = %q, want it unchanged: %q", got, doc)
-	}
-	if _, err := os.Stat(filepath.Join(e.Home, ".upool")); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("~/.upool: stat error = %v, want it not to exist", err)
-	}
-	if got := readFile(t, e, ".upool.toml"); got != "" {
-		t.Errorf(".upool.toml = %q, want none", got)
-	}
-	if got := readFile(t, e, ".gitignore"); got != gitignore {
-		t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
-	}
-}
-
 func TestInitRefusesAProjectBelowTheRoot(t *testing.T) {
 	e := newInitEnv(t)
 	if err := os.MkdirAll(e.Path("Game"), 0o755); err != nil {
@@ -369,20 +338,6 @@ func TestInitRefusesWhenThisBinaryIsNotOnPath(t *testing.T) {
 	e.Setenv("PATH", strings.Join(dirs[:len(dirs)-1], string(os.PathListSeparator)))
 	r := runIn(t, e, e.Repo, "init")
 	checkRefused(t, e, r, readFile(t, e, ".gitignore"), "no upool on PATH is this binary")
-}
-
-// An AGENTS.md whose upool markers do not pair is refused before anything is written, as a
-// CLAUDE.md's is.
-func TestInitRefusesAnAGENTSMDWhoseMarkersDoNotPair(t *testing.T) {
-	e := newInitEnv(t)
-	const doc = "Use tabs.\n<!-- upool:begin v1 -->\nno end marker\n"
-	e.WriteFile("AGENTS.md", doc)
-	r := runIn(t, e, e.Repo, "init")
-	checkRefused(t, e, r, readFile(t, e, ".gitignore"),
-		"line 2 begins a upool block that no line after it ends")
-	if got := readFile(t, e, "AGENTS.md"); got != doc {
-		t.Errorf("AGENTS.md = %q, want it unchanged", got)
-	}
 }
 
 // A home directory in a folder the desktop app's helper cannot read from, by name in any case or

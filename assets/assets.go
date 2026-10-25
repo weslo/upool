@@ -1,4 +1,4 @@
-// Package assets holds the files upool writes outside its own state, embedded in the binary
+// Package assets holds the text upool gives a project's sessions, embedded in the binary
 // (docs/design.md, "Repository, CI and Homebrew distribution", the layout). They are a package of
 // their own because go:embed reaches only files under the embedding package's directory.
 //
@@ -11,19 +11,20 @@ import (
 	"strings"
 )
 
-// Skill is the upool skill, which `upool init` installs in the project at
-// .claude/skills/upool/SKILL.md and .agents/skills/upool/SKILL.md (A26; docs/design.md, "Hooks
-// route, skills teach, leases and lanes keep agents from colliding"). Its body is short and
-// operational, Unity's own rules restated so that they travel into subagents, which do not
-// inherit an invoked skill.
+// Skill is the upool skill, whose body Instructions carries (docs/design.md, "Hooks route, skills
+// teach, leases and lanes keep agents from colliding"). An earlier upool's init installed it in
+// the project at .claude/skills/upool/SKILL.md and .agents/skills/upool/SKILL.md, from which init
+// and deinit now take it out (A43; #230). Its body is short and operational, Unity's own rules
+// restated so that they travel into subagents, which do not inherit an invoked skill.
 //
 //go:embed skill/upool/SKILL.md
 var Skill string
 
-// ClaudeMDBlock is the instruction block `upool init` upserts into a project's CLAUDE.md
-// (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row): short
-// and operational, because without one agents keep running `git worktree add` (docs/design.md,
-// "Hooks route, skills teach, leases and lanes keep agents from colliding"). It ends in a newline.
+// ClaudeMDBlock is the instruction block that leads Instructions: short and operational, because
+// without one agents keep running `git worktree add` (docs/design.md, "Hooks route, skills teach,
+// leases and lanes keep agents from colliding"). An earlier upool's init upserted it into a
+// project's CLAUDE.md and AGENTS.md, from which init and deinit now take it out (A43; #230). It
+// ends in a newline.
 //
 //go:embed claude-md-block.md
 var ClaudeMDBlock string
@@ -41,7 +42,7 @@ func Instructions() string {
 	return ClaudeMDBlock + "\n" + strings.TrimLeft(body, "\n")
 }
 
-// ClaudeMDBlockVersion is ClaudeMDBlock's version, which the block's markers carry. Raise it
-// whenever claude-md-block.md changes: an upsert replaces a copy of an older version and keeps
-// one of a newer version (internal/block).
+// ClaudeMDBlockVersion is ClaudeMDBlock's version, which the markers of an earlier upool's copy
+// carry. internal/block strips a copy of any version, so it need not change with
+// claude-md-block.md.
 const ClaudeMDBlockVersion = 1

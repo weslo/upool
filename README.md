@@ -28,10 +28,12 @@ cd <project> && upool init
 ```
 
 `upool init` runs once per Unity project, from Terminal, inside the repository, with the project's
-Unity Editor closed. It installs the skill and the instruction blocks, makes the project a pool and
-clones its first slot from your checkout, then registers upool's hooks, all in that project alone,
-and touches no other repository. Upgrade with `brew upgrade upool`, then run `upool init` again in
-each project to refresh them.
+Unity Editor closed. It makes the project a pool and clones its first slot from your checkout, then
+registers upool's hooks in the project's `.claude/settings.local.json`, all in that project alone,
+and touches no other repository. It writes nothing into your `CLAUDE.md`, `AGENTS.md` or skills.
+Upgrade with `brew upgrade upool`, then run `upool init` again in each project to refresh them; that
+also takes out the block and skill an earlier upool wrote there, except from a file git tracks,
+which it names for you to change in a commit.
 
 ## 🏊 How a session gets a slot
 
@@ -41,6 +43,8 @@ each project to refresh them.
   to start, saying to run `upool refresh`.
 - The slot is a full copy of your checkout, Library and agent files included, so Unity opens it in
   well under a minute instead of re-importing everything.
+- upool's hooks tell the session, and its subagents, how to work in the slot, so nothing of
+  upool's goes into your agent files.
 - The session's `unity` commands reach the slot's own Editor, never another session's.
 - When you archive the session, the slot goes back to the pool; if it holds uncommitted work, or a
   commit no branch holds, it is parked for you to look at, never reset.

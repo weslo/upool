@@ -726,7 +726,9 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   `upool hook <event>` for `WorktreeCreate`, `WorktreeRemove` and `SessionStart` in the project's
   `.claude/settings.local.json`, in exec form by the path `PATH` finds upool at, as `setup` did at
   user scope (A24). It installs the skill in the project's `.claude/skills/upool/` and
-  `.agents/skills/upool/`, and upserts the block into its `CLAUDE.md` and `AGENTS.md`. `upool setup`
+  `.agents/skills/upool/`, and upserts the block into its `CLAUDE.md` and `AGENTS.md`; A43 retires
+  both, so that `init` writes the hooks' settings and no other agent file, and takes an earlier
+  upool's skill and blocks out of the files git does not track (#230). `upool setup`
   goes, and upool never writes the user's own Claude Code settings. The skipped overlay costs
   nothing: the session-start confirm re-copies the agent files. The work is #173 (`init` registers
   the hooks), #174 (`setup` removed, the skill and blocks per project) and #175 (`doctor`)

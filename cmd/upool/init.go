@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/weslo/upool/assets"
-	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
@@ -51,11 +49,11 @@ const (
 	worktreesProbe = ".claude/worktrees/slot-1"
 	// originHEAD names origin's default branch, base's first default (A17).
 	originHEAD = "refs/remotes/origin/HEAD"
-	// claudeMD is the instruction file, at the repository's root, that init upserts upool's block
-	// into (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `init` row).
+	// claudeMD is the instruction file, at the repository's root, that an earlier upool's init
+	// upserted upool's block into, and init and deinit now take it out of (A43; #230).
 	claudeMD = "CLAUDE.md"
 	// agentsMD is the instruction file other agents read, Codex's among them, at the repository's
-	// root, which init upserts the same block into (A26).
+	// root, which an earlier upool's init upserted the same block into (A26; A43).
 	agentsMD = "AGENTS.md"
 	// projectSettings is the project's own Claude Code settings file, relative to the repository,
 	// where init registers upool's hooks: it holds this machine's path to upool and stays out of
@@ -93,11 +91,9 @@ type initReport struct {
 	GitignoreUpdated bool `json:"gitignore_updated"`
 	// RepoFileWritten is true when init wrote .upool.toml, and false when the file was there.
 	RepoFileWritten bool `json:"repo_file_written"`
-	// ClaudeMDBlock and AgentsMDBlock are what upserting upool's block into CLAUDE.md and AGENTS.md
-	// did, and Skills the copies of the upool skill, in skillFiles' order (A26).
-	ClaudeMDBlock block.Action `json:"claude_md_block,omitempty"`
-	AgentsMDBlock block.Action `json:"agents_md_block,omitempty"`
-	Skills        []installed  `json:"skills,omitempty"`
+	// Retired is what init took out of the project's agent files that an earlier upool wrote
+	// there: its block and its skill, which upool no longer writes (A43; #230).
+	Retired []retired `json:"retired,omitempty"`
 	// Slots are the slots init cloned, slot-1 first, from the main checkout; none when the pool
 	// already had slots.
 	Slots []clonedSlot `json:"slots,omitempty"`
@@ -134,10 +130,13 @@ type existingSlot struct {
 
 // Human returns one line per step init took.
 func (r initReport) Human() string {
-	installs := []string{describeBlock(claudeMD, r.ClaudeMDBlock),
-		describeBlock(agentsMD, r.AgentsMDBlock)}
-	for _, s := range r.Skills {
-		installs = append(installs, describeChange(s))
+	var installs []string
+	for _, x := range r.Retired {
+		what := "upool's block from "
+		if x.What == "skill" {
+			what = "the upool skill, "
+		}
+		installs = append(installs, "removed "+what+x.Path+", which upool no longer writes")
 	}
 	hooks := []string{"the hooks run " + r.Upool, describeChange(r.Hooks)}
 	if r.AlreadyRegistered {
@@ -181,23 +180,6 @@ func (r initReport) Human() string {
 	return strings.Join(append(lines, hooks...), "\n")
 }
 
-// describeBlock says what upserting upool's block into file did.
-func describeBlock(file string, a block.Action) string {
-	switch a {
-	case block.Created:
-		return "created " + file + " with upool's block"
-	case block.Inserted:
-		return "added upool's block to " + file
-	case block.Replaced:
-		return fmt.Sprintf("updated upool's block in %s to v%d", file,
-			assets.ClaudeMDBlockVersion)
-	case block.KeptNewer:
-		return fmt.Sprintf("kept the newer upool block in %s: this upool writes v%d", file,
-			assets.ClaudeMDBlockVersion)
-	}
-	return file + " already has upool's block"
-}
-
 // describeBase says where a base came from, after "base is <base>, ".
 func describeBase(source string) string {
 	switch source {
@@ -216,14 +198,14 @@ func describeBase(source string) string {
 }
 
 // initRepo is init's handler, cloning n slots into a new pool. It checks the home directory, finds
-// upool on PATH, reads the project's .claude/settings.local.json and checks its CLAUDE.md,
-// AGENTS.md and the repository before it changes anything. Then it upserts upool's block into
-// CLAUDE.md and AGENTS.md and installs the upool skill in the project; adds .claude/worktrees/ to
-// .gitignore, writes .upool.toml, creates the pool's state.json, clones the first slot into a pool
-// that has none, adds the repository to registry.json and, last, registers upool's hooks in
-// .claude/settings.local.json (A26), so that a run that fails part-way is finished by the next. On
-// a registered repository it installs the blocks, the skill and the hooks again, so that an
-// upgraded upool refreshes them, and does nothing else.
+// upool on PATH, reads the project's .claude/settings.local.json and checks the repository before
+// it changes anything. Then it takes out of the project's agent files what an earlier upool wrote
+// there (retireAgentFiles); adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates the
+// pool's state.json, clones the first slot into a pool that has none, adds the repository to
+// registry.json and, last, registers upool's hooks in .claude/settings.local.json (A26), so that a
+// run that fails part-way is finished by the next. On a registered repository it retires the agent
+// files and registers the hooks again, so that an upgraded upool refreshes them, and does nothing
+// else.
 func initRepo(inv *invocation, n int) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -254,23 +236,18 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
-	for _, name := range []string{claudeMD, agentsMD} {
-		if err := checkBlock(filepath.Join(repo, name), b); err != nil {
-			return nil, nil, err
-		}
-	}
 	if reg, ok, err := registry.Lookup(inv.home, repo); err != nil {
 		return nil, nil, err
 	} else if ok {
 		r := initReport{Repo: repo, Key: reg.Key, AlreadyRegistered: true, Upool: upool}
-		if err := r.installAgentFiles(repo, b); err != nil {
+		var warnings []string
+		if r.Retired, warnings, err = retireAgentFiles(ctx, g, repo); err != nil {
 			return nil, nil, err
 		}
 		if r.Hooks, err = hooks.apply(); err != nil {
-			return nil, nil, err
+			return nil, warnings, err
 		}
-		return r, nil, nil
+		return r, warnings, nil
 	}
 	if err := checkLibraryUntracked(ctx, g, repo); err != nil {
 		return nil, nil, err
@@ -298,7 +275,10 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err != nil {
 		return nil, refreshed, err
 	}
-	if err := r.installAgentFiles(repo, b); err != nil {
+	var retiring []string
+	r.Retired, retiring, err = retireAgentFiles(ctx, g, repo)
+	refreshed = append(refreshed, retiring...)
+	if err != nil {
 		return nil, refreshed, err
 	}
 	if r.GitignoreUpdated, err = ignoreWorktrees(ctx, g, repo); err != nil {
@@ -331,31 +311,6 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 		return nil, warnings, err
 	}
 	return r, warnings, nil
-}
-
-// installAgentFiles upserts upool's block b into the project's CLAUDE.md and AGENTS.md and
-// installs the upool skill at each of skillFiles under repo, recording what each did in r (A26).
-// Each file is rewritten only when it differs, so a second init leaves them as they were.
-func (r *initReport) installAgentFiles(repo string, b block.Block) error {
-	var err error
-	if r.ClaudeMDBlock, err = block.Upsert(filepath.Join(repo, claudeMD), b); err != nil {
-		return err
-	}
-	if r.AgentsMDBlock, err = block.Upsert(filepath.Join(repo, agentsMD), b); err != nil {
-		return err
-	}
-	for _, name := range skillFiles {
-		file := filepath.Join(repo, filepath.FromSlash(name))
-		if err := os.MkdirAll(filepath.Dir(file), agentDirMode); err != nil {
-			return fmt.Errorf("creating %s: %w", filepath.Dir(file), err)
-		}
-		s, err := installFile(file, assets.Skill, skillMode)
-		if err != nil {
-			return err
-		}
-		r.Skills = append(r.Skills, s)
-	}
-	return nil
 }
 
 // checkProject refuses repo unless it is a Unity project at its root. A project in a subdirectory

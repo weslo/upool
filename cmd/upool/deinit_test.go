@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -393,7 +395,7 @@ func TestDeinitWithNothingToRemove(t *testing.T) {
 func TestDeinitKeepsASkillDirectoryWithOtherFiles(t *testing.T) {
 	p := newHarnessPool(t)
 	for _, name := range skillFiles {
-		p.WriteFile(name, "the skill\n")
+		p.WriteFile(name, assets.Skill)
 	}
 	p.WriteFile(".agents/skills/upool/mine.md", "mine\n")
 	r := runDeinit(t, p, procsAlive(), "--yes")
@@ -413,6 +415,70 @@ func TestDeinitKeepsASkillDirectoryWithOtherFiles(t *testing.T) {
 	want := "kept " + agents + ": something other than upool's SKILL.md is in it"
 	if !strings.Contains(r.stdout, want) {
 		t.Errorf("stdout = %q, want %q", r.stdout, want)
+	}
+}
+
+// deinit, as init does, writes into no file git tracks: a block in a tracked CLAUDE.md and the
+// skill in a tracked SKILL.md stay, the latter also through a link git does not track, with a
+// warning naming each, while upool's block in an untracked AGENTS.md goes (A43; #230).
+func TestDeinitLeavesTrackedFilesAndOtherSkills(t *testing.T) {
+	p := newHarnessPool(t)
+	b := block.Block{Version: assets.ClaudeMDBlockVersion, Body: assets.ClaudeMDBlock}
+	for _, name := range []string{claudeMD, agentsMD} {
+		if _, err := block.Upsert(p.Path(name), b); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agents := readFile(t, p.Env, agentsMD)
+	p.WriteFile(skillFiles[1], assets.Skill)
+	p.Git("add", "-f", claudeMD, skillFiles[1])
+	p.Git("commit", "-q", "-m", "an earlier upool's files")
+	if err := os.Symlink("../../.agents/skills/upool", p.Path(".claude/skills/upool")); err != nil {
+		t.Fatal(err)
+	}
+	tracked := repoFiles(t, p.Repo)
+	r := runDeinit(t, p, procsAlive(), "--yes")
+	if r.code != output.ExitOK {
+		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	after := repoFiles(t, p.Repo)
+	for _, name := range []string{claudeMD, skillFiles[0], skillFiles[1]} {
+		if after[name] != tracked[name] {
+			t.Errorf("%s = %q, want it as it was: %q", name, after[name], tracked[name])
+		}
+	}
+	if got, want := readFile(t, p.Env, agentsMD), strings.TrimSuffix(agents,
+		"\n"+string(b.Render())); got != want {
+		t.Errorf("AGENTS.md = %q, want upool's block gone: %q", got, want)
+	}
+	for _, w := range []string{trackedWarning(p.Path(claudeMD), "the block"),
+		trackedWarning(p.Path(skillFiles[0]), "the upool skill"),
+		trackedWarning(p.Path(skillFiles[1]), "the upool skill")} {
+		if !strings.Contains(r.stderr, "upool: warning: "+w+"\n") {
+			t.Errorf("stderr = %q, want the warning %q", r.stderr, w)
+		}
+	}
+}
+
+// A SKILL.md in upool's skill directories that an upool did not write is the project's own, and
+// deinit neither removes nor names it (#230).
+func TestDeinitKeepsTheProjectsOwnSkill(t *testing.T) {
+	p := newHarnessPool(t)
+	const theirs = "---\nname: pool-notes\ndescription: The project's own notes.\n---\n"
+	for _, name := range skillFiles {
+		p.WriteFile(name, theirs)
+	}
+	r := runDeinit(t, p, procsAlive(), "--yes")
+	if r.code != output.ExitOK {
+		t.Fatalf("exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	for _, name := range skillFiles {
+		if got := readFile(t, p.Env, name); got != theirs {
+			t.Errorf("%s = %q, want the project's own skill kept: %q", name, got, theirs)
+		}
+	}
+	if strings.Contains(r.stdout, "skill") || r.stderr != "" {
+		t.Errorf("stdout %q, stderr %q; want no skill named", r.stdout, r.stderr)
 	}
 }
 
