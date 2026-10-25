@@ -49,9 +49,11 @@ type refreshReport struct {
 	// Running is the process ID of the refresh already running, which this one left the work to,
 	// or 0 when this one did it.
 	Running int `json:"running,omitempty"`
-	// Reset and Cloned are the slots this refresh reset to ready and cloned, by name.
-	Reset  []string `json:"reset"`
-	Cloned []string `json:"cloned"`
+	// Reset and Cloned are the slots this refresh reset to ready and cloned, by name, and Mirrored
+	// the free slots whose .worktreeinclude files it changed (A44).
+	Reset    []string       `json:"reset"`
+	Mirrored []mirroredSlot `json:"mirrored"`
+	Cloned   []string       `json:"cloned"`
 	// Stopped is why it cloned no more.
 	Stopped string `json:"stopped,omitempty"`
 	// Base is where the ready slots belong, the pool's base or, with --fetch, origin/<base>, and
@@ -81,6 +83,9 @@ func (r refreshReport) Human() string {
 	var lines []string
 	for _, s := range r.Reset {
 		lines = append(lines, "reset "+s)
+	}
+	for _, m := range r.Mirrored {
+		lines = append(lines, describeMirrored(m))
 	}
 	for _, s := range r.Cloned {
 		lines = append(lines, "cloned "+s)
@@ -139,7 +144,8 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 	if err != nil {
 		return nil, nil, err
 	}
-	r := refreshReport{Repo: repo, Reset: []string{}, Cloned: []string{}, Moved: []movedSlot{}}
+	r := refreshReport{Repo: repo, Reset: []string{}, Mirrored: []mirroredSlot{},
+		Cloned: []string{}, Moved: []movedSlot{}}
 	job, running, err := claimRefreshJob(ctx, inv, key)
 	if err != nil || running != 0 {
 		r.Running = running
@@ -169,6 +175,13 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 		}
 		r.Reset = append(r.Reset, s.Name)
 	}
+	// The free slots get the main checkout's .worktreeinclude files before anything slower, so
+	// that the next handout has them; a slot cloned below copies them from its seed (A44).
+	mirrored, err := mirrorFree(ctx, inv, g, repo, key, warn)
+	if err != nil {
+		return nil, warnings, err
+	}
+	r.Mirrored = append(r.Mirrored, mirrored...)
 
 	refresher := seedRefresher(inv, cfg)
 	recipe := clone.Recipe{Git: g, Copier: clone.CP{}, Proc: proc.System{}, OwnerPID: inv.pid,

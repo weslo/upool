@@ -4,31 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"time"
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
-)
-
-// agentFiles are the files and directories of a checkout that agents read, which a slot gets from
-// the main checkout at each confirm: gitignored ones a clone carries as they were, and the app's
-// overlay skips when the slot already has them, so a slot's copy goes stale (docs/design.md, "Slot
-// lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`";
-// docs/contracts.md (b), the `take --confirm` row). .claude is copied entry by entry, without its
-// worktrees, where the slots themselves live.
-var agentFiles = []string{"CLAUDE.md", "AGENTS.md", ".agents", ".claude"}
-
-// claudeDir is the agent file copied entry by entry, and worktreesEntry the entry of it that is
-// neither removed from a slot nor copied into one.
-const (
-	claudeDir      = ".claude"
-	worktreesEntry = "worktrees"
 )
 
 // Confirmed is what Confirm did.
@@ -43,10 +24,12 @@ type Confirmed struct {
 
 // Confirm is the confirm that `upool take --confirm <path>` and the SessionStart hook run for the
 // session's slot (docs/design.md, "Environment, confirmation and release"; docs/contracts.md (b);
-// (f) transition 6). It finds the slot by its canonical path, runs the deferred reset of a slot handed out from needs-reset, confirms the
-// lease with env.ParentPID, the session's CLI, as its holder (A6), and re-copies the agent files
-// from the main checkout. A confirmed lease is confirmed again, re-copying again. The warnings are
-// for stderr.
+// (f) transition 6). It finds the slot by its canonical path, runs the deferred reset of a slot
+// handed out from needs-reset, and confirms the lease with env.ParentPID, the session's CLI, as its
+// holder (A6). A confirmed lease is confirmed again. It copies no file into the slot: Claude Code
+// has read CLAUDE.md before SessionStart runs, so the files a project's .worktreeinclude names are
+// mirrored into free slots before a handout instead (A44; internal/mirror). The warnings are for
+// stderr.
 func Confirm(ctx context.Context, env Env, path string) (Confirmed, []string, error) {
 	ref, err := confirmTarget(env.Home, path)
 	if err != nil {
@@ -106,9 +89,6 @@ func Confirm(ctx context.Context, env Env, path string) (Confirmed, []string, er
 	if err != nil {
 		return Confirmed{}, nil, err
 	}
-	if err := copyAgentFiles(ctx, clone.CP{}, repo, s.Path); err != nil {
-		return Confirmed{}, warnings, err
-	}
 	return Confirmed{Path: s.Path, Slot: s.Name, LeaseID: s.Lease.LeaseID, Repo: repo,
 		Reset: reset}, warnings, nil
 }
@@ -166,67 +146,4 @@ func holder(ppid int) (*int, *time.Time, error) {
 			ppid, err)
 	}
 	return &ppid, &start, nil
-}
-
-// copyAgentFiles replaces the slot's agent files with the main checkout's, through copier: each
-// entry of agentFiles the slot has is removed, and the main checkout's copied in its place, so an
-// entry the main checkout lacks is gone from the slot afterwards. .claude goes entry by entry,
-// leaving the slot's .claude/worktrees alone and never copying the main checkout's, where the
-// slots are. Links are copied as links, so relative ones stay relative (spike §10).
-func copyAgentFiles(ctx context.Context, copier clone.Copier, repo, slot string) error {
-	for _, name := range agentFiles {
-		if name == claudeDir {
-			if err := copyClaudeDir(ctx, copier, repo, slot); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := replaceEntry(ctx, copier, filepath.Join(repo, name),
-			filepath.Join(slot, name)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// copyClaudeDir replaces each entry of the slot's .claude but worktrees with the main checkout's.
-func copyClaudeDir(ctx context.Context, copier clone.Copier, repo, slot string) error {
-	src, dst := filepath.Join(repo, claudeDir), filepath.Join(slot, claudeDir)
-	names := map[string]bool{}
-	for _, dir := range []string{src, dst} {
-		entries, err := os.ReadDir(dir)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("reading %s: %w", dir, err)
-		}
-		for _, e := range entries {
-			if e.Name() != worktreesEntry {
-				names[e.Name()] = true
-			}
-		}
-	}
-	if _, err := os.Lstat(src); err == nil {
-		if err := os.MkdirAll(dst, 0o755); err != nil {
-			return fmt.Errorf("creating %s: %w", dst, err)
-		}
-	}
-	for _, name := range slices.Sorted(maps.Keys(names)) {
-		if err := replaceEntry(ctx, copier, filepath.Join(src, name),
-			filepath.Join(dst, name)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// replaceEntry removes dst and, if src exists, copies it there.
-func replaceEntry(ctx context.Context, copier clone.Copier, src, dst string) error {
-	if err := os.RemoveAll(dst); err != nil {
-		return fmt.Errorf("removing %s: %w", dst, err)
-	}
-	if _, err := os.Lstat(src); errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return fmt.Errorf("checking %s: %w", src, err)
-	}
-	return copier.Copy(ctx, src, dst)
 }

@@ -13,12 +13,12 @@ import (
 	"github.com/weslo/upool/internal/pool"
 )
 
-// The tests of the SessionStart hook's startup confirm. They run on macOS only, since the agent
-// files are copied with cp -cR, macOS's clonefile(2) (internal/clone).
+// The tests of the SessionStart hook's startup confirm. They run on macOS only, since a lease's
+// holder is recorded with its start time, which internal/proc reads on macOS alone.
 
 // The acceptance test of #77: each captured startup in a slot, its cwd filled to a harness slot
 // holding the create hook's unconfirmed lease, confirms the lease with the hook's parent, the
-// session's CLI, as its holder (A6), re-copies the agent files from the main checkout, and leaves
+// session's CLI, as its holder (A6), copies no file from the main checkout (A44), and leaves
 // CLAUDE_ENV_FILE holding exactly one export line, naming the slot. Each also gets upool's
 // instructions as context (start; A43), the desktop app's /clear among them, which starts a new
 // session with source startup (question 43).
@@ -48,9 +48,10 @@ func TestSessionStartConfirmsTheSlot(t *testing.T) {
 				"\nlocked") {
 				t.Errorf("git worktree list = %q, want no worktree locked (A27)", list)
 			}
-			copied := filepath.Join(req.Cwd, ".claude", "settings.local.json")
-			if b, err := os.ReadFile(copied); err != nil || string(b) != `{"changed": true}`+"\n" {
-				t.Errorf("%s = %q, %v; want the main checkout's copy", copied, b, err)
+			if _, err := os.Lstat(filepath.Join(req.Cwd, ".claude",
+				"settings.local.json")); err == nil {
+				t.Errorf("the slot has the main checkout's settings.local.json, want nothing " +
+					"copied (A44)")
 			}
 			h.checkExported(t, req.Cwd)
 			if h.stderr.Len() != 0 {

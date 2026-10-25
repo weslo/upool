@@ -91,6 +91,19 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.CheckIgnore(context.Background(), "/work/slot", ".claude/worktrees/slot-1")
 			return err
 		}, []string{"check-ignore", "-q", "--", ".claude/worktrees/slot-1"}},
+		{"LsExcludedBy", func(c Client) error {
+			_, err := c.LsExcludedBy(context.Background(), "/work/slot", "/work/repo/.worktreeinclude")
+			return err
+		}, []string{"ls-files", "-z", "--others", "--ignored",
+			"--exclude-from=/work/repo/.worktreeinclude"}},
+		{"IgnoredDirs", func(c Client) error {
+			_, err := c.IgnoredDirs(context.Background(), "/work/slot")
+			return err
+		}, []string{"ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"}},
+		{"Ignored", func(c Client) error {
+			_, err := c.Ignored(context.Background(), "/work/slot", []string{"a b", "c"})
+			return err
+		}, []string{"-c", "core.quotePath=false", "check-ignore", "--", "a b", "c"}},
 		{"SymbolicRef", func(c Client) error {
 			_, _, err := c.SymbolicRef(context.Background(), "/work/slot", "HEAD")
 			return err
@@ -320,6 +333,37 @@ func TestLsFilesSplitsOnNUL(t *testing.T) {
 	c, _ = replying("Library/a.asset")
 	if got, err := c.LsFiles(context.Background(), "/work/repo"); err == nil {
 		t.Errorf("LsFiles without a final NUL = %q, nil, want an error", got)
+	}
+}
+
+// Ignored reads check-ignore's lines, unquoting the ones git quotes, and asks about the paths in
+// batches, so that no call outgrows the argument limit.
+func TestIgnoredUnquotesAndBatches(t *testing.T) {
+	c, r := replying("plain name\n\"quo\\\"te\\tand\\303\\251\"\n")
+	paths := make([]string, checkIgnoreBatch+1)
+	got, err := c.Ignored(context.Background(), "/work/slot", paths)
+	want := []string{"plain name", "quo\"te\tand\u00e9", "plain name", "quo\"te\tand\u00e9"}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Ignored = %q, %v; want %q, nil", got, err, want)
+	}
+	if len(r.calls) != 2 || len(r.calls[0].args) != 4+checkIgnoreBatch ||
+		len(r.calls[1].args) != 5 {
+		t.Errorf("calls = %d, want two: a full batch, then the one path left", len(r.calls))
+	}
+	if got, err := c.Ignored(context.Background(), "/work/slot", nil); err != nil || got != nil {
+		t.Errorf("Ignored of no paths = %q, %v; want none and no call", got, err)
+	}
+}
+
+// IgnoredDirs keeps only the directories of ls-files' output, which check-ignore then confirms.
+func TestIgnoredDirsAsksCheckIgnoreAboutTheDirectories(t *testing.T) {
+	c, r := replying("Library/\x00notes.md\x00sub/\x00")
+	if _, err := c.IgnoredDirs(context.Background(), "/work/slot"); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-c", "core.quotePath=false", "check-ignore", "--", "Library/", "sub/"}
+	if len(r.calls) != 2 || !slices.Equal(r.calls[1].args, want) {
+		t.Errorf("calls = %+v, want ls-files, then check-ignore with %q", r.calls, want)
 	}
 }
 

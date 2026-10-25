@@ -16,8 +16,8 @@ import (
 	"github.com/weslo/upool/internal/testenv"
 )
 
-// The tests of `upool take --confirm`, on the harness pool. They run on macOS only, since the
-// agent files are copied with cp -cR, macOS's clonefile(2) (internal/clone).
+// The tests of `upool take --confirm`, on the harness pool. They run on macOS only, since a lease's
+// holder is recorded with its start time, which internal/proc reads on macOS alone.
 
 // hookLease gives one of p's slots the create hook's unconfirmed lease, as the pooled branch takes
 // it, and returns that slot.
@@ -79,50 +79,44 @@ func TestConfirmConfirmsTheLease(t *testing.T) {
 	}
 }
 
-// The acceptance test of #76, the agent files: a changed .claude/settings.local.json in the main
-// checkout replaces the slot's stale copy; an entry only the slot has goes; the slot's own
-// .claude/worktrees stays and the main checkout's, where the slots are, is never copied; and the
-// relative skill link stays relative (spike §10).
-func TestConfirmRefreshesStaleAgentFiles(t *testing.T) {
-	p := newHarnessPool(t)
-	s := p.hookLease(t)
-	write := func(path, content string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	slotFile := func(name string) string { return filepath.Join(s.Path, filepath.FromSlash(name)) }
-	write(slotFile(".claude/settings.local.json"), "{}\n")
-	write(slotFile(".claude/stale.json"), "{}\n")
-	write(slotFile(".claude/worktrees/keep/file"), "kept\n")
-	p.WriteFile(".claude/settings.local.json", `{"model": "opus"}`+"\n")
+// The confirm copies no file into the slot, with a .worktreeinclude or without one: Claude Code
+// has read CLAUDE.md before SessionStart runs, so the files a .worktreeinclude names are mirrored
+// into free slots before a handout instead (A44; #233). The slot's stale copy of a gitignored file,
+// and an entry only it has, stay as they are.
+func TestConfirmCopiesNothing(t *testing.T) {
+	for _, include := range []string{"", ".claude/\nCLAUDE.md\n"} {
+		t.Run(map[bool]string{false: "no .worktreeinclude", true: "a .worktreeinclude"}[include !=
+			""], func(t *testing.T) {
+			p := newHarnessPool(t)
+			if include != "" {
+				p.WriteFile(".worktreeinclude", include)
+			}
+			s := p.hookLease(t)
+			slotFile := func(name string) string {
+				return filepath.Join(s.Path, filepath.FromSlash(name))
+			}
+			for _, name := range []string{".claude/settings.local.json", ".claude/stale.json"} {
+				if err := os.MkdirAll(filepath.Dir(slotFile(name)), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(slotFile(name), []byte("{}\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p.WriteFile(".claude/settings.local.json", `{"model": "opus"}`+"\n")
 
-	p.confirmSlot(t, s.Path, s.Path)
-	for _, name := range []string{".claude/settings.local.json", "CLAUDE.md",
-		".agents/skills/x/SKILL.md"} {
-		want, err := os.ReadFile(p.Path(name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if got, err := os.ReadFile(slotFile(name)); err != nil || string(got) != string(want) {
-			t.Errorf("the slot's %s = %q, %v; want the main checkout's %q", name, got, err, want)
-		}
-	}
-	if _, err := os.Lstat(slotFile(".claude/stale.json")); err == nil {
-		t.Error("the slot still has .claude/stale.json, which the main checkout lacks")
-	}
-	entries, err := os.ReadDir(slotFile(".claude/worktrees"))
-	if err != nil || len(entries) != 1 || entries[0].Name() != "keep" {
-		t.Errorf("the slot's .claude/worktrees = %v, %v; want its own keep alone", entries, err)
-	}
-	if link, err := os.Readlink(slotFile(testenv.SkillLink)); err != nil ||
-		link != testenv.SkillTarget {
-		t.Errorf("the slot's %s links to %q, %v; want %q", testenv.SkillLink, link, err,
-			testenv.SkillTarget)
+			p.confirmSlot(t, s.Path, s.Path)
+			for _, name := range []string{".claude/settings.local.json", ".claude/stale.json"} {
+				if got, err := os.ReadFile(slotFile(name)); err != nil || string(got) != "{}\n" {
+					t.Errorf("the slot's %s = %q, %v; want it as it was", name, got, err)
+				}
+			}
+			for _, name := range []string{"CLAUDE.md", testenv.SkillLink} {
+				if _, err := os.Lstat(slotFile(name)); err == nil {
+					t.Errorf("the slot has %s, want the confirm to copy nothing", name)
+				}
+			}
+		})
 	}
 }
 
@@ -223,7 +217,8 @@ func TestConfirmMatchesLowercasedPath(t *testing.T) {
 	}
 }
 
-// Confirming a confirmed lease succeeds and re-copies the agent files again.
+// Confirming a confirmed lease succeeds, and leaves the session's edit to a gitignored file as it
+// is, since the confirm copies nothing (A44).
 func TestConfirmIsIdempotent(t *testing.T) {
 	p := newHarnessPool(t)
 	s := p.hookLease(t)
@@ -233,12 +228,8 @@ func TestConfirmIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	p.confirmSlot(t, s.Path, s.Path)
-	want, err := os.ReadFile(p.Path("CLAUDE.md"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, err := os.ReadFile(claudeMD); err != nil || string(got) != string(want) {
-		t.Errorf("CLAUDE.md = %q, %v; want the main checkout's copy again", got, err)
+	if got, err := os.ReadFile(claudeMD); err != nil || string(got) != "edited\n" {
+		t.Errorf("CLAUDE.md = %q, %v; want the session's edit kept", got, err)
 	}
 	if got := p.stateOf(t, s.Name); got.State != pool.StateLeased || !got.Lease.Confirmed {
 		t.Errorf("%s = %+v, want it still leased and confirmed", s.Name, got)

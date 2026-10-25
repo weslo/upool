@@ -25,6 +25,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -320,6 +321,86 @@ func (c Client) LsFiles(ctx context.Context, dir string, pathspecs ...string) ([
 func (c Client) CheckIgnore(ctx context.Context, dir, path string) (bool, error) {
 	_, ignored, err := c.runStatus(ctx, dir, "check-ignore", "-q", "--", path)
 	return ignored, err
+}
+
+// LsExcludedBy returns the untracked paths under dir that the patterns in file, in .gitignore
+// syntax, exclude, relative to dir and in git's order, from
+// `git ls-files -z --others --ignored --exclude-from=<file>`: file's patterns are the only ones
+// that count, not the repository's own. A directory listed, which ends in /, is a nested
+// repository, such as a slot under .claude/worktrees, which git does not look inside. The mirror
+// of a project's .worktreeinclude reads its candidates this way (internal/mirror; #233).
+func (c Client) LsExcludedBy(ctx context.Context, dir, file string) ([]string, error) {
+	args := []string{"ls-files", "-z", "--others", "--ignored", "--exclude-from=" + file}
+	out, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	files, err := nulFields(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", command(dir, args), err)
+	}
+	return files, nil
+}
+
+// IgnoredDirs returns the directories under dir that git's ignore rules ignore as a whole,
+// relative to dir and ending in /, from
+// `git ls-files -z --others --ignored --exclude-standard --directory`. That output also names an
+// untracked directory whose every file is ignored, though no rule ignores the directory itself;
+// Ignored, which does not report one, leaves those out.
+func (c Client) IgnoredDirs(ctx context.Context, dir string) ([]string, error) {
+	args := []string{"ls-files", "-z", "--others", "--ignored", "--exclude-standard",
+		"--directory"}
+	out, err := c.run(ctx, dir, args...)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := nulFields(out)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", command(dir, args), err)
+	}
+	var dirs []string
+	for _, e := range entries {
+		if strings.HasSuffix(e, "/") {
+			dirs = append(dirs, e)
+		}
+	}
+	return c.Ignored(ctx, dir, dirs)
+}
+
+// checkIgnoreBatch is how many paths one `git check-ignore` call is given, well inside the
+// argument limit.
+const checkIgnoreBatch = 512
+
+// Ignored returns those of paths, relative to dir, that git ignores, in their order, from
+// `git -c core.quotePath=false check-ignore -- <paths…>` run on each batch of them: exit 0 with
+// the ignored ones, a line each, and exit 1 when none is. check-ignore takes -z only with --stdin,
+// which Runner has none of, so a line git quotes, for a path with a quote, a backslash or a
+// control character in it, is unquoted. As for CheckIgnore, a path need not exist, one in an
+// ignored directory is ignored, and one git tracks never is; a path beyond a symbolic link is an
+// error.
+func (c Client) Ignored(ctx context.Context, dir string, paths []string) ([]string, error) {
+	var ignored []string
+	for batch := range slices.Chunk(paths, checkIgnoreBatch) {
+		args := append([]string{"-c", "core.quotePath=false", "check-ignore", "--"}, batch...)
+		res, _, err := c.runStatus(ctx, dir, args...)
+		if err != nil {
+			return nil, err
+		}
+		for line := range strings.Lines(string(res.Stdout)) {
+			line = strings.TrimSuffix(line, "\n")
+			if strings.HasPrefix(line, `"`) {
+				// git quotes as C does, which strconv.Unquote reads, octal escapes included.
+				unquoted, err := strconv.Unquote(line)
+				if err != nil {
+					return nil, fmt.Errorf("parsing %s: the line %q: %w", command(dir, args),
+						line, err)
+				}
+				line = unquoted
+			}
+			ignored = append(ignored, line)
+		}
+	}
+	return ignored, nil
 }
 
 // SymbolicRef returns the ref that the symbolic ref name points at, shortened, from
