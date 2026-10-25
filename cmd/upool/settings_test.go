@@ -150,7 +150,8 @@ func TestRegistrationKeepsOtherSettings(t *testing.T) {
       {"hooks": [{"type": "command", "command": "/opt/other/worktree.sh"}]},
       "@worktree-create@"
     ],
-    "WorktreeRemove": ["@worktree-remove@"]
+    "WorktreeRemove": ["@worktree-remove@"],
+    "SubagentStart": ["@subagent-start@"]
   },
   "statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}
 }`))
@@ -180,7 +181,8 @@ func TestRegistrationKeepsTheSettingsLayout(t *testing.T) {
 	if err := json.Unmarshal(raw, &hooks); err != nil {
 		t.Fatal(err)
 	}
-	want = []string{"PreToolUse", "SessionStart", "WorktreeCreate", "WorktreeRemove"}
+	want = []string{"PreToolUse", "SessionStart", "WorktreeCreate", "WorktreeRemove",
+		"SubagentStart"}
 	if !slices.Equal(hooks.keys, want) {
 		t.Errorf("hooks keys = %q, want %q", hooks.keys, want)
 	}
@@ -200,6 +202,7 @@ func TestRegistrationCreatesTheFile(t *testing.T) {
   "WorktreeCreate": ["@worktree-create@"],
   "WorktreeRemove": ["@worktree-remove@"],
   "SessionStart": ["@session-start@"],
+  "SubagentStart": ["@subagent-start@"],
   "PreToolUse": ["@pre-tool-use@"]
 }}`))
 	checkMode(t, file, settingsMode)
@@ -256,6 +259,7 @@ func TestRegistrationReplacesItsEarlierEntries(t *testing.T) {
     "@worktree-remove@"
   ],
   "Notification": "not an array",
+  "SubagentStart": ["@subagent-start@"],
   "PreToolUse": ["@pre-tool-use@"]
 }}`))
 }

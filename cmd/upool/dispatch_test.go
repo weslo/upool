@@ -401,7 +401,8 @@ func TestHookWithNoPathPrintsNothing(t *testing.T) {
 
 // Each hook that fails says so on stderr, with its event's exit code and nothing on stdout:
 // worktree-create for a session in a repository that is not there, whose pass-through worktree git
-// cannot make, and worktree-remove and session-start given another event's request.
+// cannot make, and worktree-remove, session-start and subagent-start given another event's
+// request.
 func TestHookFailuresGoToStderr(t *testing.T) {
 	tests := []struct {
 		event, capture string
@@ -416,6 +417,8 @@ func TestHookFailuresGoToStderr(t *testing.T) {
 			`stdin is a "WorktreeCreate" request, not WorktreeRemove`, ""},
 		{"session-start", "desktop-session-create.json", output.ExitOK,
 			`stdin is a "WorktreeCreate" request, not SessionStart`, ""},
+		{"subagent-start", "desktop-session-create.json", output.ExitOK,
+			`stdin is a "WorktreeCreate" request, not SubagentStart`, ""},
 		// A request it cannot read fails the lane guard, exiting non-zero, which the
 		// registration's "onFailure": "block" makes a denial.
 		{"pre-tool-use", "", output.ExitFailure, "decoding the hook's stdin", "not json"},
@@ -522,7 +525,8 @@ func TestHookWithoutAKnownEventFails(t *testing.T) {
 		if r.stdout != "" {
 			t.Errorf("%q: stdout = %q, want empty", args, r.stdout)
 		}
-		if !strings.Contains(r.stderr, "session-start, worktree-create, worktree-remove") {
+		if !strings.Contains(r.stderr,
+			"session-start, subagent-start, worktree-create, worktree-remove") {
 			t.Errorf("%q: stderr = %q, want it to list the events", args, r.stderr)
 		}
 	}

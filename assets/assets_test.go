@@ -70,3 +70,26 @@ func TestSkillSaysHowToDriveUnityInASlot(t *testing.T) {
 		}
 	}
 }
+
+// The instructions a slot session gets as context are the block, then the skill's body without
+// its front matter, well within the 10,000 characters Claude Code's docs allow a hook's context
+// (A43; #229).
+func TestInstructionsAreTheBlockAndTheSkillsBody(t *testing.T) {
+	got := Instructions()
+	_, body, ok := strings.Cut(strings.TrimPrefix(Skill, "---\n"), "\n---\n")
+	if !ok {
+		t.Fatal("the skill has no front matter to strip")
+	}
+	if want := ClaudeMDBlock + "\n" + strings.TrimLeft(body, "\n"); got != want {
+		t.Errorf("Instructions() = %q, want the block, a blank line and the skill's body", got)
+	}
+	if strings.Contains(got, "\ndescription:") || strings.HasPrefix(got, "---") {
+		t.Error("Instructions() carries the skill's front matter")
+	}
+	if !strings.Contains(got, "# Working in a upool slot") {
+		t.Error("Instructions() lacks the skill's body")
+	}
+	if len(got) >= 10000 {
+		t.Errorf("Instructions() is %d bytes, want fewer than 10,000", len(got))
+	}
+}

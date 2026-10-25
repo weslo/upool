@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `upool hook session-start` gives a session in a slot upool's instructions as context on every
+  start (`startup`, `resume`, `clear`, `compact`), as Claude Code's `additionalContext`, and a new
+  `upool hook subagent-start` gives them to that session's subagents, which do not see their
+  session's context (#229; docs/contracts.md A43). The context is printed even when the startup
+  confirm fails. `upool init` registers the new hook; run `upool init` again in each project after
+  upgrading, which `upool doctor` reports until then.
+
 ## [0.4.0-rc.1] - 2026-10-23
 
 ### Added

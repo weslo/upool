@@ -31,6 +31,7 @@ const (
 	EventWorktreeCreate = "WorktreeCreate"
 	EventWorktreeRemove = "WorktreeRemove"
 	EventSessionStart   = "SessionStart"
+	EventSubagentStart  = "SubagentStart"
 )
 
 // Request is a hook's stdin, decoded leniently: a field Claude Code adds is ignored, and one it

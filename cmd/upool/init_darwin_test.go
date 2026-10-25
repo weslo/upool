@@ -610,7 +610,8 @@ func TestInitRegistersHooks(t *testing.T) {
       {"hooks": [{"type": "command", "command": "/opt/other/worktree.sh"}]},
       "@worktree-create@"
     ],
-    "WorktreeRemove": ["@worktree-remove@"]
+    "WorktreeRemove": ["@worktree-remove@"],
+    "SubagentStart": ["@subagent-start@"]
   },
   "statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}
 }`)

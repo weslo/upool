@@ -91,8 +91,10 @@ type command struct {
 	setup func(fs *flag.FlagSet) handler
 }
 
-// hookHandler runs `upool hook <event>` and returns the worktree path the dispatcher prints, and
-// an error (docs/design.md, "Repository, CI and Homebrew distribution", internal/hooks).
+// hookHandler runs `upool hook <event>` and returns what the dispatcher prints, and an error: the
+// worktree path for WorktreeCreate, and for SessionStart and SubagentStart the context document
+// that gives the session upool's instructions (docs/design.md, "Repository, CI and Homebrew
+// distribution", internal/hooks; A43).
 type hookHandler func(inv *invocation) (path string, err error)
 
 // hookDecider runs a hook that answers with a decision rather than a path, PreToolUse's lane guard,

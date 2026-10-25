@@ -78,6 +78,8 @@ func TestClassifyEveryCapture(t *testing.T) {
 			event = EventWorktreeCreate
 		case strings.Contains(name, "-remove"):
 			event = EventWorktreeRemove
+		case strings.HasSuffix(name, "subagent-start"):
+			event = EventSubagentStart
 		case strings.HasSuffix(name, "-start") || strings.HasPrefix(name, "session-start"):
 			event = EventSessionStart
 		case strings.HasSuffix(name, "-end"):
@@ -119,9 +121,9 @@ func TestClassifyEveryCapture(t *testing.T) {
 					req.TranscriptPath, kind)
 			}
 		}
-		// SessionStart and SessionEnd run in the CLI process, so transcript_path is set whoever
-		// the session is ((b)), and they carry a prompt_id after a prompt: their names say only
-		// the event.
+		// SessionStart, SubagentStart and SessionEnd run in the CLI process, so transcript_path
+		// is set whoever the session is ((b)), and they carry a prompt_id after a prompt: their
+		// names say only the event.
 	}
 }
 

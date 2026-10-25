@@ -1,0 +1,10 @@
+{
+  "session_id": "687503a9-ef02-45e8-9718-312eb5c21405",
+  "transcript_path": "${home}/.claude/projects/${repo_key}--claude-worktrees-probe-c11/687503a9-ef02-45e8-9718-312eb5c21405.jsonl",
+  "cwd": "${repo}/.claude/worktrees/probe-c11",
+  "scratchpad_dir": "${claude_tmp}/${repo_key}/687503a9-ef02-45e8-9718-312eb5c21405/scratchpad",
+  "prompt_id": "702e51fc-c453-467e-b567-87dbd993a69f",
+  "agent_id": "a9cd48187c37a9469",
+  "agent_type": "general-purpose",
+  "hook_event_name": "SubagentStart"
+}

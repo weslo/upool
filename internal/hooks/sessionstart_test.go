@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/testenv"
 )
@@ -62,14 +64,40 @@ func (h harness) hookLease(t *testing.T) pool.Slot {
 	return s
 }
 
-// start runs the hook on req, checking that it printed nothing, and returns its error.
+// start runs the hook on req and returns its error, checking what it printed: the context that
+// gives a session in a slot upool's instructions, and nothing for any other session, since
+// Claude Code adds a SessionStart hook's stdout to the session's context (A43).
 func (h harness) start(t *testing.T, req Request) error {
 	t.Helper()
 	got, err := SessionStart(context.Background(), h.env, req)
-	if got != "" {
-		t.Errorf("SessionStart = %q, want no path: its stdout reaches the session's context", got)
+	_, inSlot, ferr := findSlot(h.env.Home, req.Cwd)
+	if ferr != nil {
+		t.Fatal(ferr)
+	}
+	if inSlot && req.HookEventName == EventSessionStart && filepath.IsAbs(req.Cwd) {
+		checkContext(t, got, EventSessionStart)
+	} else if got != "" {
+		t.Errorf("SessionStart = %q, want nothing for a session in no slot", got)
 	}
 	return err
+}
+
+// checkContext fails the test unless got is the one-line document that gives a session upool's
+// instructions for event: Claude Code's hookSpecificOutput, with event as hookEventName and
+// assets.Instructions as additionalContext ((b); A43).
+func checkContext(t *testing.T, got, event string) {
+	t.Helper()
+	var doc struct {
+		Out struct {
+			Event   string `json:"hookEventName"`
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(got), &doc); err != nil || strings.Contains(got, "\n") ||
+		doc.Out.Event != event || doc.Out.Context != assets.Instructions() {
+		t.Errorf("context = %q (%v), want one line of hookSpecificOutput for %s holding "+
+			"upool's instructions", got, err, event)
+	}
 }
 
 // exports returns the lines of h's CLAUDE_ENV_FILE, and whether it exists.
@@ -400,4 +428,58 @@ func TestSessionStartSpawnsRefreshOnlyAfterAHandout(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A session in a slot gets upool's instructions as context on each start that does not hand the
+// slot out, resume, clear and compact, as well as on startup (A43; question 43). The captures are
+// of sessions in pass-through worktrees, so their cwd is pointed at the slot here.
+func TestSessionStartGivesTheInstructions(t *testing.T) {
+	for _, file := range []string{"session-start-resume.json", "session-start-clear.json",
+		"session-start-compact.json"} {
+		t.Run(file, func(t *testing.T) {
+			h := startHarness(t, true, "session")
+			path := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+			h.readySlot(t, "slot-1", path)
+			h.hookLease(t)
+			req := h.capture(t, file)
+			req.Cwd = path
+			got, err := SessionStart(context.Background(), h.env, req)
+			if err != nil {
+				t.Fatalf("SessionStart: %v, want no error", err)
+			}
+			checkContext(t, got, EventSessionStart)
+		})
+	}
+}
+
+// A `claude -p --resume` launched from the main checkout runs SessionStart with the main checkout
+// as its cwd, so the hook cannot tell that the session is in a slot: it gives no context and
+// exports nothing. The resumed session keeps the context its first start gave ((b); question 43).
+func TestSessionStartResumedFromTheMainCheckoutGivesNothing(t *testing.T) {
+	h := startHarness(t, true, "session")
+	h.readySlot(t, "slot-1", filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1"))
+	req := h.capture(t, "cli-resume-checkout-session-start.json")
+	if req.Cwd != h.e.Repo || req.Source != "resume" {
+		t.Fatalf("capture cwd %q, source %q; want the main checkout %s and resume", req.Cwd,
+			req.Source, h.e.Repo)
+	}
+	got, err := SessionStart(context.Background(), h.env, req)
+	if err != nil || got != "" {
+		t.Errorf("SessionStart = %q, %v; want nothing and no error", got, err)
+	}
+	if lines, ok := h.exports(t); ok {
+		t.Errorf("CLAUDE_ENV_FILE = %q, want nothing exported", lines)
+	}
+}
+
+// When the startup confirm fails, the session still gets its instructions, with the confirm's
+// error (A43).
+func TestSessionStartGivesTheInstructionsWhenTheConfirmFails(t *testing.T) {
+	h := startHarness(t, true, "session")
+	h.readySlot(t, "slot-1", filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1"))
+	got, err := SessionStart(context.Background(), h.env, h.capture(t, "session-start.json"))
+	if err == nil {
+		t.Error("SessionStart: no error, want the confirm's refusal")
+	}
+	checkContext(t, got, EventSessionStart)
 }
