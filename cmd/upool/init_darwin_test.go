@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -610,7 +611,8 @@ func TestInitRegistersHooks(t *testing.T) {
       {"hooks": [{"type": "command", "command": "/opt/other/worktree.sh"}]},
       "@worktree-create@"
     ],
-    "WorktreeRemove": ["@worktree-remove@"]
+    "WorktreeRemove": ["@worktree-remove@"],
+    "SubagentStart": ["@subagent-start@"]
   },
   "statusLine": {"type": "command", "command": "~/.claude/statusline.sh"}
 }`)
@@ -678,5 +680,23 @@ func TestInitRunsNoVCSSetUp(t *testing.T) {
 		if len(c.Args) > 0 && c.Args[0] == "vcs" {
 			t.Errorf("init ran unity %v", c.Args)
 		}
+	}
+}
+
+// init registers upool's SubagentStart hook in the project's settings, by the path PATH finds
+// upool at, as it registers the other hooks (A43; #229).
+func TestInitRegistersSubagentStart(t *testing.T) {
+	e := newInitEnv(t)
+	mustInit(t, e)
+	var settings struct {
+		Hooks map[string][]hookGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, e, projectSettings)), &settings); err != nil {
+		t.Fatal(err)
+	}
+	want := []hookGroup{{Hooks: []commandHook{{Type: "command", Command: pathUpool(e),
+		Args: []string{"hook", "subagent-start"}}}}}
+	if got := settings.Hooks["SubagentStart"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("SubagentStart = %+v, want %+v", got, want)
 	}
 }

@@ -6,7 +6,10 @@
 // an issue (AGENTS.md, "This repository's agent files are not upool's").
 package assets
 
-import _ "embed"
+import (
+	_ "embed"
+	"strings"
+)
 
 // Skill is the upool skill, which `upool init` installs in the project at
 // .claude/skills/upool/SKILL.md and .agents/skills/upool/SKILL.md (A26; docs/design.md, "Hooks
@@ -24,6 +27,19 @@ var Skill string
 //
 //go:embed claude-md-block.md
 var ClaudeMDBlock string
+
+// Instructions is what upool tells a session in a slot, and that session's subagents, as hook
+// context rather than in a file of the project's (docs/contracts.md A43; #229): ClaudeMDBlock, a
+// blank line, then Skill's body without its front matter.
+func Instructions() string {
+	body := Skill
+	if rest, ok := strings.CutPrefix(body, "---\n"); ok {
+		if i := strings.Index(rest, "\n---\n"); i >= 0 {
+			body = rest[i+len("\n---\n"):]
+		}
+	}
+	return ClaudeMDBlock + "\n" + strings.TrimLeft(body, "\n")
+}
 
 // ClaudeMDBlockVersion is ClaudeMDBlock's version, which the block's markers carry. Raise it
 // whenever claude-md-block.md changes: an upsert replaces a copy of an older version and keeps

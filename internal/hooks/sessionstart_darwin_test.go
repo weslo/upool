@@ -19,11 +19,14 @@ import (
 // The acceptance test of #77: each captured startup in a slot, its cwd filled to a harness slot
 // holding the create hook's unconfirmed lease, confirms the lease with the hook's parent, the
 // session's CLI, as its holder (A6), re-copies the agent files from the main checkout, and leaves
-// CLAUDE_ENV_FILE holding exactly one export line, naming the slot.
+// CLAUDE_ENV_FILE holding exactly one export line, naming the slot. Each also gets upool's
+// instructions as context (start; A43), the desktop app's /clear among them, which starts a new
+// session with source startup (question 43).
 func TestSessionStartConfirmsTheSlot(t *testing.T) {
 	for _, file := range []string{"session-start.json", "session-start-reuse.json",
 		"sibling-session1-start.json", "sibling-session2-start.json",
-		"sibling-session3-start.json", "sibling-b4-start.json"} {
+		"sibling-session3-start.json", "sibling-b4-start.json",
+		"desktop-clear-session-start.json"} {
 		t.Run(file, func(t *testing.T) {
 			h := startHarness(t, true, "session")
 			req := h.capture(t, file)

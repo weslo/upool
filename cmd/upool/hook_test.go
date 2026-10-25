@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/pool"
@@ -237,6 +238,69 @@ func TestHookPreToolUseDeniesASceneInAScriptLane(t *testing.T) {
 			!strings.Contains(got.PermissionDecisionReason, "--lane scene") {
 			t.Errorf("%s: decision %+v, want PreToolUse denied, naming --lane scene", tt.file,
 				got)
+		}
+	}
+}
+
+// slotStdin returns the hook capture file with its cwd pointed at dir and its paths filled for p.
+func slotStdin(t *testing.T, p harnessPool, file, dir string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "testdata", "captures", "hooks", file))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := pathvars.Fill(string(b), pathvars.Var{Name: "home", Path: p.Home},
+		pathvars.Var{Name: "repo", Path: p.Repo},
+		pathvars.Var{Name: "claude_tmp", Path: filepath.Join(p.Home, "claude-tmp")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var req map[string]any
+	if err := json.Unmarshal([]byte(text), &req); err != nil {
+		t.Fatal(err)
+	}
+	req["cwd"] = dir
+	out, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
+}
+
+// Through the dispatcher, `upool hook session-start` and `upool hook subagent-start` print, for a
+// session in a slot and its subagent, the one line of context that gives them upool's
+// instructions, and exit 0 (A43; #229). A startup whose confirm is refused still prints it, with
+// the refusal on stderr.
+func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
+	p := newHarnessPool(t)
+	p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
+	slot := p.slot("slot-1")
+	for _, tt := range []struct {
+		event, capture, wantEvent, stderr string
+	}{
+		{"session-start", "session-start-compact.json", hooks.EventSessionStart, ""},
+		{"session-start", "session-start.json", hooks.EventSessionStart,
+			"upool: hook session-start: "},
+		{"subagent-start", "cli-subagent-start.json", hooks.EventSubagentStart, ""},
+	} {
+		var out, errOut bytes.Buffer
+		d := dispatcher{commands: commandTable, hooks: hookTable,
+			stdin: strings.NewReader(slotStdin(t, p, tt.capture, slot)), stdout: &out,
+			stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
+			now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid()}
+		code := d.run([]string{"hook", tt.event})
+		doc, err := hooks.ContextDocument(tt.wantEvent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if code != output.ExitOK || out.String() != doc+"\n" {
+			t.Errorf("%s on %s: exit %d, stdout %q; want 0 and the %s context", tt.event,
+				tt.capture, code, out.String(), tt.wantEvent)
+		}
+		if (tt.stderr == "") != (errOut.Len() == 0) ||
+			!strings.HasPrefix(errOut.String(), tt.stderr) {
+			t.Errorf("%s on %s: stderr %q, want %q", tt.event, tt.capture, errOut.String(),
+				tt.stderr)
 		}
 	}
 }

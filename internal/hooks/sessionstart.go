@@ -30,8 +30,11 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // file, running no reset and starting no top-up (A14). Then, whatever the source and whatever the
 // confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile. The stdin cwd is the slot even
 // though the hook's own working directory is the main checkout, so it is read and $PWD never is
-// ((b)). A session anywhere else is left alone. It returns no path: Claude Code adds a SessionStart
-// hook's stdout to the session's context, and the hook has nothing to say there. The hook exits 0
+// ((b)). For a session in a slot it returns the context document that gives the session upool's
+// instructions (ContextDocument; A43), on every source, and even when the confirm fails, with that
+// error. A session anywhere else is left alone, and gets nothing. That includes a `claude -p
+// --resume` launched from the main checkout, whose stdin cwd is the main checkout, not the slot:
+// the resumed session keeps the context its first start gave ((b); question 43). The hook exits 0
 // whatever this returns, its error on stderr: SessionStart has no abort role ((d)).
 func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventSessionStart {
@@ -45,7 +48,8 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	var errs []error
+	doc, err := ContextDocument(EventSessionStart)
+	errs := []error{err}
 	if req.Source == SourceStartup {
 		c, warnings, err := Confirm(ctx, env, req.Cwd)
 		for _, w := range warnings {
@@ -65,7 +69,7 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
 		errs = append(errs, err)
 	}
-	return "", errors.Join(errs...)
+	return doc, errors.Join(errs...)
 }
 
 // recordHolder records env.ParentPID as the holder of the lease on ref's slot, if it has one: a

@@ -38,6 +38,7 @@ var hookTable = map[string]hook{
 	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
 	"worktree-remove": {handle: worktreeRemove, failExit: output.ExitOK},
 	"session-start":   {handle: sessionStart, failExit: output.ExitOK},
+	"subagent-start":  {handle: subagentStart, failExit: output.ExitOK},
 	// A failure exits non-zero, which the registration's "onFailure": "block" makes a denial.
 	"pre-tool-use": {decide: preToolUse, failExit: output.ExitFailure},
 }

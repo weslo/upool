@@ -517,3 +517,28 @@ func TestDeinitPrunesAGoneSlotBeforeItStops(t *testing.T) {
 		t.Errorf("git worktree list = %q, want the main checkout alone", got)
 	}
 }
+
+// init's registration, which the harness pool's hooks come from, registers upool's SubagentStart
+// hook beside the others, and deinit removes it with them, keeping no empty event (A43; #229).
+func TestSubagentStartIsRegisteredAndDeinitRemovesIt(t *testing.T) {
+	p := newHarnessPool(t)
+	var settings struct {
+		Hooks map[string][]hookGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(readFile(t, p.Env, projectSettings)), &settings); err != nil {
+		t.Fatal(err)
+	}
+	groups := settings.Hooks["SubagentStart"]
+	if len(groups) != 1 || len(groups[0].Hooks) != 1 ||
+		!slices.Equal(groups[0].Hooks[0].Args, []string{"hook", "subagent-start"}) ||
+		filepath.Base(groups[0].Hooks[0].Command) != upoolName {
+		t.Fatalf("SubagentStart = %+v, want one handler running upool hook subagent-start", groups)
+	}
+	if r := runDeinit(t, p, procsAlive(), "--yes"); r.code != output.ExitOK {
+		t.Fatalf("deinit: exit = %d; stderr %q", r.code, r.stderr)
+	}
+	if got := readFile(t, p.Env, projectSettings); strings.Contains(got, "SubagentStart") ||
+		strings.Contains(got, "subagent-start") {
+		t.Errorf("%s = %s, want SubagentStart gone", projectSettings, got)
+	}
+}

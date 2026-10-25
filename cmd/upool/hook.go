@@ -34,14 +34,32 @@ func worktreeRemove(inv *invocation) (string, error) {
 }
 
 // sessionStart is `upool hook session-start`: it decodes the request on stdin and hands it to
-// internal/hooks. Its failExit is 0, so its error goes to stderr and the hook still exits 0
-// (docs/contracts.md (d)).
+// internal/hooks, and returns the context document the dispatcher prints (A43). Its failExit is
+// 0, so its error goes to stderr and the hook still exits 0 (docs/contracts.md (d)). A failure
+// that still leaves a context, such as a confirm refused, goes to stderr here, so that the session
+// gets its instructions all the same.
 func sessionStart(inv *invocation) (string, error) {
 	req, err := hooks.Decode(inv.stdin)
 	if err != nil {
 		return "", err
 	}
-	return hooks.SessionStart(context.Background(), hooksEnv(inv), req)
+	doc, err := hooks.SessionStart(context.Background(), hooksEnv(inv), req)
+	if err != nil && doc != "" {
+		say(inv.stderr, "hook session-start: "+err.Error())
+		return doc, nil
+	}
+	return doc, err
+}
+
+// subagentStart is `upool hook subagent-start`: it decodes the request on stdin and hands it to
+// internal/hooks, and returns the context document that gives a slot session's subagent upool's
+// instructions (A43). Its failExit is 0, so its error goes to stderr and the hook still exits 0.
+func subagentStart(inv *invocation) (string, error) {
+	req, err := hooks.Decode(inv.stdin)
+	if err != nil {
+		return "", err
+	}
+	return hooks.SubagentStart(context.Background(), hooksEnv(inv), req)
 }
 
 // preToolUse is `upool hook pre-tool-use`: it decodes the request on stdin and hands it to the lane

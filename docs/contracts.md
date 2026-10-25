@@ -141,6 +141,20 @@ A `claude -p --resume` launched from the main checkout runs `SessionStart` with 
 and `cwd` the main checkout, not the session's worktree, and its `transcript_path` is keyed by the
 main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43).
 
+### Context for the session
+
+What upool's session-start and subagent-start hooks print, which Claude Code adds to the session's
+context (A43; #229).
+
+| Rule | Source |
+|---|---|
+| For a session whose stdin `cwd` is a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
+| The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
+| For any other session the hook prints nothing. A `claude -p --resume` launched from the main checkout is one: its `cwd` is the main checkout, and the session keeps the context its first start gave | `hooks/cli-resume-checkout-session-start.json`; question 43 |
+| A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with `cwd` the session's worktree; for a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
+
+Claude Code's documentation, not measured here, caps a hook's context at 10,000 characters.
+
 ### `CLAUDE_ENV_FILE`
 
 | Rule | Source |

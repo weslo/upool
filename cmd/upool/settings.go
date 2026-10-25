@@ -23,6 +23,7 @@ var hookEvents = []struct{ hook, event, matcher, onFailure string }{
 	{"worktree-create", "WorktreeCreate", "", ""},
 	{"worktree-remove", "WorktreeRemove", "", ""},
 	{"session-start", "SessionStart", "", ""},
+	{"subagent-start", "SubagentStart", "", ""},
 	{"pre-tool-use", "PreToolUse", "Edit|Write|NotebookEdit", "block"},
 }
 

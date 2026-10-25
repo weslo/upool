@@ -91,8 +91,10 @@ type command struct {
 	setup func(fs *flag.FlagSet) handler
 }
 
-// hookHandler runs `upool hook <event>` and returns the worktree path the dispatcher prints, and
-// an error (docs/design.md, "Repository, CI and Homebrew distribution", internal/hooks).
+// hookHandler runs `upool hook <event>` and returns what the dispatcher prints, and an error: the
+// worktree path for WorktreeCreate, and for SessionStart and SubagentStart the context document
+// that gives the session upool's instructions (docs/design.md, "Repository, CI and Homebrew
+// distribution", internal/hooks; A43).
 type hookHandler func(inv *invocation) (path string, err error)
 
 // hookDecider runs a hook that answers with a decision rather than a path, PreToolUse's lane guard,
@@ -193,11 +195,12 @@ func (d *dispatcher) help(cmd command, fs *flag.FlagSet) int {
 	return output.ExitOK
 }
 
-// hook runs `upool hook <event>`. On success stdout gets the handler's path and a newline and
-// nothing else, because the app takes stdout as the worktree path (docs/contracts.md (a),
-// "WorktreeCreate output and app behaviour"); a handler that returns no path, as session-start's
-// does, leaves stdout empty, since Claude Code adds a SessionStart hook's stdout to the session's
-// context. On failure the error goes to stderr and upool exits with the event's failExit.
+// hook runs `upool hook <event>`. On success stdout gets what the handler returns and a newline and
+// nothing else: for WorktreeCreate the worktree path, which the app takes stdout as
+// (docs/contracts.md (a), "WorktreeCreate output and app behaviour"), and for SessionStart and
+// SubagentStart the context document, which Claude Code adds to the session's context (A43). A
+// handler that returns nothing, as session-start does for a session in no slot, leaves stdout
+// empty. On failure the error goes to stderr and upool exits with the event's failExit.
 func (d *dispatcher) hook(args []string) int {
 	events := strings.Join(slices.Sorted(maps.Keys(d.hooks)), ", ")
 	if len(args) == 0 {
