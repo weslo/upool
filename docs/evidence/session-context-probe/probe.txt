@@ -1,0 +1,137 @@
+#228: whether upool's instructions can come from SessionStart (and SubagentStart) context.
+Run 2026-10-23 on the maintainer's Mac: Claude Code 2.1.305, Claude desktop app, macOS 15.7.3.
+The probe is scripts/sessionprobe, built to ${home}/.upool-probe/sessionprobe. Its settings are files in
+${home}/.upool-probe: mode, marker, main, copy-claude-md (see its doc comment). The scratch repository
+gitignores .claude/worktrees/, CLAUDE.md and .claude/settings.local.json; its create and remove hooks are
+upool's pass-through branch, so every session ran in a hook-made worktree under .claude/worktrees/.
+
+== .claude/settings.local.json of the scratch repository
+{
+  "hooks": {
+    "WorktreeCreate": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/Documents/Personal/upool/bin/upool",
+            "args": [
+              "hook",
+              "worktree-create"
+            ]
+          }
+        ]
+      }
+    ],
+    "WorktreeRemove": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/Documents/Personal/upool/bin/upool",
+            "args": [
+              "hook",
+              "worktree-remove"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/.upool-probe/sessionprobe",
+            "args": []
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${home}/.upool-probe/sessionprobe",
+            "args": []
+          }
+        ]
+      }
+    ]
+  }
+}
+== ${home}/.upool-probe/log.txt, one line per hook run, in order
+20261023T091803-18861 source=startup mode=json marker=aster bytes=90 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c1
+20261023T091816-18918 source=startup mode=plain marker=birch bytes=90 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c2
+20261023T091828-18960 source=startup mode=big marker=cedar bytes=3490 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c3
+20261023T091841-19001 source=resume mode=json marker=dahlia bytes=91 copied_claude_md=no cwd=${home}/upool-probe-228
+20261023T091852-19034 source=resume mode=json marker=elm bytes=88 copied_claude_md=no cwd=${home}/upool-probe-228
+20261023T091904-19038 source=compact mode=json marker=elm bytes=88 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c1
+20261023T091908-19070 source=resume mode=json marker=fig bytes=88 copied_claude_md=no cwd=${home}/upool-probe-228
+20261023T091924-19098 source=startup mode=json marker=hazel bytes=90 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c6
+20261023T091935-19129 source=startup mode=json marker=hazel bytes=90 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c7
+20261023T091947-19158 source=startup mode=json marker=iris bytes=89 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c8
+20261023T092029-19241 source=startup mode=json marker=juniper bytes=100 copied_claude_md=yes cwd=${home}/upool-probe-228/.claude/worktrees/probe-c9 claude_project_dir=${home}/upool-probe-228/.claude/worktrees/probe-c9
+20261023T092058-19328 source=startup mode=json marker=kale bytes=97 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c9 claude_project_dir=${home}/upool-probe-228/.claude/worktrees/probe-c9
+20261023T093916-19767 source=startup mode=json marker=laurel bytes=99 copied_claude_md=yes cwd=${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115 claude_project_dir=${home}/upool-probe-228
+20261023T093943-19850 source=startup mode=json marker=laurel bytes=99 copied_claude_md=yes cwd=${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115 claude_project_dir=${home}/upool-probe-228
+20261023T094008-19891 source=compact mode=json marker=laurel bytes=99 copied_claude_md=yes cwd=${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115 claude_project_dir=${home}/upool-probe-228
+20261023T094827-20419 event=SessionStart source=startup mode=json marker=nettle bytes=99 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c11 claude_project_dir=${home}/upool-probe-228/.claude/worktrees/probe-c11
+20261023T094832-20427 event=SubagentStart source=subagentstart mode=json marker=nettle bytes=105 copied_claude_md=no cwd=${home}/upool-probe-228/.claude/worktrees/probe-c11 claude_project_dir=${home}/upool-probe-228/.claude/worktrees/probe-c11
+
+== claude -p runs in the scratch repository, each asked for the probe word or the CLAUDE.md word
+-- c1-json (--worktree probe-c1, mode json, marker aster)
+   session cc258504-900f-4b84-bf43-b4b716a75e21: aster
+-- c2-plain (--worktree probe-c2, mode plain, marker birch)
+   session 8214af1a-84fd-42b7-86ee-6431075f8ebe: birch
+-- c3-big (--worktree probe-c3, mode big (3,398 bytes of filler: assets/claude-md-block.md and assets/skill/upool/SKILL.md, then the marker), marker cedar)
+   session 5aef62b2-2d57-4644-b279-a7bf3ce4d36f: cedar
+-- c4-resume (--resume c1's session, marker dahlia: asked to name every word it was told, with its source)
+   session cc258504-900f-4b84-bf43-b4b716a75e21: I was told two different words, both by SessionStart hook context:
+
+- **aster**: from the hook context attached to your first message
+- **dahlia**: from the hook context attached to this message
+-- c5-compact (--resume c1's session, prompt /compact, marker elm)
+   session cc258504-900f-4b84-bf43-b4b716a75e21: 
+-- c5-after (--resume c1's session after the compaction, marker fig: asked for the latest word)
+   session cc258504-900f-4b84-bf43-b4b716a75e21: fig
+-- c6-control (--worktree probe-c6, no copy, CLAUDE.md in the main checkout says grove: asked for the CLAUDE.md word)
+   session 526930b1-056e-4de7-a7ac-848351843a65: unknown
+-- c7-subagent (--worktree probe-c8 --allowedTools Agent, marker iris, no SubagentStart hook: a general-purpose subagent asked for the probe word)
+   session 994c74c9-eb6b-46d0-afcf-bcfdd420c2df: unknown
+-- c6-copied (first attempt, --worktree probe-c7): the probe's copy did not run; claude_project_dir was the worktree, so the probe now reads the main checkout from its main file
+   session c36f7fe4-e1d2-4950-badd-9431a5031bd9: unknown
+-- c9 (--worktree probe-c9, copy-claude-md on, marker juniper): asked for the CLAUDE.md word; the probe copied the main checkout's CLAUDE.md (grove) into the worktree first
+   session e06c0389-51de-450b-877a-bf8e8cc88669: unknown
+-- c10 (claude -p run inside probe-c9, which now held that CLAUDE.md, marker kale): asked for the CLAUDE.md word
+   session 687a130f-4c92-45c0-9f3a-85dd1af344af: grove
+-- c11 (--worktree probe-c11 --allowedTools Agent, a SubagentStart hook added running the same probe, marker nettle): a general-purpose subagent asked for the probe word
+   session 687503a9-ef02-45e8-9718-312eb5c21405: nettle-subagentstart
+
+== The desktop worktree session, run by the maintainer (marker laurel, copy-claude-md on, the main checkout's CLAUDE.md saying maple)
+Each answer as the maintainer reported it, the probe word first:
+   first prompt: laurel-startup, unknown
+   after /clear: laurel-startup, maple
+   after /compact: laurel-compact, maple
+   a general-purpose subagent asked for the probe word (no SubagentStart hook yet): maple
+The maintainer reported nothing the app displayed of the context.
+
+-- the transcripts' SessionStart attachments, one session id before /clear and one after
+   0c7e6e2c-66e6-464a-a850-ecd38269346d.jsonl
+   {"type":"hook_success","hookName":"SessionStart:startup","content":"","stdout":"{\"hookSpecificOutput\":{\"additionalContext\":\"The upool probe word is laurel-startup. If you are asked for the probe word, reply with it exactly.\",\"hookEventName\":\"SessionStart\"}}\n"}
+   {"type":"hook_additional_context","hookName":"SessionStart","content":["The upool probe word is laurel-startup. If you are asked for the probe word, reply with it exactly."],"stdout":null}
+   56a2fc6c-c252-4558-805b-2abf841eb976.jsonl
+   {"type":"hook_success","hookName":"SessionStart:startup","content":"","stdout":"{\"hookSpecificOutput\":{\"additionalContext\":\"The upool probe word is laurel-startup. If you are asked for the probe word, reply with it exactly.\",\"hookEventName\":\"SessionStart\"}}\n"}
+   {"type":"hook_additional_context","hookName":"SessionStart","content":["The upool probe word is laurel-startup. If you are asked for the probe word, reply with it exactly."],"stdout":null}
+   {"type":"hook_success","hookName":"SessionStart:compact","content":"","stdout":"{\"hookSpecificOutput\":{\"additionalContext\":\"The upool probe word is laurel-compact. If you are asked for the probe word, reply with it exactly.\",\"hookEventName\":\"SessionStart\"}}\n"}
+   {"type":"hook_additional_context","hookName":"SessionStart","content":["You are operating in an isolated workspace created by the user's WorktreeCreate hook.\nWorkspace path: ${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115\nWorkspace name: upool-claude-md-probe-words-814115","The upool probe word is laurel-compact. If you are asked for the probe word, reply with it exactly."],"stdout":null}
+
+== Hook stdin, as the probe recorded it
+-- 20261023T093916-19767
+{"session_id":"0c7e6e2c-66e6-464a-a850-ecd38269346d","transcript_path":"${home}/.claude/projects/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/0c7e6e2c-66e6-464a-a850-ecd38269346d.jsonl","cwd":"${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115","scratchpad_dir":"${claude_tmp}/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/0c7e6e2c-66e6-464a-a850-ecd38269346d/scratchpad","hook_event_name":"SessionStart","source":"startup"}
+-- 20261023T093943-19850
+{"session_id":"56a2fc6c-c252-4558-805b-2abf841eb976","transcript_path":"${home}/.claude/projects/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976.jsonl","cwd":"${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115","scratchpad_dir":"${claude_tmp}/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976/scratchpad","hook_event_name":"SessionStart","source":"startup"}
+-- 20261023T094008-19891
+{"session_id":"56a2fc6c-c252-4558-805b-2abf841eb976","transcript_path":"${home}/.claude/projects/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976.jsonl","cwd":"${home}/upool-probe-228/.claude/worktrees/upool-claude-md-probe-words-814115","scratchpad_dir":"${claude_tmp}/${home_key}-upool-probe-228--claude-worktrees-upool-claude-md-probe-words-814115/56a2fc6c-c252-4558-805b-2abf841eb976/scratchpad","prompt_id":"5ccee64e-712c-4c49-af38-7050d73e4373","hook_event_name":"SessionStart","source":"compact","model":"claude-opus-5-5","session_title":"Upool and CLAUDE.md probe words"}
+-- 20261023T094832-20427
+{"session_id":"687503a9-ef02-45e8-9718-312eb5c21405","transcript_path":"${home}/.claude/projects/${home_key}-upool-probe-228--claude-worktrees-probe-c11/687503a9-ef02-45e8-9718-312eb5c21405.jsonl","cwd":"${home}/upool-probe-228/.claude/worktrees/probe-c11","scratchpad_dir":"${claude_tmp}/${home_key}-upool-probe-228/687503a9-ef02-45e8-9718-312eb5c21405/scratchpad","prompt_id":"702e51fc-c453-467e-b567-87dbd993a69f","agent_id":"a9cd48187c37a9469","agent_type":"general-purpose","hook_event_name":"SubagentStart"}

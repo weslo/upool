@@ -989,6 +989,45 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   as idle since its directory was made, its birth time on APFS (maintainer decision, 2026-10-22;
   (e); A21).
 
+- **43. Where a session gets upool's instructions** ([#228](https://github.com/weslo/upool/issues/228)).
+  `init` upserted a marked block into a project's `CLAUDE.md` and `AGENTS.md` and installed a skill
+  under `.claude/skills/` and `.agents/skills/` (A26). Those files are the project authors', and upool
+  cannot know what is safe to add to them. The M4 gate's first run (2026-10-23) also showed the cost:
+  in a project where git sees them, `init` created them, the session-start confirm copied them into
+  the slot, and the remove hook parked the slot for upool's own copies. The maintainer asked for the
+  instructions to come from upool's own hook output instead (2026-10-23).
+
+  **Measured** (2026-10-23, Claude Code 2.1.305, the desktop app;
+  `evidence/session-context-probe/probe.txt`). A probe registered as a scratch repository's
+  project-scope `SessionStart` hook printed a context naming a marker, in hook-made worktrees under
+  `.claude/worktrees/`:
+  - Both `hookSpecificOutput.additionalContext` JSON and plain stdout reached the model, in
+    `claude -p --worktree` and in a desktop worktree session. A 3.5 KB context arrived whole. Claude
+    Code's docs cap a hook's context at 10,000 characters.
+  - The context came again on every start. A resumed session had `source: resume`, and a compacted
+    one `source: compact`. In the desktop app, `/clear` started a new session, with a new session id
+    and `source: startup`. The transcript records the context as a `hook_additional_context`
+    attachment.
+  - A subagent did not see `SessionStart` context. A `SubagentStart` hook's `additionalContext` did
+    reach a subagent in `claude -p`.
+  - Claude Code loads `CLAUDE.md`, and the files it imports, before `SessionStart` runs. A
+    `CLAUDE.md` the hook copied into the worktree was not read in that session, in the CLI or the
+    desktop app. It was read by the next session to start there.
+
+  **A43.** upool writes nothing into a project's instruction files or skill directories. Its
+  instructions come as context:
+  - `upool hook session-start` gives them to a session in a slot as `additionalContext` on every
+    `SessionStart` (#229);
+  - a new `upool hook subagent-start` gives them to that session's subagents on `SubagentStart`
+    (#229).
+
+  `init` writes neither the block nor the skill, and removes what an older upool wrote, but never
+  from a file git tracks: there it warns instead (#230). `.claude/settings.local.json` stays the one
+  file `init` writes, because per-project hooks live there (A26). Files a slot should keep current,
+  such as gitignored local notes, are mirrored into free slots before a handout, not at session
+  start, because `CLAUDE.md` and its imports load first (#231; #233) (maintainer decisions,
+  2026-10-23 and 2026-10-24).
+
 ### Other open questions
 
 None: every question raised so far is answered above.
