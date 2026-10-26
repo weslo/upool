@@ -65,10 +65,10 @@ const (
 
 // EditorsAt returns the PIDs of the running Unity Editors that have the checkout at dir open:
 // processes the kernel names Unity whose arguments give dir after -projectpath, a relative one
-// read from the process's own working directory, or that hold dir/Temp/UnityLockfile open. Both show an Editor from its first second, where its
-// Library/EditorInstance.json comes several seconds later (A49; #255). Paths compare as paths.Key
-// makes them. A process that exits meanwhile, or whose arguments or files cannot be read, is
-// passed over.
+// read from the process's own working directory, or that hold dir/Temp/UnityLockfile open. Both
+// show an Editor from its first second, where its Library/EditorInstance.json comes several
+// seconds later (A49; #255). Paths compare as paths.Key makes them. A process that exits
+// meanwhile, or whose arguments or files cannot be read, is passed over.
 func EditorsAt(dir string) ([]int, error) {
 	project, err := paths.Key(dir)
 	if err != nil {
