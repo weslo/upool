@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- upool no longer clones from a checkout whose Editor is still starting (#255; docs/contracts.md
+  A49). It knew such an Editor only by its `Library/EditorInstance.json`, which comes several
+  seconds after the launch: in the M4 gate's fourth run, a `take` in that window cloned the main
+  checkout while its Editor was loading it. A checkout now counts as open too while a running Unity
+  Editor has it as its `-projectpath` or holds its `Temp/UnityLockfile` open, as one does from its
+  first second. Seeds, `prune` and `init` all judge a checkout this way.
+
 ## [0.4.0-rc.4] - 2026-10-26
 
 ### Fixed

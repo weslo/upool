@@ -3,22 +3,40 @@
 package proc
 
 import (
+	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
 
 // childEnv, when set, makes the test binary a child for the tests below instead of running them:
 // the child waits for its stdin to close and exits, so the test decides how long it lives
-// (CONTRIBUTING.md, "Other processes by re-exec").
-const childEnv = "UPOOL_PROC_TEST_CHILD"
+// (CONTRIBUTING.md, "Other processes by re-exec"). With holdEnv set to a path too, it first opens
+// that file and prints a line once it holds it.
+const (
+	childEnv = "UPOOL_PROC_TEST_CHILD"
+	holdEnv  = "UPOOL_PROC_TEST_HOLD"
+)
+
+// held is the file a child holds open until it exits, kept here so that no finalizer closes it.
+var held *os.File
 
 func TestMain(m *testing.M) {
 	if os.Getenv(childEnv) != "" {
+		if path := os.Getenv(holdEnv); path != "" {
+			f, err := os.Open(path)
+			if err != nil {
+				os.Exit(2)
+			}
+			held = f
+			fmt.Println("holding")
+		}
 		// EOF or an error both mean the parent is done with us; either way, exit.
 		_, _ = io.Copy(io.Discard, os.Stdin)
 		os.Exit(0)
@@ -162,5 +180,125 @@ func TestNameIsTheExecutablesBaseName(t *testing.T) {
 	}
 	if _, err := Name(cmd.Process.Pid); !errors.Is(err, ErrNoProcess) {
 		t.Errorf("Name of a reaped child: %v, want ErrNoProcess", err)
+	}
+}
+
+// unityChild starts a copy of the test binary named Unity, as the kernel names a running Editor,
+// as a child with args, holding the file at hold open when hold is not empty. It returns once the
+// child holds it, and the child runs until the test ends.
+func unityChild(t *testing.T, hold string, args ...string) int {
+	t.Helper()
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), editorName)
+	if err := os.WriteFile(bin, self, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return child(t, bin, hold, args...)
+}
+
+// child starts bin as a child with args, as startChild does, holding the file at hold open when
+// hold is not empty, and returns its PID once it holds it.
+func child(t *testing.T, bin, hold string, args ...string) int {
+	t.Helper()
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append(os.Environ(), childEnv+"=1", holdEnv+"="+hold)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	if hold != "" {
+		if line, err := bufio.NewReader(stdout).ReadString('\n'); err != nil || line != "holding\n" {
+			t.Fatalf("the child did not hold %s: %q, %v", hold, line, err)
+		}
+	}
+	return cmd.Process.Pid
+}
+
+// pidsNamed finds this process by its own name, which shows kp_proc.p_pid read where it lies.
+func TestPIDsNamedFindsThisProcess(t *testing.T) {
+	name, err := Name(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	pids, err := pidsNamed(name)
+	if err != nil || !slices.Contains(pids, os.Getpid()) {
+		t.Errorf("pidsNamed(%q) = %v, %v; want it to hold this process, %d", name, pids, err,
+			os.Getpid())
+	}
+}
+
+// procArgs reads a child's arguments as it was started with them, and ErrNoProcess once it is
+// reaped.
+func TestProcArgsAreTheChildsArguments(t *testing.T) {
+	pid := child(t, os.Args[0], "", "-projectPath", "/some project/dir", "")
+	got, err := procArgs(pid)
+	want := []string{os.Args[0], "-projectPath", "/some project/dir", ""}
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("procArgs = %q, %v; want %q", got, err, want)
+	}
+	if _, err := procArgs(1 << 30); !errors.Is(err, ErrNoProcess) {
+		t.Errorf("procArgs of no process: %v, want ErrNoProcess", err)
+	}
+}
+
+// vnodePaths lists the files a child holds open, by their real paths.
+func TestVnodePathsHoldTheFileAChildOpened(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "held")
+	if err := os.WriteFile(file, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	real, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pid := child(t, os.Args[0], file)
+	got, err := vnodePaths(pid)
+	if err != nil || !slices.Contains(got, real) {
+		t.Errorf("vnodePaths = %q, %v; want it to hold %s", got, err, real)
+	}
+}
+
+// EditorsAt finds a process named Unity that has the checkout as its -projectpath, whatever the
+// flag's case, and one that holds the checkout's Temp/UnityLockfile open, and neither for another
+// checkout, nor a process of another name that does the same (A49; #255).
+func TestEditorsAtFindsAnEditorByItsArgumentsOrItsLockfile(t *testing.T) {
+	dir, other := t.TempDir(), t.TempDir()
+	lock := filepath.Join(dir, filepath.FromSlash(lockFile))
+	if err := os.MkdirAll(filepath.Dir(lock), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	byArgs := unityChild(t, "", "-projectpath", dir)
+	byCase := unityChild(t, "", "-projectPath", dir+"/")
+	byLock := unityChild(t, lock)
+	child(t, os.Args[0], lock, "-projectpath", dir)
+	got, err := EditorsAt(dir)
+	slices.Sort(got)
+	want := []int{byArgs, byCase, byLock}
+	slices.Sort(want)
+	if err != nil || !slices.Equal(got, want) {
+		t.Errorf("EditorsAt(dir) = %v, %v; want %v", got, err, want)
+	}
+	if got, err := EditorsAt(other); err != nil || len(got) != 0 {
+		t.Errorf("EditorsAt(another checkout) = %v, %v; want none", got, err)
+	}
+	if got, err := (System{}).EditorsAt(dir); err != nil || len(got) != 3 {
+		t.Errorf("System.EditorsAt = %v, %v; want the three", got, err)
 	}
 }

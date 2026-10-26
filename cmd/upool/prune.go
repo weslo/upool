@@ -433,8 +433,8 @@ func (pr pruner) editorIn(editors ledger.Ledger, dir string) (bool, error) {
 	if err != nil || live {
 		return live, err
 	}
-	name, err := clone.InstanceFile(dir, pr.inv.checker())
-	return name != "", err
+	why, err := clone.EditorOpen(dir, pr.inv.checker())
+	return why != "", err
 }
 
 // remove removes the candidate c ((f) transition 15). Under the lock it takes the slot's entry out

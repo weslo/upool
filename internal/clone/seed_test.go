@@ -47,6 +47,9 @@ func (f seedProcs) Name(pid int) (string, error) {
 	return unityProcess, nil
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (seedProcs) EditorsAt(string) ([]int, error) { return nil, nil }
+
 // The cloning process, an Editor, and when each started.
 const (
 	clonerPID = 5100

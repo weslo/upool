@@ -69,6 +69,9 @@ func (p *editorProcs) Name(pid int) (string, error) {
 	return "", proc.ErrNoProcess
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (*editorProcs) EditorsAt(string) ([]int, error) { return nil, nil }
+
 func (p *editorProcs) Alive(pid int, _ time.Time) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

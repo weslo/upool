@@ -556,6 +556,9 @@ func (c *startsLater) Name(pid int) (string, error) {
 	return "Unity", nil
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (*startsLater) EditorsAt(string) ([]int, error) { return nil, nil }
+
 func (c *startsLater) Start(pid int) (time.Time, error) {
 	if pid != c.pid {
 		return time.Time{}, proc.ErrNoProcess

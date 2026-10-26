@@ -194,7 +194,7 @@ func (r *SeedRefresher) shut(ctx context.Context, seed string, pid int,
 // ClearLeftovers removes the instance files an Editor upool closed with --force left in the
 // checkout at dir, once `unity status` lists no Editor there; its processes, pids, are gone
 // already (ClearInstanceFiles; A45). It returns warnings: a leftover it could not remove no longer
-// keeps upool from the checkout (InstanceFile), so it fails nothing.
+// keeps upool from the checkout (EditorOpen), so it fails nothing.
 func ClearLeftovers(ctx context.Context, u unity.Client, dir string, pids []int) []string {
 	n, err := u.EditorsAt(ctx, dir)
 	if err != nil {

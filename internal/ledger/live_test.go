@@ -36,6 +36,9 @@ func (l liveProcs) Name(pid int) (string, error) {
 	return "Unity", nil
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (liveProcs) EditorsAt(string) ([]int, error) { return nil, nil }
+
 // An Editor counts while its PID is a process and its project is the one asked about, spelled
 // any way that comes to the same canonical path.
 func TestLiveInFindsALiveEditorInTheProject(t *testing.T) {

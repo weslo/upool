@@ -95,6 +95,9 @@ func (p *refreshProcs) Name(pid int) (string, error) {
 	return "", proc.ErrNoProcess
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (*refreshProcs) EditorsAt(string) ([]int, error) { return nil, nil }
+
 func (p *refreshProcs) Alive(pid int, start time.Time) (bool, error) {
 	switch pid {
 	case clonerPID:

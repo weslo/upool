@@ -62,7 +62,7 @@ const (
 )
 
 // EditorInstanceFile is the file an open Editor holds in its Library, absent after a clean exit
-// (spike §2 T1.5). It names the Editor's process as process_id, which clone.InstanceFile reads
+// (spike §2 T1.5). It names the Editor's process as process_id, which clone.EditorOpen reads
 // (A45). OpenEditor's names EditorPID, which a test's process table must report as a running Unity
 // Editor for the checkout to count as open.
 const EditorInstanceFile = "Library/EditorInstance.json"

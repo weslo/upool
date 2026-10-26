@@ -112,18 +112,37 @@ func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
 	}
 }
 
-// With the main checkout's Editor open there is no seed: take clones nothing and says why.
+// With the main checkout's Editor open there is no seed: take clones nothing and says why. An
+// Editor still starting, which has written no EditorInstance.json yet, has it open as well, by its
+// -projectpath argument (A49; #255).
 func TestTakeClonesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
-	e := leasedPool(t)
-	e.WriteFile(testenv.EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`, runningUnity(t)))
-	r := runIn(t, e, e.Repo, "take", "feature-y")
-	want := "upool: not cloning a slot: no seed qualifies: the main checkout: the Unity Editor " +
-		"has it open (Library/EditorInstance.json names a running Editor)\n"
-	if r.code != output.ExitFailure || !strings.Contains(r.stderr, want) {
-		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
-	}
-	if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=leased" {
-		t.Errorf("slots = %s, want slot-1 alone", got)
+	for _, tt := range []struct {
+		name string
+		open func(t *testing.T, e *testenv.Env) string
+	}{
+		{"its instance file", func(t *testing.T, e *testenv.Env) string {
+			e.WriteFile(testenv.EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`,
+				runningUnity(t)))
+			return "Library/EditorInstance.json names a running Editor"
+		}},
+		{"still starting", func(t *testing.T, e *testenv.Env) string {
+			pid := runningUnity(t, "-projectpath", e.Repo)
+			return fmt.Sprintf("process %d, a Unity Editor, has it as its project", pid)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := leasedPool(t)
+			why := tt.open(t, e)
+			r := runIn(t, e, e.Repo, "take", "feature-y")
+			want := "upool: not cloning a slot: no seed qualifies: the main checkout: the Unity " +
+				"Editor has it open (" + why + ")\n"
+			if r.code != output.ExitFailure || !strings.Contains(r.stderr, want) {
+				t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
+			}
+			if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=leased" {
+				t.Errorf("slots = %s, want slot-1 alone", got)
+			}
+		})
 	}
 }
 
@@ -131,9 +150,10 @@ func TestTakeClonesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
 const editorStandIn = "UPOOL_TEST_EDITOR_STAND_IN"
 
 // runningUnity starts a process the kernel names Unity, as it names a running Editor's
-// (clone.InstanceFile; A45): a copy of this test binary, named Unity, that runs TestEditorStandIn
-// until the test ends. It returns the process's PID.
-func runningUnity(t *testing.T) int {
+// (clone.EditorOpen; A45): a copy of this test binary, named Unity, that runs TestEditorStandIn
+// until the test ends, with args after the test's own flags, as an Editor's command line holds
+// -projectpath. It returns the process's PID.
+func runningUnity(t *testing.T, args ...string) int {
 	t.Helper()
 	self, err := os.ReadFile(os.Args[0])
 	if err != nil {
@@ -143,7 +163,7 @@ func runningUnity(t *testing.T) int {
 	if err := os.WriteFile(bin, self, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(bin, "-test.run=^TestEditorStandIn$")
+	cmd := exec.Command(bin, append([]string{"-test.run=^TestEditorStandIn$", "--"}, args...)...)
 	cmd.Env = append(os.Environ(), editorStandIn+"=1")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

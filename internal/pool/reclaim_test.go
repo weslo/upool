@@ -36,6 +36,9 @@ func (f fakeProcs) Name(pid int) (string, error) {
 	return "Unity", nil
 }
 
+// EditorsAt finds no Editor by its arguments or its lockfile: the tests here have none.
+func (fakeProcs) EditorsAt(string) ([]int, error) { return nil, nil }
+
 func (f fakeProcs) Alive(pid int, start time.Time) (bool, error) {
 	got, ok := f[pid]
 	return ok && got.Equal(start), nil

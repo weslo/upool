@@ -44,16 +44,17 @@ func validPID(pid int) error {
 	return nil
 }
 
-// Checker is Start, Alive and Name behind an interface, so that pool and ledger tests inject
-// liveness instead of spawning processes. Start is in it too, because Start fails off darwin and
-// those packages' tests also run on Linux in CI. System is the real one.
+// Checker is Start, Alive, Name and EditorsAt behind an interface, so that pool and ledger tests
+// inject liveness instead of spawning processes. Start is in it too, because Start fails off darwin
+// and those packages' tests also run on Linux in CI. System is the real one.
 type Checker interface {
 	Start(pid int) (time.Time, error)
 	Alive(pid int, start time.Time) (bool, error)
 	Name(pid int) (string, error)
+	EditorsAt(dir string) ([]int, error)
 }
 
-// System is the Checker that asks the operating system, through Start and Alive.
+// System is the Checker that asks the operating system.
 type System struct{}
 
 var _ Checker = System{}
@@ -71,4 +72,9 @@ func (System) Alive(pid int, start time.Time) (bool, error) {
 // Name returns Name(pid).
 func (System) Name(pid int) (string, error) {
 	return Name(pid)
+}
+
+// EditorsAt returns EditorsAt(dir).
+func (System) EditorsAt(dir string) ([]int, error) {
+	return EditorsAt(dir)
 }

@@ -426,7 +426,7 @@ sets `UNITY_SKIP_HOOKS` (D-lifecycle).
 
 | Step | Shell | Source |
 |---|---|---|
-| 0 | Choose the seed. `init`'s first slot seeds from the main checkout, with its Editor closed. Any later clone takes the first of these that has no live Editor (by the ledger, or an instance file naming a running Editor; A45) and passes step 1: the freshest ready slot; a `needs-reset` slot, after its reset; the main checkout. A slot chosen as the seed is held as `warming` until step 4 has copied it ((f) transition 23). If none qualifies, nothing is cloned: `take` waits or fails as for a full pool, and the top-up exits, each saying why | D-lifecycle; A19 |
+| 0 | Choose the seed. `init`'s first slot seeds from the main checkout, with its Editor closed. Any later clone takes the first of these that has no live Editor (by the ledger, an instance file naming a running Editor, or a running Editor that has it as its `-projectpath` or holds its `Temp/UnityLockfile` open; A45; A49) and passes step 1: the freshest ready slot; a `needs-reset` slot, after its reset; the main checkout. A slot chosen as the seed is held as `warming` until step 4 has copied it ((f) transition 23). If none qualifies, nothing is cloned: `take` waits or fails as for a full pool, and the top-up exits, each saying why | D-lifecycle; A19 |
 | 1 | Staleness check on the seed: newest mtime under `Assets/**/*.cs` against the Editor's last compile, the newer of `Library/ScriptAssemblies` and the newest `.dll` in the build cache's Editor DAG, `Library/Bee/artifacts/<hash>E….dag/` (the Editor copies an assembly into `ScriptAssemblies` only when its content changed; player DAGs such as `<hash>P.dag` do not count); a missing `ScriptAssemblies` is stale. `git -C <seed> rev-parse HEAD` and `git -C <seed> status --porcelain`. If stale, refresh it with a batch open (about 16 s); a seed never has a live Editor (step 0), so the design's `unity recompile` case does not arise. `unity cache key` is compared across checkouts instead (step 7; (f)) | D-lifecycle; S§8 D.1, D.2; A19; A20; #144 |
 | 2 | Write the `creating` entry, with this process in `owner_pid`, to `state.json` under the lock, then drop the lock | D-leases; A4 |
 | 3 | `git -C <repo> worktree add --no-checkout --detach <repo>/.claude/worktrees/slot-N <seed-head>`, where `<seed-head>` is `git -C <seed> rev-parse HEAD`, as the spike measured | S§2 TA; S§9 E.1; A10 |
@@ -1140,6 +1140,9 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   ready Editor running is sent again, and the Editor is closed with `--force` once two minutes
   have passed (A48).
 
+  **Amended** ([#255](https://github.com/weslo/upool/issues/255)): an Editor counts too before it
+  has written `EditorInstance.json`, by its arguments or its `Temp/UnityLockfile` (A49).
+
 - **46. Which slot a start belongs to** ([#244](https://github.com/weslo/upool/issues/244)).
   upool's session-start and subagent-start hooks found the slot only when stdin's `cwd` was the
   slot's path. The M4 gate's rerun (2026-10-25, desktop app 3.6556.2, Claude Code 2.1.308; #232,
@@ -1211,6 +1214,36 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     other close, whatever the failure.
   - **Not ready:** an Editor that never became ready keeps A40's `--force` at once.
   - **Re-warm:** a slot's re-warm closes the same way but has not failed, so it is left as it is.
+
+- **49. An Editor that has not yet written its instance file**
+  ([#255](https://github.com/weslo/upool/issues/255)). upool knew an Editor it had not opened only
+  by `Library/EditorInstance.json` (A45), which an Editor writes seconds after it starts. In the M4
+  gate's fourth run (2026-10-26, CLI 1.0.0-beta.13, Editor 6000.4.11f1; #232, check 3 step 2), a
+  GUI Editor opened on the spike's project's main checkout was reported ready by
+  `unity status --until-ready` before that file existed. A `take` then cloned slot-2 from the
+  checkout while the Editor was loading it. The file came 10 s after the launch. Sampled on a
+  headless Editor of the same checkout, the signals came in this order:
+  - a process named `Unity` whose arguments hold `-projectpath <checkout>`: 0.4 s;
+  - `Temp/UnityLockfile`, held open by that process: 1.1 s;
+  - `unity status` listing the Editor: 6.6 s;
+  - `EditorInstance.json`: 8.4 s.
+
+  **A49.** A checkout is open in an Editor also when a running process the kernel names `Unity`
+  has it as its `-projectpath`, or holds its `Temp/UnityLockfile` open. `unity status` is not
+  asked: it saw the Editor later than both, for a CLI call (maintainer decision, 2026-10-26). What
+  follows is the implementation's:
+  - **Where:** `proc.EditorsAt`, behind `clone.EditorOpen`, which seeds, prune and `init` ask. The
+    instance file is asked first, and the reason names the process: "process N, a Unity Editor,
+    has it as its project".
+  - **Arguments** come from sysctl `kern.procargs2`. The flag matches whatever its case, and the
+    path after it compares as `paths.Key` makes paths.
+  - **The lockfile** is found among the vnodes the process holds open, through the `proc_info`
+    system call. upool never takes the file's lock, which could make a starting Editor refuse the
+    project.
+  - **Measured** through `proc.EditorsAt` on 2026-10-26, against a headless Editor opened on the
+    same checkout: it found the Editor at the first sample after the launch, 0.7 s, by both, and
+    `EditorInstance.json` came at 7.7 s.
+  - **Off macOS,** where upool reads no process, the check is the instance file's alone, as before.
 
 ### Other open questions
 

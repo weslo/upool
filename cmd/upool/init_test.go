@@ -126,7 +126,7 @@ func TestInitRefusesTrackedLibrary(t *testing.T) {
 }
 
 // init refuses a checkout whose EditorInstance.json names a running Unity Editor
-// (clone.InstanceFile; A45).
+// (clone.EditorOpen; A45).
 func TestInitRefusesOpenEditor(t *testing.T) {
 	e := newInitEnv(t, testenv.OpenEditor())
 	r := runProcs(t, e, e.Repo, procsAlive(testenv.EditorPID), func() time.Time { return clock },
