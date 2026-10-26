@@ -27,10 +27,11 @@ func ContextDocument(event string) (string, error) {
 	return strings.TrimSuffix(b.String(), "\n"), nil
 }
 
-// SubagentStart handles a SubagentStart request: for a subagent of a session whose stdin cwd is a
-// slot, matched by canonical path as SessionStart matches it, it returns the context document that
-// gives the subagent upool's instructions, since a subagent does not see the SessionStart context
-// its session had (docs/contracts.md (b); A43). For any other subagent it returns nothing. It
+// SubagentStart handles a SubagentStart request: for a subagent of a session in a slot, found by
+// the session's session_id or, failing that, by the slot that contains the subagent's cwd, as
+// SessionStart finds it (sessionSlot; A46), it returns the context document that gives the
+// subagent upool's instructions, since a subagent does not see the SessionStart context its
+// session had (docs/contracts.md (b); A43). For any other subagent it returns nothing. It
 // changes no state. The hook exits 0 whatever this returns, its error on stderr.
 func SubagentStart(_ context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventSubagentStart {

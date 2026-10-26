@@ -46,12 +46,41 @@ func TestSessionAndSubagentStartsFindTheSlotBySessionID(t *testing.T) {
 	if compact.Cwd == slot {
 		t.Fatalf("the compaction's cwd is the slot, want the slot's Assets")
 	}
-	got, err := SessionStart(context.Background(), h.env, compact)
+	// Each start is given a CLAUDE_ENV_FILE of its own, so that an export it should make is not
+	// mistaken for the startup's.
+	compacted := h
+	compacted.env.EnvFile = filepath.Join(t.TempDir(), "compact.sh")
+	got, err := SessionStart(context.Background(), compacted.env, compact)
 	if err != nil {
 		t.Errorf("SessionStart compact: %v", err)
 	}
 	checkContext(t, got, EventSessionStart)
-	h.checkExported(t, slot)
+	compacted.checkExported(t, slot)
+
+	// A compaction found by its session_id after the session has gone outside the slot still
+	// exports the slot, as A14 has a compaction do; only a resume from outside it waits on #245.
+	away := h
+	away.env.EnvFile = filepath.Join(t.TempDir(), "away.sh")
+	elsewhere := compact
+	elsewhere.Cwd = t.TempDir()
+	got, err = SessionStart(context.Background(), away.env, elsewhere)
+	if err != nil {
+		t.Errorf("SessionStart compact outside the slot: %v", err)
+	}
+	checkContext(t, got, EventSessionStart)
+	away.checkExported(t, slot)
+
+	// A resume found by its session_id with cwd under the slot exports the slot, as A14 has it.
+	inside := h
+	inside.env.EnvFile = filepath.Join(t.TempDir(), "resume-inside.sh")
+	resumeInside := compact
+	resumeInside.Source = "resume"
+	got, err = SessionStart(context.Background(), inside.env, resumeInside)
+	if err != nil {
+		t.Errorf("SessionStart resume under the slot: %v", err)
+	}
+	checkContext(t, got, EventSessionStart)
+	inside.checkExported(t, slot)
 
 	// The session_id finds the slot when cwd is outside it too: a subagent, and a resume launched
 	// from the main checkout, which records its parent as the holder and, until #245, exports

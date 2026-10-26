@@ -19,6 +19,9 @@ import (
 // sources").
 const SourceStartup = "startup"
 
+// SourceResume is a SessionStart request's source when a session resumes ((b)).
+const SourceResume = "resume"
+
 // projectPathVar is the variable the session-start hook exports for a session in a slot, the one
 // the Unity CLI targets by (docs/contracts.md (b) and (c)).
 const projectPathVar = "UNITY_PROJECT_PATH"
@@ -26,17 +29,18 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // SessionStart handles a SessionStart request. For a session in a slot, found by its session_id
 // or, failing that, by the slot that contains its stdin cwd (sessionSlot; A46), it confirms the
 // slot's lease in-process on startup, as `upool take --confirm` does, recording the session_id
-// for its later starts, and then starts the detached top-up through env.StartRefresh (#79). On any other source it
-// only records env.ParentPID as the lease's holder while the slot has one, re-copying no agent
-// file, running no reset and starting no top-up (A14). Then, whatever the source and whatever the
-// confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile. The stdin cwd is the slot even
-// though the hook's own working directory is the main checkout, so it is read and $PWD never is
-// ((b)). For a session in a slot it returns the context document that gives the session upool's
-// instructions (ContextDocument; A43), on every source, and even when the confirm fails, with that
-// error. A session anywhere else is left alone, and gets nothing. That includes a `claude -p
-// --resume` launched from the main checkout, whose stdin cwd is the main checkout, not the slot:
-// the resumed session keeps the context its first start gave ((b); question 43). The hook exits 0
-// whatever this returns, its error on stderr: SessionStart has no abort role ((d)).
+// for its later starts, and then starts the detached top-up through env.StartRefresh (#79). On
+// any other source it only records env.ParentPID as the lease's holder while the slot has one,
+// re-copying no agent file, running no reset and starting no top-up (A14). Then, whatever the
+// source and whatever the confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile, but for
+// a resume found by its session_id with cwd outside the slot, as a `claude -p --resume` launched
+// from the main checkout is: where such a session works waits on #245, and nothing is exported
+// for it. The stdin cwd is read and $PWD never is, since the hook's own working directory is the
+// main checkout ((b)). For a session in a slot it returns the context document that gives the
+// session upool's instructions (ContextDocument; A43), on every source, and even when the confirm
+// fails, with that error. A session in no slot, the main checkout's own among them, is left
+// alone and gets nothing. The hook exits 0 whatever this returns, its error on stderr:
+// SessionStart has no abort role ((d)).
 func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventSessionStart {
 		return "", fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
@@ -67,9 +71,9 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	} else if err := recordHolder(ctx, env, ref); err != nil {
 		errs = append(errs, err)
 	}
-	// A start found by its session_id outside the slot, as a resume launched from the main
-	// checkout is, exports nothing until #245 has shown where such a session works.
-	if in {
+	// A resume found by its session_id outside the slot, as one launched from the main checkout
+	// is, exports nothing until #245 has shown where such a session works.
+	if in || req.Source != SourceResume {
 		if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
 			errs = append(errs, err)
 		}

@@ -389,13 +389,14 @@ func findSlot(home, path string) (slotRef, bool, error) {
 	return slotRef{}, false, nil
 }
 
-// sessionSlot returns the slot of the session whose SessionStart or SubagentStart has sessionID
-// and cwd, whether there is one, and whether cwd is in it, the slot or a path under it (A46; #244). Claude Code reports cwd as where the session or
-// subagent is now, which moves with a `cd` and is a subagent's own worktree under isolation, so
-// the slot is found first by the lease that records sessionID, which the session's startup
-// confirm set and every later start of it, and its subagents', carries. Failing that, it is the
-// slot whose path contains cwd, as `upool which` finds it, a worktree the create hook made inside
-// the slot included; the main checkout, which contains every slot, is in none of them.
+// sessionSlot returns the slot of the session whose SessionStart or SubagentStart has sessionID and
+// cwd, whether there is one, and whether cwd is in it, the slot or a path under it (A46; #244).
+// Claude Code reports cwd as where the session or subagent is now, which moves with a `cd` and is a
+// subagent's own worktree under isolation, so the slot is found first by the lease that records
+// sessionID, which the session's startup confirm set and every later start of it, and its
+// subagents', carries. Failing that, it is the slot whose path contains cwd, as `upool which` finds
+// it, a worktree the create hook made inside the slot included; the main checkout, which contains
+// every slot, is in none of them.
 func sessionSlot(home, sessionID, cwd string) (ref slotRef, found, in bool, err error) {
 	want, err := paths.Key(cwd)
 	if err != nil {

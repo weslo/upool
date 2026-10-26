@@ -265,7 +265,7 @@ Pool:
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
-| `schema_version` | integer | `1` | every writer | A7 |
+| `schema_version` | integer | `2`, since leases gained `session_id`; a `1` is read as one without it | every writer | A7; A46 |
 | `repo` | string, absolute path | the main checkout | `init` | D-commands |
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool.toml` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool.toml` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
@@ -1147,7 +1147,7 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   finds the lease by it. A start whose `session_id` names no lease falls back to the slot whose path
   contains its `cwd`, a worktree inside the slot included. A start found either way gets the
   instructions, and a `startup` confirms that slot (maintainer decision, 2026-10-25, on #232). A
-  start found by its `session_id` with `cwd` outside the slot, as a resume launched from the main
+  `resume` found by its `session_id` with `cwd` outside the slot, as one launched from the main
   checkout is, has its holder recorded (#238) and is exported nothing until #245's capture shows
   where such a session works.
 
