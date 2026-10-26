@@ -24,8 +24,8 @@ const kinfoProcSize = 648
 
 // commOffset and commSize are where kp_proc.p_comm, the process's name as the kernel records it,
 // the executable's base name cut to MAXCOMLEN bytes and ending in a NUL, lies in struct
-// kinfo_proc on 64-bit darwin. A Unity Editor's is "Unity", from Unity.app/Contents/MacOS/Unity
-// (#243).
+// kinfo_proc on 64-bit darwin: 243 on a sleep, a test binary and launchd alike. A running Unity
+// Editor's read "Unity", from Unity.app/Contents/MacOS/Unity (#243; A45).
 const (
 	commOffset = 243
 	commSize   = 17

@@ -1115,14 +1115,18 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     `Library/ProtocolInstance.json` and `Temp/UnityLockfile` beside it. That is the rule
     `doctor --fix` keeps for a slot's `Temp/`. A failure is a warning.
   - **An instance file counts only for a running Editor.** Seeds, prune and `init` take a checkout
-    for open only when the process its `EditorInstance.json` names is alive and is a Unity Editor,
-    whose name the kernel records as `Unity`. A `ProtocolInstance.json` with no live
-    `EditorInstance.json` beside it is a leftover too. Nothing of the project's is deleted for
-    this.
+    for open only when the process its `EditorInstance.json` names is alive and is a Unity Editor.
+    A `ProtocolInstance.json` with no live `EditorInstance.json` beside it is a leftover too.
+    Nothing of the project's is deleted for this.
 
-  (maintainer decision, 2026-10-25.) What follows is the implementation's. A file that names no
-  process names no live Editor, so it does not count. Off macOS, where upool reads no process, the
-  file counts as it always did. The rerun read the name `Unity` for the Editor its file named.
+  (maintainer decision, 2026-10-25.) What follows is the implementation's:
+  - **A Unity Editor is a process the kernel names `Unity`,** from `Unity.app/Contents/MacOS/Unity`,
+    which upool reads from `kinfo_proc`'s `p_comm`. Measured on 2026-10-25, Editor 6000.4.11f1,
+    during #243's work: a headless Editor `upool open` started in a slot of the maintainer's project
+    wrote `EditorInstance.json` naming its PID, and that process's `p_comm` was `Unity`. A plain
+    `upool close` then removed the file.
+  - **A file that names no process** names no live Editor, so it does not count.
+  - **Off macOS,** where upool reads no process, the file counts as it always did.
 
 ### Other open questions
 

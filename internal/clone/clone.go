@@ -54,8 +54,9 @@ const editorInstanceFile = "Library/EditorInstance.json"
 var leftoverFiles = []string{"Library/ProtocolInstance.json", "Temp/UnityLockfile"}
 
 // unityProcess is a Unity Editor's process name as the kernel records it, from
-// Unity.app/Contents/MacOS/Unity: the M4 gate's rerun read it, for the Editor whose PID its
-// Library/EditorInstance.json named (#243).
+// Unity.app/Contents/MacOS/Unity: on 2026-10-25, during #243's work, a headless Editor 6000.4.11f1
+// that `upool open` started wrote Library/EditorInstance.json naming its PID, and that process's
+// name was Unity (A45).
 const unityProcess = "Unity"
 
 // InstanceFile returns Library/EditorInstance.json when the checkout at dir holds one naming a
