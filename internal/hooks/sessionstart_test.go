@@ -65,12 +65,13 @@ func (h harness) hookLease(t *testing.T) pool.Slot {
 }
 
 // start runs the hook on req and returns its error, checking what it printed: the context that
-// gives a session in a slot upool's instructions, and nothing for any other session, since
+// gives a session in a slot, found as sessionSlot finds it, upool's instructions, and nothing for
+// any other session, since
 // Claude Code adds a SessionStart hook's stdout to the session's context (A43).
 func (h harness) start(t *testing.T, req Request) error {
 	t.Helper()
 	got, err := SessionStart(context.Background(), h.env, req)
-	_, inSlot, ferr := findSlot(h.env.Home, req.Cwd)
+	_, inSlot, _, ferr := sessionSlot(h.env.Home, req.SessionID, req.Cwd)
 	if ferr != nil {
 		t.Fatal(ferr)
 	}
@@ -453,8 +454,9 @@ func TestSessionStartGivesTheInstructions(t *testing.T) {
 }
 
 // A `claude -p --resume` launched from the main checkout runs SessionStart with the main checkout
-// as its cwd, so the hook cannot tell that the session is in a slot: it gives no context and
-// exports nothing. The resumed session keeps the context its first start gave ((b); question 43).
+// as its cwd. With no lease recording its session_id, as before A46, the hook cannot tell that
+// the session is in a slot: it gives no context and exports nothing. The resumed session keeps
+// the context its first start gave ((b); question 43).
 func TestSessionStartResumedFromTheMainCheckoutGivesNothing(t *testing.T) {
 	h := startHarness(t, true, "session")
 	h.readySlot(t, "slot-1", filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1"))

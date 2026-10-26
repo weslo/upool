@@ -148,10 +148,11 @@ context (A43; #229).
 
 | Rule | Source |
 |---|---|
-| For a session whose stdin `cwd` is a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
+| For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
-| For any other session the hook prints nothing. A `claude -p --resume` launched from the main checkout is one: its `cwd` is the main checkout, and the session keeps the context its first start gave | `hooks/cli-resume-checkout-session-start.json`; question 43 |
-| A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with `cwd` the session's worktree; for a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
+| For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context and has its holder recorded, and what it is exported waits on #245 | `hooks/cli-resume-checkout-session-start.json`; question 43; A46 |
+| A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
+| A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with the session's `session_id` and `cwd` where the subagent is; for a session in a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
 
 Claude Code's documentation, not measured here, caps a hook's context at 10,000 characters.
 
@@ -252,9 +253,11 @@ The keys are the snake_case names below, exactly, and the types are JSON types (
 RFC 3339 strings in UTC, as Go encodes `time.Time`; a process start time (`holder_pid_start`,
 `owner_pid_start`) is the one `internal/proc` reads (sysctl, microseconds) and is compared at that
 precision, never against another source such as `ps -o lstart` (A7). Each file has a top-level
-`schema_version`, `1` for the format described here: a binary that reads a higher version refuses
-with exit 1 and a message to upgrade upool, rather than rewriting the file and dropping fields it
-does not know, and one that reads a lower version migrates it on its next write (A7).
+`schema_version`, `1` for the format described here, but `2` for `state.json`, whose leases gained
+`session_id` (A46; a version-1 document reads as one without it): a binary that reads a higher
+version refuses with exit 1 and a message to upgrade upool, rather than rewriting the file and
+dropping fields it does not know, and one that reads a lower version migrates it on its next write
+(A7).
 
 ### `~/.upool/pools/<repo-key>/state.json`
 
@@ -262,7 +265,7 @@ Pool:
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
-| `schema_version` | integer | `1` | every writer | A7 |
+| `schema_version` | integer | `2`, since leases gained `session_id`; a `1` is read as one without it | every writer | A7; A46 |
 | `repo` | string, absolute path | the main checkout | `init` | D-commands |
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool.toml` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool.toml` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
@@ -298,6 +301,7 @@ Lease:
 | `reset_pending` | bool | `true` only for a create-hook lease on a slot handed out from `needs-reset` (transition 10), whose deferred reset has not run: `take --confirm` runs the reset and clears it, and an expiry before then returns the slot to `needs-reset`, not `ready` (transition 7) | hook (create), `take --confirm` | A5; A23 |
 | `lane` | string, `script` or `scene` | default `script`; at most one `scene` lease per project | `take --lane` | D-lanes |
 | `name_hint` | string | the create stdin `name`; never a key | hook (create) | D-route |
+| `session_id` | string or null | the session's own `session_id`, from the stdin of the `SessionStart` startup that confirmed the lease, by which its later starts and its subagents' find the slot (A46); null until such a confirm. The desktop create hook names a different ID, the app's, which `holder` keeps | `take --confirm` (the session-start hook's) | A46 |
 
 A lease is this entry alone: no lease takes a `git worktree lock`, since the desktop app refuses to
 archive a locked worktree and runs no `WorktreeRemove` for it (A27). A lease has no name either:
@@ -1127,6 +1131,25 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     `upool close` then removed the file.
   - **A file that names no process** names no live Editor, so it does not count.
   - **Off macOS,** where upool reads no process, the file counts as it always did.
+
+- **46. Which slot a start belongs to** ([#244](https://github.com/weslo/upool/issues/244)).
+  upool's session-start and subagent-start hooks found the slot only when stdin's `cwd` was the
+  slot's path. The M4 gate's rerun (2026-10-25, desktop app 3.6556.2, Claude Code 2.1.308; #232,
+  check 8 step 6) recorded three starts whose `cwd` was under the slot, and none got upool's
+  instructions: a subagent with `isolation: worktree`, in the worktree the create hook made for it
+  inside the slot; a subagent started after the session's `cd Assets`; and the compaction after
+  that `cd`. Every start of that session, its subagents' included, carried one `session_id`, as a
+  `claude -p --resume` did in #228's spike.
+
+  **A46.** A start finds its slot by the session's own ID first: the startup confirm records stdin's
+  `session_id` on the lease (`session_id` in (e), `state.json` at version 2), a later `startup`,
+  such as a desktop `/clear`'s, records its new one, and every later start, and every subagent's,
+  finds the lease by it. A start whose `session_id` names no lease falls back to the slot whose path
+  contains its `cwd`, a worktree inside the slot included. A start found either way gets the
+  instructions, and a `startup` confirms that slot (maintainer decision, 2026-10-25, on #232). A
+  `resume` found by its `session_id` with `cwd` outside the slot, as one launched from the main
+  checkout is, has its holder recorded (#238) and is exported nothing until #245's capture shows
+  where such a session works.
 
 ### Other open questions
 

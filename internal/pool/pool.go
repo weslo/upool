@@ -25,8 +25,9 @@ import (
 )
 
 // SchemaVersion is the state.json format this package reads and writes: a document with a higher
-// schema_version is refused, and one with a lower version is written at this one (A7).
-const SchemaVersion = 1
+// schema_version is refused, and one with a lower version is written at this one (A7). Version 2
+// adds the lease's session_id (A46; #244), which a version-1 document lacks and reads as null.
+const SchemaVersion = 2
 
 // State is a slot's lifecycle state, one of the states in docs/contracts.md (f).
 type State string
@@ -129,6 +130,11 @@ type Lease struct {
 	Lane string `json:"lane"`
 	// NameHint is the create stdin's name, kept for display and never used as a key.
 	NameHint string `json:"name_hint"`
+	// SessionID is the Claude Code session's own ID, from the stdin of the SessionStart startup
+	// that confirmed the lease, by which the session's later starts and its subagents' find the
+	// slot wherever their cwd is (A46; #244); nil until such a confirm. The desktop app's create
+	// hook names a different ID, its own, which Holder keeps.
+	SessionID *string `json:"session_id"`
 }
 
 // AgentWorktree is a subagent worktree the create hook made, <repo>/.claude/worktrees/agent-<hex>.
