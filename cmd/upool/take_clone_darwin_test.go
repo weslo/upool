@@ -100,7 +100,7 @@ func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
 	}
 	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-		{"close", e.Repo, "--force", "--format", "json"}}
+		{"close", e.Repo, "--format", "json"}}
 	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {
 		t.Errorf("unity calls = %q, want open, status and close of the main checkout first", got)
 	}
@@ -115,7 +115,7 @@ func TestTakeClonesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
 	e.WriteFile(testenv.EditorInstanceFile, "{}\n")
 	r := runIn(t, e, e.Repo, "take", "feature-y")
 	want := "upool: not cloning a slot: no seed qualifies: the main checkout: the Unity Editor " +
-		"has it open (Library/EditorInstance.json exists)\n"
+		"has it open (Library/EditorInstance.json names a running Editor)\n"
 	if r.code != output.ExitFailure || !strings.Contains(r.stderr, want) {
 		t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
 	}

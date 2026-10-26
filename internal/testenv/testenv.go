@@ -60,8 +60,9 @@ const (
 	ScratchScript = "Assets/Scripts/Scratch.cs"
 )
 
-// EditorInstanceFile is the file an open Editor holds in its Library. Only its presence is the
-// contract (spike §2 T1.5: absent after a clean exit); no capture records what is in it.
+// EditorInstanceFile is the file an open Editor holds in its Library, absent after a clean exit
+// (spike §2 T1.5). It names the Editor's process as process_id, which clone.InstanceFile reads
+// (A45); OpenEditor's names none, which counts as open, since the Editor may be.
 const EditorInstanceFile = "Library/EditorInstance.json"
 
 // SkillLink is the relative link the spike found under .claude/skills, and SkillTarget what it

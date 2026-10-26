@@ -233,6 +233,23 @@ func TestChooseSeedFallsBackToTheMainCheckout(t *testing.T) {
 	}
 }
 
+// The instance files an Editor that is gone left in the main checkout, upool's after a forced close
+// or anyone's after a crash, do not keep it from being the seed (A45; #243).
+func TestChooseSeedTakesAMainCheckoutADeadEditorLeft(t *testing.T) {
+	e := newSeedEnv(t, []pool.State{pool.StateLeased}, []time.Time{newer})
+	e.WriteFile(testenv.EditorInstanceFile, `{"process_id": 9876, "version": "6000.4.11f1"}`+"\n")
+	e.WriteFile("Library/ProtocolInstance.json", "[]\n")
+	e.WriteFile("Temp/UnityLockfile", "")
+	seed, skipped, err := e.sd.Choose(t.Context())
+	if err != nil || seed.Path != e.Repo || len(skipped) != 0 {
+		t.Errorf("Choose = %+v, %q, %v; want the main checkout", seed, skipped, err)
+	}
+	if _, err := os.Stat(e.Path(testenv.EditorInstanceFile)); err != nil {
+		t.Errorf("%s: %v, want it left as it was: only an Editor upool closed has its files "+
+			"removed", testenv.EditorInstanceFile, err)
+	}
+}
+
 // With the main checkout's Editor open and nothing else qualifying, nothing is chosen, and the
 // error says why.
 func TestChooseSeedChoosesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
@@ -241,7 +258,7 @@ func TestChooseSeedChoosesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T)
 	seed, skipped, err := e.sd.Choose(t.Context())
 	if !errors.Is(err, ErrNoSeed) || seed != (Seed{}) || len(skipped) != 1 ||
 		skipped[0] != "the main checkout: the Unity Editor has it open (Library/EditorInstance.json "+
-			"exists)" {
+			"names a running Editor)" {
 		t.Errorf("Choose = %+v, %q, %v; want ErrNoSeed, saying the Editor is open", seed,
 			skipped, err)
 	}

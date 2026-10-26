@@ -36,6 +36,9 @@ var (
 		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}, Exit: 6}
 	closeForcedReply = fake.Reply{Capture: "close-force-unreachable.json",
 		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}}
+	// noEditorsReply is the reply of the `unity status` after a forced close, listing no Editor,
+	// before the instance files the terminated Editor left go (A45).
+	noEditorsReply = fake.Reply{Capture: "status-no-instances.json", Exit: 6}
 )
 
 // fetchPool is a harness pool with slot-2 leased, slot-1 with a Library, so that its re-warm is
@@ -296,8 +299,9 @@ func TestRefreshMovesToTheLocalBase(t *testing.T) {
 // A re-warm that fails is a warning, and the moved slot goes back to ready with reimport_pending
 // set, so that its next open is charged as the cold import the re-warm did not finish (A40). An
 // Editor still running when the wait ran out is closed without save_all and with --force, which
-// an Editor in the middle of a cold import needs (#224); one that exited is already out of the
-// ledger. If the close fails, the Editor stays in the ledger and the slot warming.
+// an Editor in the middle of a cold import needs (#224), and the instance files it was terminated
+// with go once `unity status` lists none (A45); one that exited is already out of the ledger. If
+// the close fails, the Editor stays in the ledger, its files and the slot warming.
 func TestRefreshRewarmFailures(t *testing.T) {
 	notReady := "the Editor of %s was not ready after 5m0s: "
 	for _, tt := range []struct {
@@ -321,8 +325,25 @@ func TestRefreshRewarmFailures(t *testing.T) {
 			upstream := pushUpstream(t, p, origin)
 			replies := rewarmReplies(t, p, nil)[:3]
 			replies = append(replies, statusNoInstances)
+			forced := tt.close == &closeForcedReply
 			if tt.close != nil {
 				replies = append(replies, *tt.close)
+			}
+			if forced {
+				replies = append(replies, noEditorsReply)
+			}
+			slotDir := p.slot("slot-1")
+			leftovers := []string{"Library/EditorInstance.json", "Library/ProtocolInstance.json",
+				"Temp/UnityLockfile"}
+			for _, name := range leftovers {
+				file := filepath.Join(slotDir, filepath.FromSlash(name))
+				if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				content := fmt.Sprintf(`{"process_id": %d}`, capturedPID)
+				if err := os.WriteFile(file, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
 			}
 			u := p.installUnity(t, replies...)
 			procs := newRewarmProcs(1, nil)
@@ -344,8 +365,17 @@ func TestRefreshRewarmFailures(t *testing.T) {
 			if tt.close != nil {
 				want = append(want, []string{"close", slot, "--force", "--format", "json"})
 			}
+			if forced {
+				want = append(want, []string{"status", "--format", "json"})
+			}
 			if got := callArgs(t, p, u); !slices.EqualFunc(got, want, slices.Equal) {
 				t.Errorf("unity calls = %q, want %q: no save_all", got, want)
+			}
+			for _, name := range leftovers {
+				_, err := os.Stat(filepath.Join(slot, filepath.FromSlash(name)))
+				if gone := err != nil; gone != forced {
+					t.Errorf("slot-1/%s: %v; want it gone: %t", name, err, forced)
+				}
 			}
 			if !tt.closed {
 				if s := p.loadPool(t).Slots[0]; s.State != pool.StateWarming || !s.ReimportPending {

@@ -419,7 +419,7 @@ sets `UNITY_SKIP_HOOKS` (D-lifecycle).
 
 | Step | Shell | Source |
 |---|---|---|
-| 0 | Choose the seed. `init`'s first slot seeds from the main checkout, with its Editor closed. Any later clone takes the first of these that has no live Editor (ledger or instance files) and passes step 1: the freshest ready slot; a `needs-reset` slot, after its reset; the main checkout. A slot chosen as the seed is held as `warming` until step 4 has copied it ((f) transition 23). If none qualifies, nothing is cloned: `take` waits or fails as for a full pool, and the top-up exits, each saying why | D-lifecycle; A19 |
+| 0 | Choose the seed. `init`'s first slot seeds from the main checkout, with its Editor closed. Any later clone takes the first of these that has no live Editor (by the ledger, or an instance file naming a running Editor; A45) and passes step 1: the freshest ready slot; a `needs-reset` slot, after its reset; the main checkout. A slot chosen as the seed is held as `warming` until step 4 has copied it ((f) transition 23). If none qualifies, nothing is cloned: `take` waits or fails as for a full pool, and the top-up exits, each saying why | D-lifecycle; A19 |
 | 1 | Staleness check on the seed: newest mtime under `Assets/**/*.cs` against the Editor's last compile, the newer of `Library/ScriptAssemblies` and the newest `.dll` in the build cache's Editor DAG, `Library/Bee/artifacts/<hash>E….dag/` (the Editor copies an assembly into `ScriptAssemblies` only when its content changed; player DAGs such as `<hash>P.dag` do not count); a missing `ScriptAssemblies` is stale. `git -C <seed> rev-parse HEAD` and `git -C <seed> status --porcelain`. If stale, refresh it with a batch open (about 16 s); a seed never has a live Editor (step 0), so the design's `unity recompile` case does not arise. `unity cache key` is compared across checkouts instead (step 7; (f)) | D-lifecycle; S§8 D.1, D.2; A19; A20; #144 |
 | 2 | Write the `creating` entry, with this process in `owner_pid`, to `state.json` under the lock, then drop the lock | D-leases; A4 |
 | 3 | `git -C <repo> worktree add --no-checkout --detach <repo>/.claude/worktrees/slot-N <seed-head>`, where `<seed-head>` is `git -C <seed> rev-parse HEAD`, as the spike measured | S§2 TA; S§9 E.1; A10 |
@@ -991,6 +991,7 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   quit first and terminates it only when it cannot. So refresh's close of an Editor that is not
   ready, the re-warm's and the seed refresh's, runs `unity close <slot> --force`. `upool close` and
   `release`, which run `save_all` first, keep the graceful close (maintainer decision, 2026-10-23).
+  A45 adds what upool does about the instance files a forced close leaves.
 
 - **41. Which way a refresh moves a slot** ([#97](https://github.com/weslo/upool/issues/97)). Every
   `refresh` moves ready slots to the current base, the pool's base or `origin/<base>` with
@@ -1092,6 +1093,34 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   would reach only the next session, since Claude Code reads `CLAUDE.md` and its imports first,
   and the desktop create hook's helper cannot read the project (A26). With no `.worktreeinclude`,
   a slot keeps what its clone carried (maintainer decisions, 2026-10-23 and 2026-10-24; #233).
+
+- **45. The instance files a closed Editor leaves**
+  ([#243](https://github.com/weslo/upool/issues/243)). Since A40's amendment, the seed refresh
+  closed its Editor with `unity close --force` whether it was ready or not. In the M4 gate's rerun
+  (2026-10-25, CLI 1.0.0-beta.13, Editor 6000.4.11f1), every seed refresh left
+  `Library/EditorInstance.json`, naming the Editor's dead PID, and `Temp/UnityLockfile` behind. Its
+  Editor's log ended mid-shutdown. upool then took the checkout for one with an Editor open: no
+  clone could seed from it, and `init` refused it. A headless Editor closed with `save_all` and a
+  plain `unity close` left neither. A file an Editor that crashed outside upool left had refused
+  `init` the same way. The files the rerun found held `process_id`, `version`, `app_path` and
+  `app_contents_path`.
+
+  **A45.** All three of these:
+  - **A ready Editor closes plainly.** The seed refresh closes an Editor that reached ready with
+    `unity close`, as a re-warm's close already does; `--force` is for one that is not ready,
+    A40's case.
+  - **upool clears what its forced close left.** Once an Editor upool launched has been closed with
+    `--force`, its processes are gone, and `unity status` lists no Editor for the checkout, upool
+    removes `Library/EditorInstance.json` if it names one of that Editor's processes, with
+    `Library/ProtocolInstance.json` and `Temp/UnityLockfile` beside it. That is the rule
+    `doctor --fix` keeps for a slot's `Temp/`. A failure is a warning.
+  - **An instance file counts only for a running Editor.** Seeds, prune and `init` take a checkout
+    for open only when its `EditorInstance.json` names a process that exists and started no later
+    than the file was written; a process that started later reused a dead Editor's PID. A file
+    that names no process, or whose process's start cannot be read, counts. A
+    `ProtocolInstance.json` alone does not. Nothing of the project's is deleted for this.
+
+  (maintainer decision, 2026-10-25.)
 
 ### Other open questions
 

@@ -125,19 +125,23 @@ func TestInitRefusesTrackedLibrary(t *testing.T) {
 		"git tracks 1 file under Library/", "Library/ArtifactDB")
 }
 
+// init refuses a checkout whose EditorInstance.json names a running Editor, or names no process,
+// so that it cannot tell (clone.InstanceFile; A45).
 func TestInitRefusesOpenEditor(t *testing.T) {
-	for _, file := range []string{"Library/EditorInstance.json", "Library/ProtocolInstance.json"} {
-		t.Run(filepath.Base(file), func(t *testing.T) {
-			var e *testenv.Env
-			if file == testenv.EditorInstanceFile {
-				e = newInitEnv(t, testenv.OpenEditor())
-			} else {
-				e = newInitEnv(t)
-				e.WriteFile(file, "{}\n")
-			}
-			r := runIn(t, e, e.Repo, "init")
+	for _, tt := range []struct {
+		name    string
+		content string
+	}{
+		{"a running Editor", `{"process_id": 4242}`},
+		{"no process named", "{}\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newInitEnv(t)
+			e.WriteFile(testenv.EditorInstanceFile, tt.content)
+			r := runProcs(t, e, e.Repo, procsAlive(4242), func() time.Time { return clock },
+				"init")
 			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
-				"the Unity Editor has "+e.Repo+" open", file)
+				"the Unity Editor has "+e.Repo+" open", testenv.EditorInstanceFile)
 		})
 	}
 }
@@ -200,7 +204,7 @@ func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 			if u != nil {
 				want := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 					{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-					{"close", e.Repo, "--force", "--format", "json"}}
+					{"close", e.Repo, "--format", "json"}}
 				if got := unityArgs(u); !slices.EqualFunc(got, want, slices.Equal) {
 					t.Errorf("unity calls = %q, want open, status and close of the main checkout",
 						got)
