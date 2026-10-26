@@ -164,7 +164,7 @@ Claude Code's documentation, not measured here, caps a hook's context at 10,000 
 | Rule | Source |
 |---|---|
 | Set for `SessionStart` hooks to `~/.claude/session-env/<SessionStart session_id>/sessionstart-hook-0.sh` | S§2 T7.5 |
-| The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree[^2] | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply) |
+| The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree, and in a `claude -p` session resumed from the main checkout[^2]. The file is the session's: that resume kept the file its first start wrote, and upool's hook appends its line only to a file that does not already hold it | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply); `hooks/cli-slot-resume-checkout-session-start.json`; A47 |
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
 | upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. It copies no file into the slot: that refresh, and `upool release`, mirror the gitignored files the project's `.worktreeinclude` names into the free slots, ahead of the next handout (A44). That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14; A44 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
@@ -1174,9 +1174,10 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
 
   **A47.** The session works in its slot, so upool's session-start hook exports the slot's path on a
   `resume` found by its `session_id`, whatever its `cwd`, as A14 exports it on any other start. A
-  file that already holds the line is left as it is ((b)). A session that holds no lease, in the
-  main checkout or not, is left alone, as before (maintainer decision, 2026-10-25, on #238, and
-  this capture).
+  file that already holds the line, as that resume's did, is left as it is ((b), `CLAUDE_ENV_FILE`).
+  Work in the main checkout without a slot is left as it is: a session in no slot, whose
+  `session_id` names no lease and whose `cwd` is in no slot, gets nothing (A46). (Maintainer
+  decision, 2026-10-25, on #238; this capture decided the export.)
 
 ### Other open questions
 
@@ -1189,7 +1190,9 @@ None: every question raised so far is answered above.
 [^2]: The design (D-env) says the export "reached the Bash tool in both the CLI and the desktop app on
     2.1.295". The spike confirmed delivery only through the desktop app (S§2 T7.5; S§7); the
     standalone CLI run stopped at "Not logged in" before any Bash call (S§2 T7.4; S§8 A.9). The spike
-    wins: delivery through a standalone CLI session is unverified.
+    wins for a session's first start, which no capture has asked. #245's capture (2026-10-25, Claude
+    Code 2.1.305) saw the export of a `claude -p --worktree` session's first start in its Bash tool
+    once the session was resumed with `claude -p --resume` (A47).
 [^3]: Neither document names these states. `creating` is the design's "acquisition incomplete"
     entry (D-leases) and `warming` is `refresh`'s re-warm (D-commands); A4 settles both.
 [^4]: The design gives the defaults and the result ("at 64 GB that admits three Editors with headroom
