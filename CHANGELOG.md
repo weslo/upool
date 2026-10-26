@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0-rc.3] - 2026-10-25
+
 ### Fixed
 
 - upool's instructions now reach every start of a session in a slot, wherever Claude Code reports
