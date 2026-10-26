@@ -64,12 +64,15 @@ var ErrEditorLeft = errors.New("its Editor could not be closed, so it stays in t
 //     seed, checking the Editor's process, and ends a cold import once the Editor is ready (A39).
 //  4. It closes the Editor with `unity close <seed>`, without save_all, since an Editor upool
 //     opened only to refresh holds no work, waits for its process to exit, and takes it out of the
-//     ledger. A ready Editor quits by itself, and takes its instance files with it (A45; #243).
+//     ledger. A ready Editor quits by itself, and takes its instance files with it (A45; #243). A
+//     close that leaves it running is sent again, and one still running two minutes after the
+//     first is closed with --force (shut; A48; #252).
 //
 // An Editor that is not ready in time is closed with --force, as A40 does for a re-warm, since the
 // CLI may not reach an Editor in the middle of a cold import (#224), and the refresh fails. Once
-// that Editor is gone and `unity status` lists none for the seed, the instance files it was
-// terminated with are removed (ClearInstanceFiles; A45). One that exited is withdrawn from the
+// an Editor closed with --force, that one or a ready one step 4 forced, is gone and `unity status`
+// lists none for the seed, the instance files it was terminated with are removed
+// (ClearInstanceFiles; A45). One that exited is withdrawn from the
 // ledger. If the close fails, the Editor stays
 // in the ledger and the error wraps ErrEditorLeft. The seed's Library/LastSceneManagerSetup.txt,
 // which a headless Editor empties as it closes, is put back as it was (A8).
@@ -123,7 +126,7 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if ready == nil && cold {
 		ready = ledger.EndColdImport(ctx, r.Home, r.Proc, r.Budget, seed)
 	}
-	closed, more, err := r.Unity.Shut(ctx, seed, force)
+	closed, forced, more, err := r.shut(ctx, seed, pid, force)
 	warnings = append(warnings, more...)
 	pids := []int{pid, closed.PID}
 	if err == nil {
@@ -133,7 +136,7 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 		return warnings, errors.Join(ready, fmt.Errorf("closing the Editor of %s: %w: %w", seed,
 			ErrEditorLeft, err))
 	}
-	if force {
+	if forced {
 		warnings = append(warnings, ClearLeftovers(ctx, r.Unity, seed, pids)...)
 	}
 	if _, err = ledger.Remove(ctx, r.Home, r.Proc, seed); err == nil && kept != nil {
@@ -143,6 +146,50 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 		err = fmt.Errorf("closing the Editor of %s: %w", seed, err)
 	}
 	return warnings, errors.Join(ready, err)
+}
+
+// The retries of a ready Editor's plain close. A headless Editor of a main checkout left a plain
+// close running for its first half minute or so of being ready, and quit at a close sent later
+// (#252). The bound is the one unity's closeTimeout sets on one close.
+const (
+	closeRetryTimeout  = 2 * time.Minute
+	closeRetryInterval = 2 * time.Second
+)
+
+// shut closes the refresh's Editor, pid, in seed, and reports whether it did so with --force. One
+// that is not ready, force, is closed with --force at once (A40). One that is ready is closed
+// plainly. While that close leaves it running (unity.LeftRunning) and its process lives, the close
+// is sent again every closeRetryInterval. The Editor is closed with --force once
+// closeRetryTimeout has passed since the first close, or when the plain close failed any other
+// way (A48; #252). One whose process has gone meanwhile needs no other close.
+func (r *SeedRefresher) shut(ctx context.Context, seed string, pid int,
+	force bool) (unity.Closed, bool, []string, error) {
+	var warnings []string
+	if !force {
+		deadline := r.Now().Add(closeRetryTimeout)
+		for {
+			closed, more, err := r.Unity.Shut(ctx, seed, false)
+			warnings = append(warnings, more...)
+			if err == nil {
+				return closed, false, warnings, nil
+			}
+			if !unity.LeftRunning(err) {
+				break
+			}
+			if _, err := r.Proc.Start(pid); errors.Is(err, proc.ErrNoProcess) {
+				return unity.Closed{PID: pid}, false, warnings, nil
+			} else if err != nil {
+				return unity.Closed{}, false, warnings, fmt.Errorf("checking the Editor of %s, "+
+					"process %d: %w", seed, pid, err)
+			}
+			if !r.Now().Before(deadline) {
+				break
+			}
+			time.Sleep(closeRetryInterval)
+		}
+	}
+	closed, more, err := r.Unity.Shut(ctx, seed, true)
+	return closed, true, append(warnings, more...), err
 }
 
 // ClearLeftovers removes the instance files an Editor upool closed with --force left in the

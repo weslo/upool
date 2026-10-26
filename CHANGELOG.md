@@ -7,6 +7,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A seed refresh no longer leaves its Editor running when a plain close cannot close it yet (#252;
+  docs/contracts.md A48). In the M4 gate's third run, a headless Editor of the main checkout,
+  closed as soon as it was ready, timed out the close and kept running: no clone could seed from
+  the checkout. The refresh now sends the close again every 2 s, and closes the Editor with
+  `--force` once two minutes have passed, clearing the instance files that leaves.
+
 ## [0.4.0-rc.3] - 2026-10-25
 
 ### Changed

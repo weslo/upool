@@ -182,7 +182,7 @@ Claude Code's documentation, not measured here, caps a hook's context at 10,000 
 | `test` | **no**: from `/tmp` with the variable set, `COMMAND_FAILED: Not a Unity project (ProjectVersion.txt not found at /private/tmp).`, exit 6 | positional `[project]`; `unity test <path> --mode EditMode` works | S§2 T6.6; `unity/test-not-a-unity-project.json`, `unity/test-positional.json` |
 | `run` | **no**: same error, exit 6 | positional `[project]`; `unity run <path> --command <name>` reaches a live Editor instead of booting one | S§8 B.3; `unity/run-not-a-unity-project.json` |
 | `build` | **no**: same error | positional `[project]`; no `--project-path` | S§8 B.3; `evidence/unity-projections/build-not-a-unity-project.json` |
-| `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors. Without `--force` it cannot close an Editor in the middle of a cold import, which has no graceful-close channel (exit 6, `PROJECTS_CLOSE_UNREACHABLE`); `--force` closes it (A40) | S§8 B.5, C.6; D-editors; `unity/close-gui.json`; `unity/close-unreachable.json`; `unity/close-force-unreachable.json` |
+| `close` | not tested with the variable | positional `<project>`, required; hit the right PID with two GUI and with three headless Editors. Without `--force` it cannot close an Editor in the middle of a cold import, which has no graceful-close channel (exit 6, `PROJECTS_CLOSE_UNREACHABLE`); `--force` closes it (A40). Sent as soon as a headless Editor of a main checkout was ready, it timed out after 30 s and left the Editor running (exit 6, `PROJECTS_CLOSE_TIMEOUT`); sent again later, it closed it (A48) | S§8 B.5, C.6; D-editors; `unity/close-gui.json`; `unity/close-unreachable.json`; `unity/close-force-unreachable.json`; `unity/close-timeout.json` |
 | `cache key` | `--project-path` is rejected: `INVALID_COMMAND_ARGS: error: unknown option '--project-path'` | positional `[path]`, defaults to cwd | S§8 D.1; `unity/cache-key-project-path-invalid.json` |
 | `projects verify` | not tested with the variable | positional: `unity projects verify --strict <slot>` reported that slot as its `project` | #86; `unity/projects-verify-pass.json`, `unity/projects-verify-fail.json` |
 | `vcs doctor` | not tested with the variable | positional `[path]`, defaults to cwd: `unity vcs doctor <repo>` reported that repository; upool never passes `--fix`, which repairs (A35) | #88; `unity/vcs-doctor.json`, `unity/vcs-doctor-fix.json` |
@@ -1134,6 +1134,10 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     wrote `EditorInstance.json` naming its PID, and that process's `p_comm` was `Unity`. A plain
     `upool close` then removed the file.
   - **A file that names no process** names no live Editor, so it does not count.
+
+  **Amended** ([#252](https://github.com/weslo/upool/issues/252)): a plain close that leaves a
+  ready Editor running is sent again, and the Editor is closed with `--force` once two minutes
+  have passed (A48).
   - **Off macOS,** where upool reads no process, the file counts as it always did.
 
 - **46. Which slot a start belongs to** ([#244](https://github.com/weslo/upool/issues/244)).
@@ -1178,6 +1182,33 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   Work in the main checkout without a slot is left as it is: a session in no slot, whose
   `session_id` names no lease and whose `cwd` is in no slot, gets nothing (A46). (Maintainer
   decision, 2026-10-25, on #238; this capture decided the export.)
+
+- **48. A ready Editor that a plain close cannot close yet**
+  ([#252](https://github.com/weslo/upool/issues/252)). A45 has the seed refresh close an Editor
+  that reached ready with a plain `unity close`. It does not say what happens when that close
+  fails. In the M4 gate's third run (2026-10-26, CLI 1.0.0-beta.13, Editor 6000.4.11f1; #232,
+  check 3 step 4), the seed refresh's headless Editor in the spike's project's main checkout
+  reached ready, and the plain close sent at once failed. It exited 6 after 30 s with
+  `PROJECTS_CLOSE_TIMEOUT` and left the Editor running (`unity/close-timeout.json`). The refresh
+  failed, and the Editor stayed in the ledger with its instance files. A second stale-seed `take`
+  failed the same way, as did two runs by hand outside upool. With `unity command save_all` sent
+  first, the close came back `PROJECTS_CLOSE_UNREACHABLE` in 5 s. A plain close sent 44 to 91 s
+  after the launch closed each of these Editors gracefully in under 2 s. Slots' Editors, closed
+  straight after ready in the same run with `save_all` first, did not show it, and why is not
+  known.
+
+  **A48.** The seed refresh retries the plain close of a ready Editor, up to a bound, and then
+  closes it with `--force` (maintainer decision, 2026-10-26). What follows is the
+  implementation's:
+  - **Retried:** a plain close that fails with `PROJECTS_CLOSE_TIMEOUT` or
+    `PROJECTS_CLOSE_UNREACHABLE` is sent again every 2 s while the Editor's process lives.
+  - **Bounded:** two minutes from the first close, the bound one close already has.
+  - **Forced:** once the bound has passed, or when the plain close failed any other way, the Editor
+    is closed with `--force`, and what that leaves is cleared as A45 has it. The refresh succeeds:
+    the Editor was ready, so the Library is current. The scene list is put back (A8).
+  - **Gone meanwhile:** an Editor whose process has gone between closes needs no other close.
+  - **Not ready:** an Editor that never became ready keeps A40's `--force` at once.
+  - **Re-warm:** a slot's re-warm closes the same way but has not failed, so it is left as it is.
 
 ### Other open questions
 
