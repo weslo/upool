@@ -840,6 +840,9 @@ func (unsupportedProcs) Name(int) (string, error) {
 	return "", fmt.Errorf("reading process names: %w", errors.ErrUnsupported)
 }
 
+// EditorsAt reads no process, as off macOS.
+func (unsupportedProcs) EditorsAt(string) ([]int, error) { return nil, errors.ErrUnsupported }
+
 // Where no process can be read, an agent worktree's parent counts as alive: a young one is not
 // due, and one past agent_ttl is, for its age alone.
 func TestPruneAgentsWhereNoProcessCanBeRead(t *testing.T) {

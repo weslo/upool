@@ -59,15 +59,38 @@ var leftoverFiles = []string{"Library/ProtocolInstance.json", "Temp/UnityLockfil
 // name was Unity (A45).
 const unityProcess = "Unity"
 
-// InstanceFile returns Library/EditorInstance.json when the checkout at dir holds one naming a
-// process that is running and is a Unity Editor, by procs, and "" otherwise: a seed, a slot prune
-// would remove, or a checkout init would pool, with one has a live Library ((g) step 0;
-// docs/design.md, "Slot lifecycle": the tool never prunes inside a live Library). So a file a
-// terminated Editor left, upool's or anyone's, does not count, nor does one that names no process,
-// nor a Library/ProtocolInstance.json with no live EditorInstance.json beside it (A45; #243). Off
-// macOS, where procs reads no process, the file counts as it always did, since the Editor may be
-// running.
-func InstanceFile(dir string, procs proc.Checker) (string, error) {
+// EditorOpen says why a Unity Editor has the checkout at dir open, by procs, and is "" when none
+// does: a seed, a slot prune would remove, or a checkout init would pool, with one has a live
+// Library ((g) step 0; docs/design.md, "Slot lifecycle": the tool never prunes inside a live
+// Library). An Editor has it open when its Library/EditorInstance.json names a process that is
+// running and is a Unity Editor (A45; #243), or when procs.EditorsAt finds one that has dir as its
+// -projectpath or holds its Temp/UnityLockfile open, as an Editor does from its first second,
+// seconds before it writes that file (A49; #255). So a file a terminated Editor left, upool's or
+// anyone's, does not count, nor does one that names no process, nor a
+// Library/ProtocolInstance.json with no live EditorInstance.json beside it. Off macOS, where procs
+// reads no process, the file counts as it always did, since the Editor may be running.
+func EditorOpen(dir string, procs proc.Checker) (string, error) {
+	why, err := instanceFile(dir, procs)
+	if why != "" || err != nil {
+		return why, err
+	}
+	pids, err := procs.EditorsAt(dir)
+	switch {
+	case errors.Is(err, errors.ErrUnsupported):
+		return "", nil
+	case err != nil:
+		return "", fmt.Errorf("looking for an Editor of %s: %w", dir, err)
+	case len(pids) > 0:
+		return fmt.Sprintf("process %d, a Unity Editor, has it as its project", pids[0]), nil
+	}
+	return "", nil
+}
+
+// instanceFile says why the checkout at dir is open by its Library/EditorInstance.json, which
+// names a process that is running and is a Unity Editor, by procs, and is "" otherwise
+// (EditorOpen).
+func instanceFile(dir string, procs proc.Checker) (string, error) {
+	const why = editorInstanceFile + " names a running Editor"
 	file := filepath.Join(dir, filepath.FromSlash(editorInstanceFile))
 	if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
@@ -83,13 +106,13 @@ func InstanceFile(dir string, procs proc.Checker) (string, error) {
 	case errors.Is(err, proc.ErrNoProcess):
 		return "", nil
 	case errors.Is(err, errors.ErrUnsupported):
-		return editorInstanceFile, nil
+		return why, nil
 	case err != nil:
 		return "", fmt.Errorf("checking the process %s names, %d: %w", file, pid, err)
 	case name != unityProcess:
 		return "", nil
 	}
-	return editorInstanceFile, nil
+	return why, nil
 }
 
 // instancePID returns the process_id the EditorInstance.json at file names, and false when it

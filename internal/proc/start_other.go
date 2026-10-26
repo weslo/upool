@@ -27,3 +27,9 @@ func Name(pid int) (string, error) {
 	}
 	return "", fmt.Errorf("process names on %s: %w", runtime.GOOS, errors.ErrUnsupported)
 }
+
+// EditorsAt returns an error wrapping errors.ErrUnsupported, as Start does off darwin.
+func EditorsAt(dir string) ([]int, error) {
+	return nil, fmt.Errorf("the Editors of %s, on %s: %w", dir, runtime.GOOS,
+		errors.ErrUnsupported)
+}

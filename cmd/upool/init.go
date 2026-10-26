@@ -353,18 +353,19 @@ func checkLibraryUntracked(ctx context.Context, g git.Client, repo string) error
 		len(tracked), files, repo, tracked[0])
 }
 
-// checkEditorClosed refuses repo while an Editor has it open, which init detects by the instance
-// file in its Library naming a running Editor, as seeds are judged (clone.InstanceFile;
-// docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
-// reset without `-x`"). A file a terminated Editor left does not count (A45; #243).
+// checkEditorClosed refuses repo while an Editor has it open, as seeds are judged: by the instance
+// file in its Library naming a running Editor, or by a running Editor that has it as its project
+// (clone.EditorOpen; docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD,
+// refresh on handout, reset without `-x`"). A file a terminated Editor left does not count (A45;
+// #243; A49; #255).
 func checkEditorClosed(repo string, procs proc.Checker) error {
-	name, err := clone.InstanceFile(repo, procs)
+	why, err := clone.EditorOpen(repo, procs)
 	if err != nil {
 		return err
 	}
-	if name != "" {
-		return fmt.Errorf("the Unity Editor has %s open (%s names a running Editor): quit it, "+
-			"then run upool init again", repo, name)
+	if why != "" {
+		return fmt.Errorf("the Unity Editor has %s open (%s): quit it, then run upool init again",
+			repo, why)
 	}
 	return nil
 }
