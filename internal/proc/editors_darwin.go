@@ -53,9 +53,19 @@ const (
 	vnodePathOffset         = 176
 )
 
+// The proc_info(2) flavor of <sys/proc_info.h> that gives a process's working directory,
+// PROC_PIDVNODEPATHINFO: a struct proc_vnodepathinfo, whose pvi_cdir.vip_path follows a struct
+// vnode_info.
+const (
+	procPIDVnodePathInfo  = 9
+	procVnodePathInfoSize = 2352
+	cwdPathOffset         = 152
+	maxPathLen            = 1024
+)
+
 // EditorsAt returns the PIDs of the running Unity Editors that have the checkout at dir open:
-// processes the kernel names Unity whose arguments give dir after -projectpath, or that hold
-// dir/Temp/UnityLockfile open. Both show an Editor from its first second, where its
+// processes the kernel names Unity whose arguments give dir after -projectpath, a relative one
+// read from the process's own working directory, or that hold dir/Temp/UnityLockfile open. Both show an Editor from its first second, where its
 // Library/EditorInstance.json comes several seconds later (A49; #255). Paths compare as paths.Key
 // makes them. A process that exits meanwhile, or whose arguments or files cannot be read, is
 // passed over.
@@ -74,7 +84,8 @@ func EditorsAt(dir string) ([]int, error) {
 	}
 	var open []int
 	for _, pid := range pids {
-		if args, err := procArgs(pid); err == nil && namesProject(args, project) {
+		cwd := func() (string, error) { return procCwd(pid) }
+		if args, err := procArgs(pid); err == nil && namesProject(args, project, cwd) {
 			open = append(open, pid)
 			continue
 		}
@@ -95,13 +106,26 @@ func EditorsAt(dir string) ([]int, error) {
 	return open, nil
 }
 
-// namesProject reports whether args give the path whose key is project after -projectpath.
-func namesProject(args []string, project string) bool {
+// namesProject reports whether args give the path whose key is project after -projectpath. A
+// relative path is the process's own, from cwd, its working directory, never upool's: a batch run
+// started in its project with -projectPath . names that project. One whose working directory
+// cannot be read names nothing.
+func namesProject(args []string, project string, cwd func() (string, error)) bool {
 	for i := 0; i+1 < len(args); i++ {
 		if !strings.EqualFold(args[i], projectFlag) {
 			continue
 		}
-		if k, err := paths.Key(args[i+1]); err == nil && k == project {
+		path := args[i+1]
+		if !filepath.IsAbs(path) {
+			dir, err := cwd()
+			if err != nil {
+				continue
+			}
+			// Not filepath.Join, which would clean away a ".." before paths.Key resolves the
+			// symlink it follows, as paths.Key itself does.
+			path = dir + string(filepath.Separator) + path
+		}
+		if k, err := paths.Key(path); err == nil && k == project {
 			return true
 		}
 	}
@@ -193,6 +217,32 @@ func procArgs(pid int) ([]string, error) {
 		rest = rest[i+1:]
 	}
 	return args, nil
+}
+
+// procCwd returns the working directory of the process with pid, from proc_info(2). The error
+// wraps ErrNoProcess when no process has the PID.
+func procCwd(pid int) (string, error) {
+	if err := validPID(pid); err != nil {
+		return "", err
+	}
+	info := make([]byte, procVnodePathInfoSize)
+	n, errno := procInfo(procInfoCallPIDInfo, pid, procPIDVnodePathInfo, 0, info)
+	switch {
+	case errno == syscall.ESRCH:
+		return "", fmt.Errorf("process %d: %w", pid, ErrNoProcess)
+	case errno != 0:
+		return "", fmt.Errorf("reading the working directory of process %d: %w", pid, errno)
+	case n != procVnodePathInfoSize:
+		return "", fmt.Errorf("reading the working directory of process %d: got %d bytes", pid, n)
+	}
+	path := info[cwdPathOffset : cwdPathOffset+maxPathLen]
+	if i := bytes.IndexByte(path, 0); i >= 0 {
+		path = path[:i]
+	}
+	if len(path) == 0 {
+		return "", fmt.Errorf("process %d has no working directory", pid)
+	}
+	return string(path), nil
 }
 
 // procInfo runs proc_info(2), the system call behind libproc's proc_pidinfo and proc_pidfdinfo,

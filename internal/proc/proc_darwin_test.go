@@ -196,14 +196,16 @@ func unityChild(t *testing.T, hold string, args ...string) int {
 	if err := os.WriteFile(bin, self, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return child(t, bin, hold, args...)
+	return child(t, bin, "", hold, args...)
 }
 
-// child starts bin as a child with args, as startChild does, holding the file at hold open when
-// hold is not empty, and returns its PID once it holds it.
-func child(t *testing.T, bin, hold string, args ...string) int {
+// child starts bin as a child with args, as startChild does, in the directory dir when it is not
+// empty, holding the file at hold open when hold is not empty, and returns its PID once it holds
+// it.
+func child(t *testing.T, bin, dir, hold string, args ...string) int {
 	t.Helper()
 	cmd := exec.Command(bin, args...)
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), childEnv+"=1", holdEnv+"="+hold)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -244,7 +246,7 @@ func TestPIDsNamedFindsThisProcess(t *testing.T) {
 // procArgs reads a child's arguments as it was started with them, and ErrNoProcess once it is
 // reaped.
 func TestProcArgsAreTheChildsArguments(t *testing.T) {
-	pid := child(t, os.Args[0], "", "-projectPath", "/some project/dir", "")
+	pid := child(t, os.Args[0], "", "", "-projectPath", "/some project/dir", "")
 	got, err := procArgs(pid)
 	want := []string{os.Args[0], "-projectPath", "/some project/dir", ""}
 	if err != nil || !slices.Equal(got, want) {
@@ -265,7 +267,7 @@ func TestVnodePathsHoldTheFileAChildOpened(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pid := child(t, os.Args[0], file)
+	pid := child(t, os.Args[0], "", file)
 	got, err := vnodePaths(pid)
 	if err != nil || !slices.Contains(got, real) {
 		t.Errorf("vnodePaths = %q, %v; want it to hold %s", got, err, real)
@@ -287,7 +289,7 @@ func TestEditorsAtFindsAnEditorByItsArgumentsOrItsLockfile(t *testing.T) {
 	byArgs := unityChild(t, "", "-projectpath", dir)
 	byCase := unityChild(t, "", "-projectPath", dir+"/")
 	byLock := unityChild(t, lock)
-	child(t, os.Args[0], lock, "-projectpath", dir)
+	child(t, os.Args[0], "", lock, "-projectpath", dir)
 	got, err := EditorsAt(dir)
 	slices.Sort(got)
 	want := []int{byArgs, byCase, byLock}
@@ -300,5 +302,46 @@ func TestEditorsAtFindsAnEditorByItsArgumentsOrItsLockfile(t *testing.T) {
 	}
 	if got, err := (System{}).EditorsAt(dir); err != nil || len(got) != 3 {
 		t.Errorf("System.EditorsAt = %v, %v; want the three", got, err)
+	}
+}
+
+// procCwd reads a child's working directory, by its real path.
+func TestProcCwdIsTheChildsWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := procCwd(child(t, os.Args[0], dir, "")); err != nil || got != real {
+		t.Errorf("procCwd = %q, %v; want %s", got, err, real)
+	}
+	if _, err := procCwd(1 << 30); !errors.Is(err, ErrNoProcess) {
+		t.Errorf("procCwd of no process: %v, want ErrNoProcess", err)
+	}
+}
+
+// A relative -projectpath names the project in the Editor's own working directory, not in
+// upool's: a stand-in started in dir with -projectPath . has dir open, and not the directory this
+// test runs in (A49; #255).
+func TestEditorsAtReadsARelativeProjectPathFromTheEditorsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(t.TempDir(), editorName)
+	if err := os.WriteFile(bin, self, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pid := child(t, bin, dir, "", "-projectPath", ".")
+	if got, err := EditorsAt(dir); err != nil || !slices.Equal(got, []int{pid}) {
+		t.Errorf("EditorsAt(the Editor's directory) = %v, %v; want [%d]", got, err, pid)
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := EditorsAt(wd); err != nil || slices.Contains(got, pid) {
+		t.Errorf("EditorsAt(this test's directory) = %v, %v; want the stand-in left out", got, err)
 	}
 }

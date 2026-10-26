@@ -218,7 +218,8 @@ type idleSlot struct {
 // `ready` most recently used are kept. Each of the rest is a candidate when all of these hold:
 //   - it has been idle for shrink_after, since its last_used or, with none, since its directory
 //     was made (A42);
-//   - no Editor has its Library open, by the ledger or by the instance files ((g) step 0);
+//   - no Editor has its Library open, by the ledger, by the instance files, or by a running Editor
+//     that has it as its project ((g) step 0; A49);
 //   - it is clean, define-order noise aside ((f), the definition of clean), and holds no other
 //     worktree, such as a pass-through or subagent worktree a session in it made (A13), whose
 //     work git worktree remove would delete;
@@ -427,7 +428,8 @@ func (pr pruner) kept(ctx context.Context, editors ledger.Ledger, listed map[str
 }
 
 // editorIn reports whether an Editor has the Library at dir open: one the ledger records with a
-// running process, or any Editor, by the instance files it keeps there.
+// running process, or any Editor, by the instance files it keeps there or, while it starts, by
+// its -projectpath or its Temp/UnityLockfile (clone.EditorOpen; A49).
 func (pr pruner) editorIn(editors ledger.Ledger, dir string) (bool, error) {
 	live, err := editors.LiveIn(pr.inv.checker(), dir)
 	if err != nil || live {

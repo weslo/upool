@@ -173,9 +173,9 @@ func (sd Seeder) Choose(ctx context.Context) (Seed, []string, error) {
 }
 
 // qualifies runs the checks every candidate must pass before it is held, and returns its
-// staleness and why it does not pass, or "": no live Editor, by the ledger or by the instance
-// files an open Editor keeps in its Library ((g) step 0). A stale Library is current's to deal
-// with.
+// staleness and why it does not pass, or "": no live Editor, by the ledger, by the instance files
+// an open Editor keeps in its Library, or by a running Editor that has it as its project
+// (EditorOpen; (g) step 0; A49). A stale Library is current's to deal with.
 func (sd Seeder) qualifies(ctx context.Context, editors ledger.Ledger,
 	dir string) (Staleness, string, error) {
 	live, err := editors.LiveIn(sd.Proc, dir)

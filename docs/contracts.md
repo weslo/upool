@@ -1236,7 +1236,9 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     instance file is asked first, and the reason names the process: "process N, a Unity Editor,
     has it as its project".
   - **Arguments** come from sysctl `kern.procargs2`. The flag matches whatever its case, and the
-    path after it compares as `paths.Key` makes paths.
+    path after it compares as `paths.Key` makes paths. A relative path is the Editor's own, read
+    from its working directory through `proc_info`, never upool's: a batch run started in its
+    project with `-projectPath .` names that project.
   - **The lockfile** is found among the vnodes the process holds open, through the `proc_info`
     system call. upool never takes the file's lock, which could make a starting Editor refuse the
     project.
