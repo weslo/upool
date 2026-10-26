@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0-rc.3] - 2026-10-25
+
 ### Changed
 
 - upool's session-start hook now exports `UNITY_PROJECT_PATH` for the session's slot on a
@@ -15,8 +17,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   capture showed it takes the session back into its slot. The hook finds the slot by the session's
   `session_id`, as it already did to record the resumed CLI process as the lease's holder (#244).
   The resumed session also keeps the export its first start made, which had been its only one.
-
-## [0.4.0-rc.3] - 2026-10-25
 
 ### Fixed
 
