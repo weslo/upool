@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0-rc.5] - 2026-10-26
+
 ### Fixed
 
 - upool no longer clones from a checkout whose Editor is still starting (#255; docs/contracts.md
