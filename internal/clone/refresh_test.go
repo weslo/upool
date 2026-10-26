@@ -377,6 +377,8 @@ func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
 		{"gone meanwhile", []fake.Reply{closeTimedOut}, 1, func(repo string) [][]string {
 			return refreshCalls(repo, closedPlain)
 		}, 0},
+		{"gone after another failure", []fake.Reply{otherFailure}, 1,
+			func(repo string) [][]string { return refreshCalls(repo, closedPlain) }, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testenv.New(t, testenv.StaleLibrary())
