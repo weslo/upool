@@ -93,13 +93,16 @@ ran.
 
 The probe behind [contracts.md](../contracts.md) A43
 ([#228](https://github.com/weslo/upool/issues/228) and
-[#235](https://github.com/weslo/upool/issues/235), 2026-10-23 and 2026-10-24; Claude Code 2.1.305,
-desktop app 3.6556.2), recorded as it ran, with paths as variables. The probe is
-`scripts/sessionprobe`, in three builds:
-- the runs logged up to 20261023T091947, `c1` to `c8`, used an earlier build whose context had no
-  `-<source>` suffix and whose log had no `event=` or `claude_project_dir=` field;
-- the runs from 20261023T092029, `c9`, `c10` and the desktop session, used a build that added the
-  suffix, the `main` file and `claude_project_dir=`;
+[#235](https://github.com/weslo/upool/issues/235), 2026-10-23 and 2026-10-24; Claude Code 2.1.305 for
+the `claude -p` runs and 2.1.308, the desktop app's bundled CLI, for the desktop session, though
+`probe.txt`'s second line names only 2.1.305; desktop app 3.6556.2), recorded as it ran, with paths
+as variables. The probe is `scripts/sessionprobe`, in three builds:
+- the runs logged up to 20261023T091947, `c1` to `c7`, used an earlier build whose context had no
+  `-<source>` suffix and whose log had no `event=` or `claude_project_dir=` field (`probe-c8` is
+  the worktree `c7` ran in);
+- the runs from 20261023T092029, `c9`, `c10` and the desktop session, and #235's imports runs
+  (`imports.txt`, "as for its desktop run"), used a build that added the suffix, the `main` file
+  and `claude_project_dir=`;
 - the `SubagentStart` run, `c11`, used the build in the repository, which adds `event=`.
 
 | File | What it shows |
