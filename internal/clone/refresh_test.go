@@ -348,7 +348,8 @@ func TestSeedRefresherClearsWhatAForcedCloseLeft(t *testing.T) {
 // A ready Editor that a plain close leaves running, timed out or unreachable, is sent the close
 // again, and when that one closes it the refresh ends as after a first close: no --force, the
 // ledger empty, the scene list put back (A48; #252). A plain close that fails any other way is
-// followed by --force at once. The wait between closes passes on testing/synctest's clock.
+// followed by --force at once, and an Editor whose process has gone by the time a close fails is
+// sent nothing more. The wait between closes passes on testing/synctest's clock.
 func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
 	plain := func(repo string) []string { return []string{"close", repo, "--format", "json"} }
 	otherFailure := closeTimedOut
@@ -368,11 +369,14 @@ func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
 			func(repo string) [][]string {
 				return append(refreshCalls(repo, closedPlain), plain(repo))
 			}, closeRetryInterval},
-		{"failed otherwise", []fake.Reply{otherFailure, closeForced, noInstances}, 1,
+		{"failed otherwise", []fake.Reply{otherFailure, closeForced, noInstances}, 2,
 			func(repo string) [][]string {
 				calls := refreshCalls(repo, closedPlain)
 				return append(calls, refreshCalls(repo, closedForced)[2:]...)
 			}, 0},
+		{"gone meanwhile", []fake.Reply{closeTimedOut}, 1, func(repo string) [][]string {
+			return refreshCalls(repo, closedPlain)
+		}, 0},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testenv.New(t, testenv.StaleLibrary())

@@ -120,8 +120,9 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if ready != nil && !errors.As(ready, &notReady) {
 		return warnings, r.withdraw(ctx, seed, pid, ready)
 	}
-	// --force only for an Editor that is not ready, which may be one the CLI cannot reach (A40);
-	// it terminates the Editor, which leaves its instance files behind (A45).
+	// --force at once for an Editor that is not ready, which may be one the CLI cannot reach
+	// (A40); it terminates the Editor, which leaves its instance files behind (A45). A ready one is
+	// forced only once plain closes have failed (shut; A48).
 	force := ready != nil
 	if ready == nil && cold {
 		ready = ledger.EndColdImport(ctx, r.Home, r.Proc, r.Budget, seed)
@@ -148,9 +149,10 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	return warnings, errors.Join(ready, err)
 }
 
-// The retries of a ready Editor's plain close. A headless Editor of a main checkout left a plain
+// The retries of a ready Editor's plain close: a headless Editor of a main checkout left a plain
 // close running for its first half minute or so of being ready, and quit at a close sent later
-// (#252). The bound is the one unity's closeTimeout sets on one close.
+// (#252). The next close goes closeRetryInterval after a failed one, and none after
+// closeRetryTimeout from the first, the bound unity's closeTimeout sets on one close.
 const (
 	closeRetryTimeout  = 2 * time.Minute
 	closeRetryInterval = 2 * time.Second
@@ -158,10 +160,10 @@ const (
 
 // shut closes the refresh's Editor, pid, in seed, and reports whether it did so with --force. One
 // that is not ready, force, is closed with --force at once (A40). One that is ready is closed
-// plainly. While that close leaves it running (unity.LeftRunning) and its process lives, the close
-// is sent again every closeRetryInterval. The Editor is closed with --force once
-// closeRetryTimeout has passed since the first close, or when the plain close failed any other
-// way (A48; #252). One whose process has gone meanwhile needs no other close.
+// plainly. When that close fails, an Editor whose process has gone needs no other close. While
+// the close leaves the Editor running (unity.LeftRunning), it is sent again closeRetryInterval
+// after each failure. The Editor is closed with --force once closeRetryTimeout has passed since
+// the first close, or when the plain close failed any other way (A48; #252).
 func (r *SeedRefresher) shut(ctx context.Context, seed string, pid int,
 	force bool) (unity.Closed, bool, []string, error) {
 	var warnings []string
@@ -173,16 +175,13 @@ func (r *SeedRefresher) shut(ctx context.Context, seed string, pid int,
 			if err == nil {
 				return closed, false, warnings, nil
 			}
-			if !unity.LeftRunning(err) {
-				break
-			}
-			if _, err := r.Proc.Start(pid); errors.Is(err, proc.ErrNoProcess) {
+			if _, perr := r.Proc.Start(pid); errors.Is(perr, proc.ErrNoProcess) {
 				return unity.Closed{PID: pid}, false, warnings, nil
-			} else if err != nil {
+			} else if perr != nil {
 				return unity.Closed{}, false, warnings, fmt.Errorf("checking the Editor of %s, "+
-					"process %d: %w", seed, pid, err)
+					"process %d: %w", seed, pid, perr)
 			}
-			if !r.Now().Before(deadline) {
+			if !unity.LeftRunning(err) || !r.Now().Before(deadline) {
 				break
 			}
 			time.Sleep(closeRetryInterval)

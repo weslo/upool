@@ -1134,11 +1134,11 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     wrote `EditorInstance.json` naming its PID, and that process's `p_comm` was `Unity`. A plain
     `upool close` then removed the file.
   - **A file that names no process** names no live Editor, so it does not count.
+  - **Off macOS,** where upool reads no process, the file counts as it always did.
 
   **Amended** ([#252](https://github.com/weslo/upool/issues/252)): a plain close that leaves a
   ready Editor running is sent again, and the Editor is closed with `--force` once two minutes
   have passed (A48).
-  - **Off macOS,** where upool reads no process, the file counts as it always did.
 
 - **46. Which slot a start belongs to** ([#244](https://github.com/weslo/upool/issues/244)).
   upool's session-start and subagent-start hooks found the slot only when stdin's `cwd` was the
@@ -1201,12 +1201,14 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   closes it with `--force` (maintainer decision, 2026-10-26). What follows is the
   implementation's:
   - **Retried:** a plain close that fails with `PROJECTS_CLOSE_TIMEOUT` or
-    `PROJECTS_CLOSE_UNREACHABLE` is sent again every 2 s while the Editor's process lives.
+    `PROJECTS_CLOSE_UNREACHABLE` is sent again 2 s after each failure, while the Editor's process
+    lives. A timed-out close takes 30 s, so that is a close about every half minute.
   - **Bounded:** two minutes from the first close, the bound one close already has.
   - **Forced:** once the bound has passed, or when the plain close failed any other way, the Editor
     is closed with `--force`, and what that leaves is cleared as A45 has it. The refresh succeeds:
     the Editor was ready, so the Library is current. The scene list is put back (A8).
-  - **Gone meanwhile:** an Editor whose process has gone between closes needs no other close.
+  - **Gone meanwhile:** an Editor whose process has gone by the time a plain close fails needs no
+    other close, whatever the failure.
   - **Not ready:** an Editor that never became ready keeps A40's `--force` at once.
   - **Re-warm:** a slot's re-warm closes the same way but has not failed, so it is left as it is.
 
