@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "repo": "${repo}",
   "base": "main",
   "slots": [
@@ -23,7 +23,8 @@
         "confirmed": true,
         "reset_pending": false,
         "lane": "scene",
-        "name_hint": "fix-lighting"
+        "name_hint": "fix-lighting",
+        "session_id": "67f55030-4ba9-4cea-8b2e-7015b8fd7522"
       }
     },
     {

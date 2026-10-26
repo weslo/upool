@@ -31,7 +31,7 @@ func confirm(inv *invocation, path string, otherFlags bool) (any, []string, erro
 		return nil, nil, fmt.Errorf("take --confirm takes a path alone; usage: upool %s",
 			takeUsage)
 	}
-	c, warnings, err := hooks.Confirm(context.Background(), hooksEnv(inv), path)
+	c, warnings, err := hooks.Confirm(context.Background(), hooksEnv(inv), path, "")
 	if err != nil {
 		return nil, warnings, err
 	}

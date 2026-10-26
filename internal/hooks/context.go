@@ -40,7 +40,7 @@ func SubagentStart(_ context.Context, env Env, req Request) (string, error) {
 	if !filepath.IsAbs(req.Cwd) {
 		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
 	}
-	_, ok, err := findSlot(env.Home, req.Cwd)
+	_, ok, _, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
 	if err != nil || !ok {
 		return "", err
 	}

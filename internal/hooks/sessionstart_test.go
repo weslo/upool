@@ -65,12 +65,13 @@ func (h harness) hookLease(t *testing.T) pool.Slot {
 }
 
 // start runs the hook on req and returns its error, checking what it printed: the context that
-// gives a session in a slot upool's instructions, and nothing for any other session, since
+// gives a session in a slot, found as sessionSlot finds it, upool's instructions, and nothing for
+// any other session, since
 // Claude Code adds a SessionStart hook's stdout to the session's context (A43).
 func (h harness) start(t *testing.T, req Request) error {
 	t.Helper()
 	got, err := SessionStart(context.Background(), h.env, req)
-	_, inSlot, ferr := findSlot(h.env.Home, req.Cwd)
+	_, inSlot, _, ferr := sessionSlot(h.env.Home, req.SessionID, req.Cwd)
 	if ferr != nil {
 		t.Fatal(ferr)
 	}

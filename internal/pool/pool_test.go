@@ -73,6 +73,7 @@ func full(loc *time.Location) Pool {
 					Confirmed:      true,
 					Lane:           "scene",
 					NameHint:       "fix-lighting",
+					SessionID:      new("67f55030-4ba9-4cea-8b2e-7015b8fd7522"),
 				},
 			},
 			{
@@ -215,7 +216,7 @@ func TestGoldenHasExactlyTheContractKeys(t *testing.T) {
 		if i == 0 {
 			check("lease", object(t, slot["lease"]), "lease_id", "holder", "worktree_path",
 				"holder_pid", "holder_pid_start", "acquired_at", "confirmed", "reset_pending",
-				"lane", "name_hint")
+				"lane", "name_hint", "session_id")
 		}
 	}
 	for _, raw := range array(t, pool["agent_worktrees"]) {
@@ -309,8 +310,8 @@ func TestEmptyPoolIsWrittenWithArrays(t *testing.T) {
 			t.Errorf("%s = %s, want []", k, got)
 		}
 	}
-	if got := string(doc["schema_version"]); got != "1" {
-		t.Errorf("schema_version = %s, want 1", got)
+	if got := string(doc["schema_version"]); got != "2" {
+		t.Errorf("schema_version = %s, want 2", got)
 	}
 }
 
@@ -384,16 +385,41 @@ func TestRepoKeyMustBeOnePathElement(t *testing.T) {
 	}
 }
 
+// A version-1 document, from before the lease had session_id, reads with the field null and is
+// written at version 2 on its next update (A7; A46).
+func TestVersionOneIsMigrated(t *testing.T) {
+	home := tempDir(t)
+	writeFile(t, home, `{"schema_version":1,"repo":"/src/down","base":"main","slots":[{"name":`+
+		`"slot-1","path":"/src/down/.claude/worktrees/slot-1","state":"leased","lease":{"lease_id":`+
+		`"l1","holder":"h","worktree_path":"/src/down/.claude/worktrees/slot-1","holder_pid":null,`+
+		`"holder_pid_start":null,"acquired_at":"2026-10-19T09:14:05Z","confirmed":true,`+
+		`"reset_pending":false,"lane":"script","name_hint":""}}],"agent_worktrees":[]}`)
+	p, err := Load(home, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := p.Slots[0].Lease; l == nil || l.SessionID != nil {
+		t.Fatalf("lease = %+v, want one with no session_id", l)
+	}
+	if err := unchanged(home); err != nil {
+		t.Fatal(err)
+	}
+	doc := object(t, []byte(readFile(t, home)))
+	if got := string(doc["schema_version"]); got != "2" {
+		t.Errorf("schema_version after an update = %s, want 2", got)
+	}
+}
+
 func TestNewerSchemaVersionIsRefused(t *testing.T) {
 	home := tempDir(t)
 	// A newer upool may add keys too; the version is what the message is about.
-	doc := `{"schema_version":2,"repo":"/src/down","slots":[],"added_later":true}`
+	doc := `{"schema_version":3,"repo":"/src/down","slots":[],"added_later":true}`
 	writeFile(t, home, doc)
 	check := func(op string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "schema_version 2") ||
+		if err == nil || !strings.Contains(err.Error(), "schema_version 3") ||
 			!strings.Contains(err.Error(), "upgrade upool") || !strings.Contains(err.Error(), shown) {
-			t.Errorf("%s error = %v, want %s, schema_version 2 and upgrade upool", op, err, shown)
+			t.Errorf("%s error = %v, want %s, schema_version 3 and upgrade upool", op, err, shown)
 		}
 	}
 	_, err := Load(home, key)

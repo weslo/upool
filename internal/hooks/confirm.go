@@ -26,11 +26,13 @@ type Confirmed struct {
 // session's slot (docs/design.md, "Environment, confirmation and release"; docs/contracts.md (b);
 // (f) transition 6). It finds the slot by its canonical path, runs the deferred reset of a slot
 // handed out from needs-reset, and confirms the lease with env.ParentPID, the session's CLI, as its
-// holder (A6). A confirmed lease is confirmed again. It copies no file into the slot: Claude Code
+// holder (A6), recording sessionID, the session's own, when it is not empty, by which the
+// session's later starts find the slot wherever their cwd is (A46). A confirmed lease is confirmed
+// again. It copies no file into the slot: Claude Code
 // has read CLAUDE.md before SessionStart runs, so the files a project's .worktreeinclude names are
 // mirrored into free slots before a handout instead (A44; internal/mirror). The warnings are for
 // stderr.
-func Confirm(ctx context.Context, env Env, path string) (Confirmed, []string, error) {
+func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, []string, error) {
 	ref, err := confirmTarget(env.Home, path)
 	if err != nil {
 		return Confirmed{}, nil, err
@@ -78,6 +80,9 @@ func Confirm(ctx context.Context, env Env, path string) (Confirmed, []string, er
 		}
 		cur.Lease.Confirmed = true
 		cur.Lease.HolderPID, cur.Lease.HolderPIDStart = holderPID, holderStart
+		if sessionID != "" {
+			cur.Lease.SessionID = &sessionID
+		}
 		if reset {
 			cur.Lease.ResetPending = false
 		}

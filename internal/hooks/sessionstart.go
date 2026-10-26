@@ -23,9 +23,10 @@ const SourceStartup = "startup"
 // the Unity CLI targets by (docs/contracts.md (b) and (c)).
 const projectPathVar = "UNITY_PROJECT_PATH"
 
-// SessionStart handles a SessionStart request. For a session whose stdin cwd is a slot, matched by
-// canonical path, it confirms the slot's lease in-process on startup, as `upool take --confirm`
-// does, and then starts the detached top-up through env.StartRefresh (#79). On any other source it
+// SessionStart handles a SessionStart request. For a session in a slot, found by its session_id
+// or, failing that, by the slot that contains its stdin cwd (sessionSlot; A46), it confirms the
+// slot's lease in-process on startup, as `upool take --confirm` does, recording the session_id
+// for its later starts, and then starts the detached top-up through env.StartRefresh (#79). On any other source it
 // only records env.ParentPID as the lease's holder while the slot has one, re-copying no agent
 // file, running no reset and starting no top-up (A14). Then, whatever the source and whatever the
 // confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile. The stdin cwd is the slot even
@@ -44,14 +45,14 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if !filepath.IsAbs(req.Cwd) {
 		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
 	}
-	ref, ok, err := findSlot(env.Home, req.Cwd)
+	ref, ok, in, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
 	if err != nil || !ok {
 		return "", err
 	}
 	doc, err := ContextDocument(EventSessionStart)
 	errs := []error{err}
 	if req.Source == SourceStartup {
-		c, warnings, err := Confirm(ctx, env, req.Cwd)
+		c, warnings, err := Confirm(ctx, env, ref.slot.Path, req.SessionID)
 		for _, w := range warnings {
 			// stderr is for warnings only; stdout would reach the session's context.
 			_, _ = fmt.Fprintf(env.Stderr, "upool: %s\n", w)
@@ -66,8 +67,12 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	} else if err := recordHolder(ctx, env, ref); err != nil {
 		errs = append(errs, err)
 	}
-	if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
-		errs = append(errs, err)
+	// A start found by its session_id outside the slot, as a resume launched from the main
+	// checkout is, exports nothing until #245 has shown where such a session works.
+	if in {
+		if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	return doc, errors.Join(errs...)
 }

@@ -9,6 +9,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- upool's instructions now reach every start of a session in a slot, wherever Claude Code reports
+  its `cwd` (#244; docs/contracts.md A46). Before, only a start whose `cwd` was the slot itself got
+  them. A subagent with `isolation: worktree`, one started after the session ran `cd`, and the
+  compaction after that `cd` got none. The startup confirm now records the session's `session_id`
+  on the lease, and later starts, and every subagent's, find the slot by it. A start whose
+  `session_id` names no lease falls back to the slot that contains its `cwd`. `state.json` is now
+  at `schema_version` 2, which an earlier upool refuses with a message to upgrade. A version-1 file
+  is migrated on its next write.
+
 - A Library refresh no longer leaves the checkout looking open (#243; docs/contracts.md A45). Every
   stale-seed refresh closed its headless Editor with `unity close --force`. That left
   `Library/EditorInstance.json` and `Temp/UnityLockfile` behind, so no clone could seed from the

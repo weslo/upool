@@ -290,7 +290,7 @@ func TestWhichReportsAPoolItCannotRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(w.home, ".upool", "pools", registry.Key(canonical), "state.json")
-	if err := os.WriteFile(file, []byte(`{"schema_version":2}`), 0o600); err != nil {
+	if err := os.WriteFile(file, []byte(`{"schema_version":3}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r := w.which(t, w.path("slot-1"), "--json")
