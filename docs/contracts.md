@@ -1020,7 +1020,8 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   the slot, and the remove hook parked the slot for upool's own copies. The maintainer asked for the
   instructions to come from upool's own hook output instead (2026-10-23).
 
-  **Measured** (2026-10-23 and 2026-10-24, Claude Code 2.1.305, desktop app 3.6556.2;
+  **Measured** (2026-10-23 and 2026-10-24; Claude Code 2.1.305 for the `claude -p` runs and 2.1.308,
+  the desktop app's bundled CLI, for the desktop session; desktop app 3.6556.2;
   `evidence/session-context-probe/probe.txt` and `imports.txt`). A probe registered as a scratch
   repository's project-scope `SessionStart` hook printed a context naming a marker:
   - `hookSpecificOutput.additionalContext` JSON reached the model in `claude -p --worktree` and in
