@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -253,7 +254,8 @@ func TestDeinitRefusesASlotInUse(t *testing.T) {
 			}},
 		{"editor", "slot-2 stays, since an Editor has it open",
 			func(t *testing.T, p harnessPool) {
-				p.WriteFile(".claude/worktrees/slot-2/Library/EditorInstance.json", "{}\n")
+				p.WriteFile(".claude/worktrees/slot-2/Library/EditorInstance.json",
+					fmt.Sprintf(`{"process_id": %d}`, live))
 			}},
 		{"cloning", "slot-1 is warming, by upool process 4242",
 			func(t *testing.T, p harnessPool) {
@@ -544,6 +546,14 @@ func TestDeinitAdviceClearsABareTake(t *testing.T) {
 // Start calls and is from then on.
 type startsLater struct {
 	pid, n int
+}
+
+// Name names the process a Unity Editor once it has started.
+func (c *startsLater) Name(pid int) (string, error) {
+	if pid != c.pid || c.n > 0 {
+		return "", proc.ErrNoProcess
+	}
+	return "Unity", nil
 }
 
 func (c *startsLater) Start(pid int) (time.Time, error) {

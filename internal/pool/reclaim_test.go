@@ -28,6 +28,14 @@ func (f fakeProcs) Start(pid int) (time.Time, error) {
 	return start, nil
 }
 
+// Name names every process it lists a Unity Editor.
+func (f fakeProcs) Name(pid int) (string, error) {
+	if _, ok := f[pid]; !ok {
+		return "", proc.ErrNoProcess
+	}
+	return "Unity", nil
+}
+
 func (f fakeProcs) Alive(pid int, start time.Time) (bool, error) {
 	got, ok := f[pid]
 	return ok && got.Equal(start), nil

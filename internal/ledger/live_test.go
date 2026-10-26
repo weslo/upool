@@ -28,6 +28,14 @@ func (l liveProcs) Start(pid int) (time.Time, error) {
 
 func (l liveProcs) Alive(int, time.Time) (bool, error) { return false, nil }
 
+// Name names every PID it lists a Unity Editor, as Start knows them.
+func (l liveProcs) Name(pid int) (string, error) {
+	if _, err := l.Start(pid); err != nil {
+		return "", err
+	}
+	return "Unity", nil
+}
+
 // An Editor counts while its PID is a process and its project is the one asked about, spelled
 // any way that comes to the same canonical path.
 func TestLiveInFindsALiveEditorInTheProject(t *testing.T) {

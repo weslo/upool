@@ -18,6 +18,7 @@ package testenv
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -60,9 +61,14 @@ const (
 	ScratchScript = "Assets/Scripts/Scratch.cs"
 )
 
-// EditorInstanceFile is the file an open Editor holds in its Library. Only its presence is the
-// contract (spike §2 T1.5: absent after a clean exit); no capture records what is in it.
+// EditorInstanceFile is the file an open Editor holds in its Library, absent after a clean exit
+// (spike §2 T1.5). It names the Editor's process as process_id, which clone.InstanceFile reads
+// (A45). OpenEditor's names EditorPID, which a test's process table must report as a running Unity
+// Editor for the checkout to count as open.
 const EditorInstanceFile = "Library/EditorInstance.json"
+
+// EditorPID is the process OpenEditor's EditorInstanceFile names.
+const EditorPID = 4242
 
 // SkillLink is the relative link the spike found under .claude/skills, and SkillTarget what it
 // points at (spike §10).
@@ -218,7 +224,7 @@ func New(t testing.TB, opts ...Option) *Env {
 		e.SetMtime(PlayerScript, StaleTime)
 	}
 	if o.openEditor {
-		e.WriteFile(EditorInstanceFile, "{}\n")
+		e.WriteFile(EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`+"\n", EditorPID))
 	}
 	return e
 }

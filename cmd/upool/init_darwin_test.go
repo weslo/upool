@@ -131,7 +131,7 @@ func TestInitRefreshesAStaleLibrary(t *testing.T) {
 	}
 	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-		{"close", e.Repo, "--force", "--format", "json"}}
+		{"close", e.Repo, "--format", "json"}}
 	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {
 		t.Errorf("unity calls = %q, want open, status and close of the main checkout first", got)
 	}
@@ -840,6 +840,32 @@ func TestInitRegistersHooks(t *testing.T) {
 		filepath.Join(e.Home, ".claude", "settings.json")} {
 		if _, err := os.Lstat(path); err == nil {
 			t.Errorf("%s exists, want init to leave it unmade", path)
+		}
+	}
+}
+
+// The files an Editor that is gone left, upool's after a forced close or anyone's after a crash, do
+// not keep init from pooling the checkout, nor does a ProtocolInstance.json alone. init removes
+// none of them from the main checkout, and the clone strips them from slot-1 (A45; #243).
+func TestInitPoolsACheckoutADeadEditorLeft(t *testing.T) {
+	files := map[string]string{testenv.EditorInstanceFile: `{"process_id": 4242}`,
+		"Library/ProtocolInstance.json": "[]\n", "Temp/UnityLockfile": ""}
+	e := newInitEnv(t)
+	for name, content := range files {
+		e.WriteFile(name, content)
+	}
+	r := runProcs(t, e, e.Repo, procsAlive(), func() time.Time { return clock }, "init")
+	if r.code != output.ExitOK {
+		t.Fatalf("init: exit %d, stderr %q; want 0", r.code, r.stderr)
+	}
+	for name, content := range files {
+		if got := readFile(t, e, name); got != content {
+			t.Errorf("%s = %q, want it left as it was: %q", name, got, content)
+		}
+	}
+	for _, name := range []string{testenv.EditorInstanceFile, "Library/ProtocolInstance.json"} {
+		if _, err := os.Stat(filepath.Join(slotPath(e), filepath.FromSlash(name))); err == nil {
+			t.Errorf("slot-1 has %s, want the clone to strip it", name)
 		}
 	}
 }

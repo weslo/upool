@@ -61,10 +61,6 @@ const (
 	projectSettings = ".claude/settings.local.json"
 )
 
-// editorFiles are the files an open Editor holds in its Library. Both are absent after a clean
-// exit (spike §2 T1.5), so either one means the Editor has the project open.
-var editorFiles = []string{"Library/EditorInstance.json", "Library/ProtocolInstance.json"}
-
 // The base_source values for a base that nothing set, which init chose (A17). A base that a
 // layer set has that layer's config.Source instead.
 const (
@@ -252,7 +248,7 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if err := checkLibraryUntracked(ctx, g, repo); err != nil {
 		return nil, nil, err
 	}
-	if err := checkEditorClosed(repo); err != nil {
+	if err := checkEditorClosed(repo, inv.checker()); err != nil {
 		return nil, nil, err
 	}
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
@@ -358,19 +354,17 @@ func checkLibraryUntracked(ctx context.Context, g git.Client, repo string) error
 }
 
 // checkEditorClosed refuses repo while an Editor has it open, which init detects by the instance
-// files in its Library (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD,
-// refresh on handout, reset without `-x`").
-func checkEditorClosed(repo string) error {
-	for _, name := range editorFiles {
-		file := filepath.Join(repo, filepath.FromSlash(name))
-		_, err := os.Lstat(file)
-		if err == nil {
-			return fmt.Errorf("the Unity Editor has %s open (%s exists): quit it, then run "+
-				"upool init again", repo, name)
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("checking for %s: %w", file, err)
-		}
+// file in its Library naming a running Editor, as seeds are judged (clone.InstanceFile;
+// docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
+// reset without `-x`"). A file a terminated Editor left does not count (A45; #243).
+func checkEditorClosed(repo string, procs proc.Checker) error {
+	name, err := clone.InstanceFile(repo, procs)
+	if err != nil {
+		return err
+	}
+	if name != "" {
+		return fmt.Errorf("the Unity Editor has %s open (%s names a running Editor): quit it, "+
+			"then run upool init again", repo, name)
 	}
 	return nil
 }

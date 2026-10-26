@@ -2,11 +2,13 @@ package clone
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -43,21 +45,95 @@ var instanceFiles = []string{"Library/EditorInstance.json", "Library/ProtocolIns
 
 const pipelineDir = "Library/Pipeline"
 
-// InstanceFile returns the first of the Editor's instance files that exists in the checkout at
-// dir, which an open Editor keeps in its Library, or "" when none does: a seed, or a slot prune
-// would remove, with one has a live Library (docs/contracts.md (g) step 0; docs/design.md, "Slot
-// lifecycle": the tool never prunes inside a live Library).
-func InstanceFile(dir string) (string, error) {
-	for _, name := range instanceFiles {
-		_, err := os.Lstat(filepath.Join(dir, filepath.FromSlash(name)))
-		if err == nil {
-			return name, nil
-		}
-		if !errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf("checking for %s in %s: %w", name, dir, err)
-		}
+// editorInstanceFile is the instance file an Editor writes in its Library once it has started,
+// naming its process as process_id, and removes when it exits cleanly; the M4 gate's rerun found
+// ones a terminated Editor left, holding process_id, version, app_path and app_contents_path
+// (#243). leftoverFiles are what such an Editor leaves beside it.
+const editorInstanceFile = "Library/EditorInstance.json"
+
+var leftoverFiles = []string{"Library/ProtocolInstance.json", "Temp/UnityLockfile"}
+
+// unityProcess is a Unity Editor's process name as the kernel records it, from
+// Unity.app/Contents/MacOS/Unity: on 2026-10-25, during #243's work, a headless Editor 6000.4.11f1
+// that `upool open` started wrote Library/EditorInstance.json naming its PID, and that process's
+// name was Unity (A45).
+const unityProcess = "Unity"
+
+// InstanceFile returns Library/EditorInstance.json when the checkout at dir holds one naming a
+// process that is running and is a Unity Editor, by procs, and "" otherwise: a seed, a slot prune
+// would remove, or a checkout init would pool, with one has a live Library ((g) step 0;
+// docs/design.md, "Slot lifecycle": the tool never prunes inside a live Library). So a file a
+// terminated Editor left, upool's or anyone's, does not count, nor does one that names no process,
+// nor a Library/ProtocolInstance.json with no live EditorInstance.json beside it (A45; #243). Off
+// macOS, where procs reads no process, the file counts as it always did, since the Editor may be
+// running.
+func InstanceFile(dir string, procs proc.Checker) (string, error) {
+	file := filepath.Join(dir, filepath.FromSlash(editorInstanceFile))
+	if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", fmt.Errorf("checking for %s in %s: %w", editorInstanceFile, dir, err)
 	}
-	return "", nil
+	pid, ok := instancePID(file)
+	if !ok {
+		return "", nil
+	}
+	name, err := procs.Name(pid)
+	switch {
+	case errors.Is(err, proc.ErrNoProcess):
+		return "", nil
+	case errors.Is(err, errors.ErrUnsupported):
+		return editorInstanceFile, nil
+	case err != nil:
+		return "", fmt.Errorf("checking the process %s names, %d: %w", file, pid, err)
+	case name != unityProcess:
+		return "", nil
+	}
+	return editorInstanceFile, nil
+}
+
+// instancePID returns the process_id the EditorInstance.json at file names, and false when it
+// cannot be read or names none.
+func instancePID(file string) (int, bool) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return 0, false
+	}
+	var instance struct {
+		PID int `json:"process_id"`
+	}
+	if json.Unmarshal(b, &instance) != nil || instance.PID <= 0 {
+		return 0, false
+	}
+	return instance.PID, true
+}
+
+// ClearInstanceFiles removes, from the checkout at dir, the files an Editor upool launched left
+// there when it was closed with --force, which terminates an Editor the CLI cannot close (A40):
+// Library/EditorInstance.json when it names one of pids, the processes of that Editor, and then
+// leftoverFiles. Its callers have seen the Editor's processes gone and `unity status` list no
+// instance for dir, the rule doctor --fix keeps for a slot's Temp/ (docs/design.md, "Editors:
+// budget by RAM, serialize cold imports as a courtesy, target by variable and by path": crash
+// recovery; A45; #243). A file naming another process is no leftover of
+// that Editor's, and nothing is removed for it. It returns what it removed, relative to dir.
+func ClearInstanceFiles(dir string, pids []int) ([]string, error) {
+	pid, ok := instancePID(filepath.Join(dir, filepath.FromSlash(editorInstanceFile)))
+	if !ok || !slices.Contains(pids, pid) {
+		return nil, nil
+	}
+	var removed []string
+	for _, name := range append([]string{editorInstanceFile}, leftoverFiles...) {
+		file := filepath.Join(dir, filepath.FromSlash(name))
+		err := os.Remove(file)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return removed, fmt.Errorf("removing %s: %w", file, err)
+		}
+		removed = append(removed, name)
+	}
+	return removed, nil
 }
 
 // Recipe is what the clone recipe runs with.

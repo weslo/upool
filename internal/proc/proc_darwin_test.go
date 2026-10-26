@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -136,5 +137,30 @@ func TestSystemAgreesWithStartAndAlive(t *testing.T) {
 	}
 	if alive, err := c.Alive(os.Getpid(), want); err != nil || !alive {
 		t.Errorf("System.Alive = %v, %v, want true, nil", alive, err)
+	}
+}
+
+// Name is the base name of the process's executable, as the kernel records it, cut to 16 bytes:
+// the test binary's for a child of it, and ErrNoProcess once the child is reaped.
+func TestNameIsTheExecutablesBaseName(t *testing.T) {
+	cmd, stdin, _, _ := startChild(t)
+	want := filepath.Base(os.Args[0])
+	if len(want) > commSize-1 {
+		want = want[:commSize-1]
+	}
+	if got, err := Name(cmd.Process.Pid); err != nil || got != want {
+		t.Errorf("Name = %q, %v; want %q", got, err, want)
+	}
+	if got, err := (System{}).Name(cmd.Process.Pid); err != nil || got != want {
+		t.Errorf("System.Name = %q, %v; want %q", got, err, want)
+	}
+	if err := stdin.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Name(cmd.Process.Pid); !errors.Is(err, ErrNoProcess) {
+		t.Errorf("Name of a reaped child: %v, want ErrNoProcess", err)
 	}
 }

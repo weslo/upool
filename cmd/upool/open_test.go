@@ -59,6 +59,16 @@ func (p *editorProcs) Start(pid int) (time.Time, error) {
 	return time.Time{}, proc.ErrNoProcess
 }
 
+// Name names every process it reports running a Unity Editor.
+func (p *editorProcs) Name(pid int) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, ok := p.checks[pid]; ok && !p.gone[pid] {
+		return "Unity", nil
+	}
+	return "", proc.ErrNoProcess
+}
+
 func (p *editorProcs) Alive(pid int, _ time.Time) (bool, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

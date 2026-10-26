@@ -375,7 +375,7 @@ func TestStaleSeedIsRefreshed(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !slices.EqualFunc(before, refreshCalls(e.Repo, true), slices.Equal) {
+			if !slices.EqualFunc(before, refreshCalls(e.Repo, closedPlain), slices.Equal) {
 				t.Errorf("unity calls when the copy started = %q, want open, status and close",
 					before)
 			}

@@ -125,21 +125,14 @@ func TestInitRefusesTrackedLibrary(t *testing.T) {
 		"git tracks 1 file under Library/", "Library/ArtifactDB")
 }
 
+// init refuses a checkout whose EditorInstance.json names a running Unity Editor
+// (clone.InstanceFile; A45).
 func TestInitRefusesOpenEditor(t *testing.T) {
-	for _, file := range []string{"Library/EditorInstance.json", "Library/ProtocolInstance.json"} {
-		t.Run(filepath.Base(file), func(t *testing.T) {
-			var e *testenv.Env
-			if file == testenv.EditorInstanceFile {
-				e = newInitEnv(t, testenv.OpenEditor())
-			} else {
-				e = newInitEnv(t)
-				e.WriteFile(file, "{}\n")
-			}
-			r := runIn(t, e, e.Repo, "init")
-			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
-				"the Unity Editor has "+e.Repo+" open", file)
-		})
-	}
+	e := newInitEnv(t, testenv.OpenEditor())
+	r := runProcs(t, e, e.Repo, procsAlive(testenv.EditorPID), func() time.Time { return clock },
+		"init")
+	checkRefused(t, e, r, readFile(t, e, ".gitignore"), "the Unity Editor has "+e.Repo+" open",
+		testenv.EditorInstanceFile)
 }
 
 // A stale Library would hand the first slot, and every clone after it, a recompile
@@ -200,7 +193,7 @@ func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 			if u != nil {
 				want := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 					{"status", "--until-ready", "--timeout", "120", "--format", "json"},
-					{"close", e.Repo, "--force", "--format", "json"}}
+					{"close", e.Repo, "--format", "json"}}
 				if got := unityArgs(u); !slices.EqualFunc(got, want, slices.Equal) {
 					t.Errorf("unity calls = %q, want open, status and close of the main checkout",
 						got)
@@ -268,7 +261,8 @@ func TestInitOutsideAGitRepositoryFails(t *testing.T) {
 
 func TestInitJSONReportsARefusalAsAFailureEnvelope(t *testing.T) {
 	e := newInitEnv(t, testenv.OpenEditor())
-	r := runIn(t, e, e.Repo, "init", "--json")
+	r := runProcs(t, e, e.Repo, procsAlive(testenv.EditorPID), func() time.Time { return clock },
+		"init", "--json")
 	if r.code != output.ExitFailure || r.stderr != "" {
 		t.Errorf("exit = %d, stderr = %q, want %d and empty", r.code, r.stderr, output.ExitFailure)
 	}

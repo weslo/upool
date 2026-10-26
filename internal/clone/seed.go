@@ -185,12 +185,13 @@ func (sd Seeder) qualifies(ctx context.Context, editors ledger.Ledger,
 	if live {
 		return Staleness{}, "an Editor upool opened has it open", nil
 	}
-	name, err := InstanceFile(dir)
+	name, err := InstanceFile(dir, sd.Proc)
 	if err != nil {
 		return Staleness{}, "", err
 	}
 	if name != "" {
-		return Staleness{}, "the Unity Editor has it open (" + name + " exists)", nil
+		return Staleness{}, "the Unity Editor has it open (" + name + " names a running Editor)",
+			nil
 	}
 	st, err := CheckStaleness(ctx, sd.Git, dir)
 	if err != nil {

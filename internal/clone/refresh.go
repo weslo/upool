@@ -62,13 +62,15 @@ var ErrEditorLeft = errors.New("its Editor could not be closed, so it stays in t
 //     OwnerPID (A12).
 //  3. It waits with `unity status --until-ready` for A37's timeout, the cold-import one for a cold
 //     seed, checking the Editor's process, and ends a cold import once the Editor is ready (A39).
-//  4. It closes the Editor with `unity close <seed> --force`, without save_all, since an Editor
-//     upool opened only to refresh holds no work, waits for its process to exit, and takes it out
-//     of the ledger. --force asks the Editor to quit first, and terminates one the CLI cannot
-//     reach, as an Editor in the middle of a cold import is (A40; #224).
+//  4. It closes the Editor with `unity close <seed>`, without save_all, since an Editor upool
+//     opened only to refresh holds no work, waits for its process to exit, and takes it out of the
+//     ledger. A ready Editor quits by itself, and takes its instance files with it (A45; #243).
 //
-// An Editor that is not ready in time is closed the same way, as A40 does for a re-warm, and the
-// refresh fails; one that exited is withdrawn from the ledger. If the close fails, the Editor stays
+// An Editor that is not ready in time is closed with --force, as A40 does for a re-warm, since the
+// CLI may not reach an Editor in the middle of a cold import (#224), and the refresh fails. Once
+// that Editor is gone and `unity status` lists none for the seed, the instance files it was
+// terminated with are removed (ClearInstanceFiles; A45). One that exited is withdrawn from the
+// ledger. If the close fails, the Editor stays
 // in the ledger and the error wraps ErrEditorLeft. The seed's Library/LastSceneManagerSetup.txt,
 // which a headless Editor empties as it closes, is put back as it was (A8).
 func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) ([]string,
@@ -115,18 +117,24 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	if ready != nil && !errors.As(ready, &notReady) {
 		return warnings, r.withdraw(ctx, seed, pid, ready)
 	}
+	// --force only for an Editor that is not ready, which may be one the CLI cannot reach (A40);
+	// it terminates the Editor, which leaves its instance files behind (A45).
+	force := ready != nil
 	if ready == nil && cold {
 		ready = ledger.EndColdImport(ctx, r.Home, r.Proc, r.Budget, seed)
 	}
-	// --force, since an Editor that is not ready may be one the CLI cannot reach (A40).
-	closed, more, err := r.Unity.Shut(ctx, seed, true)
+	closed, more, err := r.Unity.Shut(ctx, seed, force)
 	warnings = append(warnings, more...)
+	pids := []int{pid, closed.PID}
 	if err == nil {
-		err = unity.WaitGone(r.Proc, seed, []int{pid, closed.PID}, r.Now)
+		err = unity.WaitGone(r.Proc, seed, pids, r.Now)
 	}
 	if err != nil {
 		return warnings, errors.Join(ready, fmt.Errorf("closing the Editor of %s: %w: %w", seed,
 			ErrEditorLeft, err))
+	}
+	if force {
+		warnings = append(warnings, ClearLeftovers(ctx, r.Unity, seed, pids)...)
 	}
 	if _, err = ledger.Remove(ctx, r.Home, r.Proc, seed); err == nil && kept != nil {
 		err = os.WriteFile(scenes, kept, 0o644)
@@ -135,6 +143,27 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 		err = fmt.Errorf("closing the Editor of %s: %w", seed, err)
 	}
 	return warnings, errors.Join(ready, err)
+}
+
+// ClearLeftovers removes the instance files an Editor upool closed with --force left in the
+// checkout at dir, once `unity status` lists no Editor there; its processes, pids, are gone
+// already (ClearInstanceFiles; A45). It returns warnings: a leftover it could not remove no longer
+// keeps upool from the checkout (InstanceFile), so it fails nothing.
+func ClearLeftovers(ctx context.Context, u unity.Client, dir string, pids []int) []string {
+	n, err := u.EditorsAt(ctx, dir)
+	if err != nil {
+		return []string{fmt.Sprintf("did not remove the instance files a terminated Editor left "+
+			"in %s: %v", dir, err)}
+	}
+	if n > 0 {
+		return []string{fmt.Sprintf("did not remove the instance files a terminated Editor left "+
+			"in %s: unity status lists %d Editor there", dir, n)}
+	}
+	if _, err := ClearInstanceFiles(dir, pids); err != nil {
+		return []string{fmt.Sprintf("did not remove the instance files a terminated Editor left "+
+			"in %s: %v", dir, err)}
+	}
+	return nil
 }
 
 // withdraw takes the Editor recorded for seed under pid out of the ledger after err, and returns

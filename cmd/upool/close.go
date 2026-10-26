@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -98,7 +99,8 @@ func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 // shutSlotEditor is closeSlotEditor's work after the save, steps 2 to 4: `unity close <slot>`, the
 // wait for the Editor's process to be gone, the ledger, and the scene list. refresh runs it alone
 // on a re-warm Editor that was not ready in time, which holds no work to save, with force, since
-// the CLI may not reach such an Editor (A40; #224).
+// the CLI may not reach such an Editor (A40; #224). A forced close terminates the Editor, so once
+// it is gone the instance files it left in the slot are removed (clone.ClearLeftovers; A45).
 func shutSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	s pool.Slot, force bool) (closeReport, []string, error) {
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
@@ -117,6 +119,9 @@ func shutSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	}
 	if _, err := ledger.Remove(ctx, inv.home, procs, s.Path); err != nil {
 		return closeReport{}, warnings, err
+	}
+	if force {
+		warnings = append(warnings, clone.ClearLeftovers(ctx, client, s.Path, pids)...)
 	}
 	r := closeReport{Slot: s.Name, Path: s.Path, PID: closed.PID, Method: closed.Method}
 	if headless {

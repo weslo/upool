@@ -2,6 +2,7 @@ package clone
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -38,9 +39,11 @@ var (
 	closeHeadless     = fake.Reply{Capture: "close-headless.json", Vars: spike}
 	spike             = []pathvars.Var{{Name: "spike", Path: "/spike"}}
 	// closeUnreachable and closeForced are the replies of `unity close` and `unity close --force`
-	// to an Editor in the middle of a cold import, which the first leaves running (#224).
+	// to an Editor in the middle of a cold import, which the first leaves running (#224), and
+	// noInstances that of the `unity status` after a forced close, listing no Editor (A45).
 	closeUnreachable = fake.Reply{Capture: "close-unreachable.json", Vars: repoVar, Exit: 6}
 	closeForced      = fake.Reply{Capture: "close-force-unreachable.json", Vars: repoVar}
+	noInstances      = fake.Reply{Capture: "status-no-instances.json", Exit: 6}
 	repoVar          = []pathvars.Var{{Name: "repo", Path: "/repo"}}
 )
 
@@ -75,6 +78,17 @@ func (p *refreshProcs) Start(pid int) (time.Time, error) {
 		return procStart, nil
 	}
 	return time.Time{}, proc.ErrNoProcess
+}
+
+// Name names the launched Editor a Unity Editor while it runs, and the cloning process upool.
+func (p *refreshProcs) Name(pid int) (string, error) {
+	switch {
+	case pid == clonerPID:
+		return "upool.test", nil
+	case pid == launchedPID && !p.exited && p.starts.Load() >= 0:
+		return unityProcess, nil
+	}
+	return "", proc.ErrNoProcess
 }
 
 func (p *refreshProcs) Alive(pid int, start time.Time) (bool, error) {
@@ -117,17 +131,35 @@ func editors(t *testing.T, home string) []ledger.Editor {
 	return l.Editors
 }
 
-// refreshCalls are the calls of a refresh of repo: open headless, the wait for 120 s (A37) and,
-// with closed, the close, forced (A40; #224), each with repo positional or targeted.
-func refreshCalls(repo string, closed bool) [][]string {
+// How a refresh's Editor is closed: not at all, with a plain `unity close`, as a ready one is, or
+// with `unity close --force`, as one that is not ready is (A40; #224), and then `unity status`,
+// before its instance files go (A45), or not, when the forced close failed.
+type closing int
+
+const (
+	notClosed closing = iota
+	closedPlain
+	closedForced
+	forcedCloseFailed
+)
+
+// refreshCalls are the calls of a refresh of repo: open headless, the wait for 120 s (A37), and
+// the close as closed says, each with repo positional or targeted.
+func refreshCalls(repo string, closed closing) [][]string {
 	return refreshCallsWaiting(repo, "120", closed)
 }
 
 // refreshCallsWaiting are refreshCalls with a wait of timeout seconds.
-func refreshCallsWaiting(repo, timeout string, closed bool) [][]string {
+func refreshCallsWaiting(repo, timeout string, closed closing) [][]string {
 	calls := [][]string{{"open", repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", timeout, "--format", "json"}}
-	if closed {
+	switch closed {
+	case closedPlain:
+		calls = append(calls, []string{"close", repo, "--format", "json"})
+	case closedForced:
+		calls = append(calls, []string{"close", repo, "--force", "--format", "json"},
+			[]string{"status", "--format", "json"})
+	case forcedCloseFailed:
 		calls = append(calls, []string{"close", repo, "--force", "--format", "json"})
 	}
 	return calls
@@ -171,7 +203,7 @@ func TestSeedRefresherOpensWaitsAndCloses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, true))
+	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, closedPlain))
 	want := []ledger.Editor{{Project: e.Repo, PID: launchedPID, Mode: "headless",
 		OpenedByUpool: true, ChargeGB: 2.5}}
 	if !slices.Equal(charged, want) {
@@ -194,7 +226,8 @@ func TestSeedRefresherOpensWaitsAndCloses(t *testing.T) {
 
 // A refresh that does not end with a ready Editor fails. An Editor still running when the wait
 // runs out is closed without save_all and with --force, as A40 does for a re-warm, since plain
-// `unity close` cannot reach an Editor in the middle of a cold import (#224); if that close fails,
+// `unity close` cannot reach an Editor in the middle of a cold import (#224), and `unity status`
+// is asked whether any Editor is left before its instance files go (A45); if that close fails,
 // the Editor stays in the ledger, since it may still be up. An Editor that exited is withdrawn.
 func TestSeedRefresherFailures(t *testing.T) {
 	notReady := fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
@@ -202,14 +235,15 @@ func TestSeedRefresherFailures(t *testing.T) {
 		name    string
 		replies []fake.Reply
 		exited  bool
-		closed  bool
+		closed  closing
 		// kept is whether the Editor stays in the ledger.
 		kept bool
 	}{
-		{"not ready, closed", []fake.Reply{notReady, closeForced}, false, true, false},
-		{"not ready, the close failed", []fake.Reply{notReady, closeUnreachable}, false, true,
-			true},
-		{"exited before ready", []fake.Reply{notReady}, true, false, false},
+		{"not ready, closed", []fake.Reply{notReady, closeForced, noInstances}, false,
+			closedForced, false},
+		{"not ready, the close failed", []fake.Reply{notReady, closeUnreachable}, false,
+			forcedCloseFailed, true},
+		{"exited before ready", []fake.Reply{notReady}, true, notClosed, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testenv.New(t, testenv.StaleLibrary())
@@ -235,6 +269,78 @@ func TestSeedRefresherFailures(t *testing.T) {
 	}
 }
 
+// After a forced close, which terminates the Editor, the instance files it left in the seed are
+// removed once its process is gone and `unity status` lists no Editor there: only when
+// EditorInstance.json names that Editor, and not while another Editor is listed (A45; #243).
+func TestSeedRefresherClearsWhatAForcedCloseLeft(t *testing.T) {
+	files := []string{testenv.EditorInstanceFile, "Library/ProtocolInstance.json",
+		"Temp/UnityLockfile"}
+	oneEditor := fake.Reply{Capture: "status-one-editor.json", Vars: spike}
+	for _, tt := range []struct {
+		name    string
+		pid     int
+		status  fake.Reply
+		cleared bool
+		warning string
+		// running is whether the Editor's process outlives the wait after the forced close
+		// reported it closed, which asks unity status nothing.
+		running bool
+	}{
+		{"its own files", launchedPID, noInstances, true, "", false},
+		{"another Editor's files", 4242, noInstances, false, "", false},
+		{"an Editor still listed", launchedPID, oneEditor, false, "unity status lists 1 Editor",
+			false},
+		{"its process still running", launchedPID, fake.Reply{}, false, "", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := testenv.New(t, testenv.StaleLibrary())
+			e.WriteFile(testenv.EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`, tt.pid))
+			e.WriteFile("Library/ProtocolInstance.json", "[]\n")
+			e.WriteFile("Temp/UnityLockfile", "")
+			notReady := fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
+			replies := []fake.Reply{openHeadless(e.Repo), notReady, closeForced}
+			procs := newRefreshProcs(1, nil)
+			calls := refreshCalls(e.Repo, closedForced)
+			if tt.running {
+				procs = newRefreshProcs(1000, nil)
+				calls = refreshCalls(e.Repo, forcedCloseFailed)
+			} else {
+				replies = append(replies, tt.status)
+			}
+			u := fake.Install(t, replies...)
+			r := newRefresher(e, u, procs)
+			if tt.running {
+				// Each reading of the clock is past the last wait's end.
+				var ticks atomic.Int64
+				r.Now = func() time.Time {
+					return procStart.Add(time.Duration(ticks.Add(1)) * unity.ExitTimeout)
+				}
+			}
+			warnings, err := r.Refresh(t.Context(), e.Repo, false)
+			var nr *unity.NotReadyError
+			if !errors.As(err, &nr) {
+				t.Fatalf("Refresh = %v, want a *unity.NotReadyError", err)
+			}
+			if tt.running && !errors.Is(err, ErrEditorLeft) {
+				t.Errorf("Refresh = %v, want the Editor left", err)
+			}
+			checkCalls(t, u, e.Repo, calls)
+			for _, name := range files {
+				_, err := os.Stat(e.Path(name))
+				if gone := err != nil; gone != tt.cleared {
+					t.Errorf("%s: %v; want it gone: %t", name, err, tt.cleared)
+				}
+			}
+			found := slices.ContainsFunc(warnings, func(w string) bool {
+				return tt.warning != "" && strings.Contains(w, tt.warning)
+			})
+			if tt.warning != "" && !found {
+				t.Errorf("warnings = %q, want one saying %q", warnings, tt.warning)
+			}
+		})
+	}
+}
+
 // A refused admission launches nothing, and does not use up the seed's one refresh: once the
 // budget admits it, the same refresher refreshes the seed.
 func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
@@ -253,7 +359,7 @@ func TestSeedRefresherRefusedLaunchesNothing(t *testing.T) {
 	if _, err := r.Refresh(t.Context(), e.Repo, false); err != nil {
 		t.Fatalf("Refresh once the budget admits it: %v", err)
 	}
-	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, true))
+	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, closedPlain))
 }
 
 // A refresh of a cold seed, a slot with reimport_pending or a checkout with no Library/, is
@@ -279,7 +385,7 @@ func TestSeedRefresherChargesAColdImport(t *testing.T) {
 				tt.pending); err != nil {
 				t.Fatal(err)
 			}
-			checkCalls(t, u, e.Repo, refreshCallsWaiting(e.Repo, "300", true))
+			checkCalls(t, u, e.Repo, refreshCallsWaiting(e.Repo, "300", closedPlain))
 			if len(charged) != 1 || !charged[0].ColdImport ||
 				charged[0].ChargeGB != ledger.ColdImportGB {
 				t.Errorf("ledger while the Editor started = %+v, want it charged as a cold "+
@@ -305,7 +411,7 @@ func TestSeedRefresherRefreshesASeedOnce(t *testing.T) {
 	if _, err := r.Refresh(t.Context(), e.Repo, false); !errors.Is(err, ErrRefreshedOnce) {
 		t.Errorf("second Refresh = %v, want ErrRefreshedOnce", err)
 	}
-	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, true))
+	checkCalls(t, u, e.Repo, refreshCalls(e.Repo, closedPlain))
 }
 
 // The seed choice refreshes a stale candidate while it holds it, and chooses it once it is
@@ -421,5 +527,5 @@ func TestChooseSeedRefreshesACandidateOnce(t *testing.T) {
 			t.Errorf("seed = %+v, want the main checkout; passed over %q", seed, why)
 		}
 	}
-	checkCalls(t, u, slot, refreshCalls(slot, true))
+	checkCalls(t, u, slot, refreshCalls(slot, closedPlain))
 }

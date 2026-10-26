@@ -433,7 +433,7 @@ func (pr pruner) editorIn(editors ledger.Ledger, dir string) (bool, error) {
 	if err != nil || live {
 		return live, err
 	}
-	name, err := clone.InstanceFile(dir)
+	name, err := clone.InstanceFile(dir, pr.inv.checker())
 	return name != "", err
 }
 
