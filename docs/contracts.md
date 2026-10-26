@@ -139,7 +139,10 @@ worktree session's `/clear` does the same: a new session, with a new `session_id
 
 A `claude -p --resume` launched from the main checkout runs `SessionStart` with `source: "resume"`
 and `cwd` the main checkout, not the session's worktree, and its `transcript_path` is keyed by the
-main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43).
+main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43). It keeps the
+`session_id`, and the resumed session works in its worktree again: in a slot, its Bash tool's `pwd`
+was the slot, and it still had the `UNITY_PROJECT_PATH` its first start exported
+(`hooks/cli-slot-resume-checkout-session-start.json`; A47).
 
 ### Context for the session
 
@@ -150,7 +153,7 @@ context (A43; #229).
 |---|---|
 | For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
-| For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context and has its holder recorded, and what it is exported waits on #245 | `hooks/cli-resume-checkout-session-start.json`; question 43; A46 |
+| For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context, has its holder recorded and is exported the slot, where it works (A47) | `hooks/cli-resume-checkout-session-start.json`; `hooks/cli-slot-resume-checkout-session-start.json`; question 43; A46; A47 |
 | A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
 | A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with the session's `session_id` and `cwd` where the subagent is; for a session in a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
 
@@ -1040,6 +1043,7 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   - A `claude -p --resume` launched from the main checkout ran the hook with `cwd` the main
     checkout, not the session's worktree. A hook that decides by `cwd`, as #229's does, cannot tell
     that session is in a slot. The resumed session still had the context its first start gave.
+    It worked in its worktree again (A47).
   - A subagent did not see `SessionStart` context. A `SubagentStart` hook's `additionalContext` did
     reach a subagent in `claude -p`.
   - Claude Code reads `CLAUDE.md`, and the files it imports, before `SessionStart` runs. A
@@ -1148,8 +1152,31 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   contains its `cwd`, a worktree inside the slot included. A start found either way gets the
   instructions, and a `startup` confirms that slot (maintainer decision, 2026-10-25, on #232). A
   `resume` found by its `session_id` with `cwd` outside the slot, as one launched from the main
-  checkout is, has its holder recorded (#238) and is exported nothing until #245's capture shows
-  where such a session works.
+  checkout is, has its holder recorded (#238); what it is exported is A47's.
+
+- **47. Where a session resumed from the main checkout works**
+  ([#245](https://github.com/weslo/upool/issues/245)). A `claude -p --resume` launched from the main
+  checkout reports that checkout as its `cwd` (question 43), so whether its session works in its
+  slot or in the main checkout was not known. The maintainer decided on #238 (2026-10-25) that such
+  a resume keeps its slot's lease, found by its `session_id` (A46), and that a capture decides the
+  export: the slot's path if Claude Code takes the session back into the slot, as A14 exports it,
+  and nothing if the session stays in the main checkout.
+
+  **Measured** (2026-10-25, Claude Code 2.1.305; `hooks/cli-slot-resume-checkout-session-start.json`
+  and its testdata/README.md row). In a scratch pool, a `claude -p --worktree` session was handed
+  slot-1 by upool's create hook, and its startup confirm recorded its `session_id`. A `claude -p
+  --resume` of it, launched from the main checkout, ran `SessionStart` with the same `session_id`,
+  `source: "resume"` and `cwd` the main checkout, and upool recorded the new CLI process as the
+  lease's holder. Asked to run `pwd` with the Bash tool, the resumed session printed slot-1's path.
+  Its `UNITY_PROJECT_PATH` was slot-1's, from the first start's `CLAUDE_ENV_FILE`
+  (`~/.claude/session-env/<session_id>/sessionstart-hook-0.sh`), which upool did not write on the
+  resume and Claude Code kept for the session.
+
+  **A47.** The session works in its slot, so upool's session-start hook exports the slot's path on a
+  `resume` found by its `session_id`, whatever its `cwd`, as A14 exports it on any other start. A
+  file that already holds the line is left as it is ((b)). A session that holds no lease, in the
+  main checkout or not, is left alone, as before (maintainer decision, 2026-10-25, on #238, and
+  this capture).
 
 ### Other open questions
 

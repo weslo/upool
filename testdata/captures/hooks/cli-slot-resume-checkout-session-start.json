@@ -1,0 +1,11 @@
+{
+  "session_id": "68e72e51-9d63-4f08-b096-b93d3a3c7e7e",
+  "transcript_path": "${home}/.claude/projects/${repo_key}/68e72e51-9d63-4f08-b096-b93d3a3c7e7e.jsonl",
+  "cwd": "${repo}",
+  "hook_event_name": "SessionStart",
+  "source": "resume",
+  "seconds_since_last_response": 11,
+  "context_tokens": 25979,
+  "prompt_cache_likely_expired": false,
+  "estimated_cache_write_usd": 0.2078
+}

@@ -71,7 +71,7 @@ func (h harness) hookLease(t *testing.T) pool.Slot {
 func (h harness) start(t *testing.T, req Request) error {
 	t.Helper()
 	got, err := SessionStart(context.Background(), h.env, req)
-	_, inSlot, _, ferr := sessionSlot(h.env.Home, req.SessionID, req.Cwd)
+	_, inSlot, ferr := sessionSlot(h.env.Home, req.SessionID, req.Cwd)
 	if ferr != nil {
 		t.Fatal(ferr)
 	}
@@ -454,23 +454,62 @@ func TestSessionStartGivesTheInstructions(t *testing.T) {
 }
 
 // A `claude -p --resume` launched from the main checkout runs SessionStart with the main checkout
-// as its cwd. With no lease recording its session_id, as before A46, the hook cannot tell that
-// the session is in a slot: it gives no context and exports nothing. The resumed session keeps
-// the context its first start gave ((b); question 43).
-func TestSessionStartResumedFromTheMainCheckoutGivesNothing(t *testing.T) {
-	h := startHarness(t, true, "session")
-	h.readySlot(t, "slot-1", filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1"))
-	req := h.capture(t, "cli-resume-checkout-session-start.json")
-	if req.Cwd != h.e.Repo || req.Source != "resume" {
-		t.Fatalf("capture cwd %q, source %q; want the main checkout %s and resume", req.Cwd,
-			req.Source, h.e.Repo)
+// as its cwd, and the session works in its slot again: its Bash tool's pwd was the slot in #245's
+// capture. Found by the session_id its slot's lease records, the resume gets the context, records
+// its parent as the lease's holder and exports the slot (A46; A47). The two captures are #228's
+// spike's, of a hook-made worktree, and #245's, of a slot.
+func TestSessionStartResumedFromTheMainCheckoutKeepsItsSlot(t *testing.T) {
+	for _, file := range []string{"cli-resume-checkout-session-start.json",
+		"cli-slot-resume-checkout-session-start.json"} {
+		t.Run(file, func(t *testing.T) {
+			h := startHarness(t, true, "session")
+			path := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+			h.readySlot(t, "slot-1", path)
+			s := h.hookLease(t)
+			req := h.capture(t, file)
+			if req.Cwd != h.e.Repo || req.Source != "resume" {
+				t.Fatalf("capture cwd %q, source %q; want the main checkout %s and resume",
+					req.Cwd, req.Source, h.e.Repo)
+			}
+			err := pool.Update(context.Background(), h.e.Home, h.key, func(p *pool.Pool) error {
+				p.Slots[0].Lease.SessionID = &req.SessionID
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := h.start(t, req); err != nil {
+				t.Fatalf("SessionStart: %v, want no error", err)
+			}
+			h.checkExported(t, path)
+			got := h.slot(t, "slot-1")
+			if l := got.Lease; got.State != pool.StateLeasedUnconfirmed || l == nil ||
+				l.LeaseID != s.Lease.LeaseID || l.SessionID == nil || *l.SessionID != req.SessionID {
+				t.Errorf("slot-1 = %+v, want its lease as it was", got)
+			}
+			checkHolder(t, got.Lease, os.Getpid())
+		})
 	}
-	got, err := SessionStart(context.Background(), h.env, req)
+}
+
+// A resume from the main checkout whose session_id names no lease, as none did before A46, is a
+// session in no slot: it gets no context, nothing is exported, and state.json is not written.
+func TestSessionStartResumedFromTheMainCheckoutWithNoLeaseChangesNothing(t *testing.T) {
+	h := startHarness(t, true, "session")
+	path := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+	h.readySlot(t, "slot-1", path)
+	h.hookLease(t)
+	before := h.stateFile(t)
+	got, err := SessionStart(context.Background(), h.env,
+		h.capture(t, "cli-slot-resume-checkout-session-start.json"))
 	if err != nil || got != "" {
 		t.Errorf("SessionStart = %q, %v; want nothing and no error", got, err)
 	}
 	if lines, ok := h.exports(t); ok {
 		t.Errorf("CLAUDE_ENV_FILE = %q, want nothing exported", lines)
+	}
+	if !os.SameFile(h.stateFile(t), before) {
+		t.Error("state.json was written, want it left alone")
 	}
 }
 

@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A `claude -p --resume` launched from the main checkout now gets `UNITY_PROJECT_PATH` for its slot
+  again (#245; docs/contracts.md A47). Claude Code reports such a resume's `cwd` as the main
+  checkout but takes the session back into its slot, as a capture showed, so upool's session-start
+  hook, which finds the slot by the session's `session_id`, now exports the slot's path for it, as
+  it does on every other start. The lease already recorded the resumed CLI process as its holder
+  (#244).
+
 ## [0.4.0-rc.3] - 2026-10-25
 
 ### Fixed
