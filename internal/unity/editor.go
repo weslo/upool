@@ -149,6 +149,26 @@ func (c Client) WaitReady(ctx context.Context, procs proc.Checker, project strin
 	}
 }
 
+// The codes of a plain `unity close` that left its Editor running: one that timed out waiting for
+// the Editor to quit, as a headless Editor of a main checkout did just after it was ready
+// (testdata/captures/unity/close-timeout.json; #252), and one that found no graceful-close
+// channel, as in a cold import (testdata/captures/unity/close-unreachable.json; #224).
+const (
+	codeCloseTimeout     = "PROJECTS_CLOSE_TIMEOUT"
+	codeCloseUnreachable = "PROJECTS_CLOSE_UNREACHABLE"
+)
+
+// LeftRunning reports whether err, from Shut, is a close that left its Editor running, timed out
+// or unreachable: a later plain close may still close that Editor (A48).
+func LeftRunning(err error) bool {
+	var f *output.Failure
+	if !errors.As(err, &f) {
+		return false
+	}
+	code := string(f.Code())
+	return code == codeCloseTimeout || code == codeCloseUnreachable
+}
+
 // Closed is what `unity close` reported.
 type Closed struct {
 	// PID is the Editor's process.

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/weslo/upool/internal/ledger"
@@ -45,6 +46,9 @@ var (
 	closeForced      = fake.Reply{Capture: "close-force-unreachable.json", Vars: repoVar}
 	noInstances      = fake.Reply{Capture: "status-no-instances.json", Exit: 6}
 	repoVar          = []pathvars.Var{{Name: "repo", Path: "/repo"}}
+	// closeTimedOut is the reply of a plain `unity close` sent as soon as a headless Editor of a
+	// main checkout was ready, which timed out and left the Editor running (#252).
+	closeTimedOut = fake.Reply{Capture: "close-timeout.json", Vars: repoVar, Exit: 6}
 )
 
 // refreshProcs is the process table of a refresh: the cloning process alive throughout, and the
@@ -338,6 +342,136 @@ func TestSeedRefresherClearsWhatAForcedCloseLeft(t *testing.T) {
 				t.Errorf("warnings = %q, want one saying %q", warnings, tt.warning)
 			}
 		})
+	}
+}
+
+// A ready Editor that a plain close leaves running, timed out or unreachable, is sent the close
+// again, and when that one closes it the refresh ends as after a first close: no --force, the
+// ledger empty, the scene list put back (A48; #252). A plain close that fails any other way is
+// followed by --force at once, and an Editor whose process has gone by the time a close fails is
+// sent nothing more. The wait between closes passes on testing/synctest's clock.
+func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
+	plain := func(repo string) []string { return []string{"close", repo, "--format", "json"} }
+	otherFailure := closeTimedOut
+	otherFailure.Replace = []string{"PROJECTS_CLOSE_TIMEOUT", "PROJECTS_CLOSE_FAILED"}
+	for _, tt := range []struct {
+		name    string
+		replies []fake.Reply
+		// starts is how many of the Editor's Start checks find it running.
+		starts int
+		calls  func(repo string) [][]string
+		waited time.Duration
+	}{
+		{"timed out", []fake.Reply{closeTimedOut, closeHeadless}, 2, func(repo string) [][]string {
+			return append(refreshCalls(repo, closedPlain), plain(repo))
+		}, closeRetryInterval},
+		{"unreachable", []fake.Reply{closeUnreachable, closeHeadless}, 2,
+			func(repo string) [][]string {
+				return append(refreshCalls(repo, closedPlain), plain(repo))
+			}, closeRetryInterval},
+		{"failed otherwise", []fake.Reply{otherFailure, closeForced, noInstances}, 2,
+			func(repo string) [][]string {
+				calls := refreshCalls(repo, closedPlain)
+				return append(calls, refreshCalls(repo, closedForced)[2:]...)
+			}, 0},
+		{"gone meanwhile", []fake.Reply{closeTimedOut}, 1, func(repo string) [][]string {
+			return refreshCalls(repo, closedPlain)
+		}, 0},
+		{"gone after another failure", []fake.Reply{otherFailure}, 1,
+			func(repo string) [][]string { return refreshCalls(repo, closedPlain) }, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := testenv.New(t, testenv.StaleLibrary())
+			scenes := e.Path("Library/" + pool.SceneListFile)
+			e.WriteFile("Library/"+pool.SceneListFile, "sceneSetups: [Main]\n")
+			u := fake.Install(t, append([]fake.Reply{openHeadless(e.Repo), statusReady},
+				tt.replies...)...)
+			synctest.Test(t, func(t *testing.T) {
+				procs := newRefreshProcs(tt.starts, func() {
+					if err := os.WriteFile(scenes, []byte("sceneSetups: []\n"), 0o644); err != nil {
+						t.Error(err)
+					}
+				})
+				r := newRefresher(e, u, procs)
+				r.Now = time.Now
+				begin := time.Now()
+				if _, err := r.Refresh(t.Context(), e.Repo, false); err != nil {
+					t.Fatalf("Refresh: %v, want no error", err)
+				}
+				if waited := time.Since(begin); waited != tt.waited {
+					t.Errorf("Refresh waited %s, want %s", waited, tt.waited)
+				}
+			})
+			checkCalls(t, u, e.Repo, tt.calls(e.Repo))
+			if got := editors(t, e.Home); len(got) != 0 {
+				t.Errorf("ledger afterwards = %+v, want empty", got)
+			}
+			if got, _ := os.ReadFile(scenes); string(got) != "sceneSetups: [Main]\n" {
+				t.Errorf("%s = %q, want it put back", pool.SceneListFile, got)
+			}
+		})
+	}
+}
+
+// A ready Editor that plain closes leave running until closeRetryTimeout has passed since the
+// first is closed with --force, and the instance files that leaves are removed once `unity status`
+// lists no Editor in the seed (A45). The refresh succeeds, since its Editor was ready and so
+// brought the Library current, and the scene list is put back (A48; #252). The waits pass on
+// testing/synctest's clock.
+func TestSeedRefresherForcesAReadyEditorPlainClosesCannotClose(t *testing.T) {
+	e := testenv.New(t, testenv.StaleLibrary())
+	files := []string{testenv.EditorInstanceFile, "Library/ProtocolInstance.json",
+		"Temp/UnityLockfile"}
+	e.WriteFile(testenv.EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`, launchedPID))
+	e.WriteFile("Library/ProtocolInstance.json", "[]\n")
+	e.WriteFile("Temp/UnityLockfile", "")
+	scenes := e.Path("Library/" + pool.SceneListFile)
+	e.WriteFile("Library/"+pool.SceneListFile, "sceneSetups: [Main]\n")
+	// A close every closeRetryInterval from the first to the one at closeRetryTimeout.
+	closes := int(closeRetryTimeout/closeRetryInterval) + 1
+	replies := []fake.Reply{openHeadless(e.Repo), statusReady}
+	want := refreshCalls(e.Repo, notClosed)
+	for range closes {
+		replies = append(replies, closeTimedOut)
+		want = append(want, []string{"close", e.Repo, "--format", "json"})
+	}
+	replies = append(replies, closeForced, noInstances)
+	want = append(want, refreshCalls(e.Repo, closedForced)[2:]...)
+	u := fake.Install(t, replies...)
+	synctest.Test(t, func(t *testing.T) {
+		// Running for WaitReady's check and after each close that leaves it running, then gone.
+		procs := newRefreshProcs(1+closes, func() {
+			if err := os.WriteFile(scenes, []byte("sceneSetups: []\n"), 0o644); err != nil {
+				t.Error(err)
+			}
+		})
+		r := newRefresher(e, u, procs)
+		r.Now = time.Now
+		begin := time.Now()
+		warnings, err := r.Refresh(t.Context(), e.Repo, false)
+		if err != nil {
+			t.Fatalf("Refresh: %v, want no error", err)
+		}
+		if waited := time.Since(begin); waited != 2*time.Minute {
+			t.Errorf("Refresh waited %s, want the two minutes A48 bounds the retries by", waited)
+		}
+		if slices.ContainsFunc(warnings, func(w string) bool {
+			return strings.Contains(w, "did not remove")
+		}) {
+			t.Errorf("warnings = %q, want the instance files removed", warnings)
+		}
+	})
+	checkCalls(t, u, e.Repo, want)
+	for _, name := range files {
+		if _, err := os.Stat(e.Path(name)); err == nil {
+			t.Errorf("%s is still there, want it removed", name)
+		}
+	}
+	if got := editors(t, e.Home); len(got) != 0 {
+		t.Errorf("ledger afterwards = %+v, want empty", got)
+	}
+	if got, _ := os.ReadFile(scenes); string(got) != "sceneSetups: [Main]\n" {
+		t.Errorf("%s = %q, want it put back", pool.SceneListFile, got)
 	}
 }
 

@@ -1,0 +1,18 @@
+{
+  "success": false,
+  "command": "close",
+  "data": {
+    "project": "${repo}",
+    "pid": 4486,
+    "closed": false,
+    "method": "none",
+    "reason": "timeout"
+  },
+  "errors": [
+    {
+      "code": "PROJECTS_CLOSE_TIMEOUT",
+      "message": "The editor for \"${repo}\" did not close within 30s. Re-run with --force to terminate it."
+    }
+  ],
+  "warnings": []
+}
