@@ -80,6 +80,17 @@ func (p *refreshProcs) Start(pid int) (time.Time, error) {
 	return time.Time{}, proc.ErrNoProcess
 }
 
+// Name names the launched Editor a Unity Editor while it runs, and the cloning process upool.
+func (p *refreshProcs) Name(pid int) (string, error) {
+	switch {
+	case pid == clonerPID:
+		return "upool.test", nil
+	case pid == launchedPID && !p.exited && p.starts.Load() >= 0:
+		return unityProcess, nil
+	}
+	return "", proc.ErrNoProcess
+}
+
 func (p *refreshProcs) Alive(pid int, start time.Time) (bool, error) {
 	switch pid {
 	case clonerPID:
@@ -271,10 +282,15 @@ func TestSeedRefresherClearsWhatAForcedCloseLeft(t *testing.T) {
 		status  fake.Reply
 		cleared bool
 		warning string
+		// running is whether the Editor's process outlives the wait after the forced close
+		// reported it closed, which asks unity status nothing.
+		running bool
 	}{
-		{"its own files", launchedPID, noInstances, true, ""},
-		{"another Editor's files", 4242, noInstances, false, ""},
-		{"an Editor still listed", launchedPID, oneEditor, false, "unity status lists 1 Editor"},
+		{"its own files", launchedPID, noInstances, true, "", false},
+		{"another Editor's files", 4242, noInstances, false, "", false},
+		{"an Editor still listed", launchedPID, oneEditor, false, "unity status lists 1 Editor",
+			false},
+		{"its process still running", launchedPID, fake.Reply{}, false, "", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			e := testenv.New(t, testenv.StaleLibrary())
@@ -282,14 +298,33 @@ func TestSeedRefresherClearsWhatAForcedCloseLeft(t *testing.T) {
 			e.WriteFile("Library/ProtocolInstance.json", "[]\n")
 			e.WriteFile("Temp/UnityLockfile", "")
 			notReady := fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
-			u := fake.Install(t, openHeadless(e.Repo), notReady, closeForced, tt.status)
-			warnings, err := newRefresher(e, u, newRefreshProcs(1, nil)).Refresh(t.Context(),
-				e.Repo, false)
+			replies := []fake.Reply{openHeadless(e.Repo), notReady, closeForced}
+			procs := newRefreshProcs(1, nil)
+			calls := refreshCalls(e.Repo, closedForced)
+			if tt.running {
+				procs = newRefreshProcs(1000, nil)
+				calls = refreshCalls(e.Repo, forcedCloseFailed)
+			} else {
+				replies = append(replies, tt.status)
+			}
+			u := fake.Install(t, replies...)
+			r := newRefresher(e, u, procs)
+			if tt.running {
+				// Each reading of the clock is past the last wait's end.
+				var ticks atomic.Int64
+				r.Now = func() time.Time {
+					return procStart.Add(time.Duration(ticks.Add(1)) * unity.ExitTimeout)
+				}
+			}
+			warnings, err := r.Refresh(t.Context(), e.Repo, false)
 			var nr *unity.NotReadyError
 			if !errors.As(err, &nr) {
 				t.Fatalf("Refresh = %v, want a *unity.NotReadyError", err)
 			}
-			checkCalls(t, u, e.Repo, refreshCalls(e.Repo, closedForced))
+			if tt.running && !errors.Is(err, ErrEditorLeft) {
+				t.Errorf("Refresh = %v, want the Editor left", err)
+			}
+			checkCalls(t, u, e.Repo, calls)
 			for _, name := range files {
 				_, err := os.Stat(e.Path(name))
 				if gone := err != nil; gone != tt.cleared {

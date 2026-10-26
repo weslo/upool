@@ -19,3 +19,11 @@ func Start(pid int) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("process start times on %s: %w", runtime.GOOS,
 		errors.ErrUnsupported)
 }
+
+// Name returns an error wrapping errors.ErrUnsupported, as Start does off darwin.
+func Name(pid int) (string, error) {
+	if err := validPID(pid); err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("process names on %s: %w", runtime.GOOS, errors.ErrUnsupported)
+}

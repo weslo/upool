@@ -1115,12 +1115,14 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     `Library/ProtocolInstance.json` and `Temp/UnityLockfile` beside it. That is the rule
     `doctor --fix` keeps for a slot's `Temp/`. A failure is a warning.
   - **An instance file counts only for a running Editor.** Seeds, prune and `init` take a checkout
-    for open only when its `EditorInstance.json` names a process that exists and started no later
-    than the file was written; a process that started later reused a dead Editor's PID. A file
-    that names no process, or whose process's start cannot be read, counts. A
-    `ProtocolInstance.json` alone does not. Nothing of the project's is deleted for this.
+    for open only when the process its `EditorInstance.json` names is alive and is a Unity Editor,
+    whose name the kernel records as `Unity`. A `ProtocolInstance.json` with no live
+    `EditorInstance.json` beside it is a leftover too. Nothing of the project's is deleted for
+    this.
 
-  (maintainer decision, 2026-10-25.)
+  (maintainer decision, 2026-10-25.) What follows is the implementation's. A file that names no
+  process names no live Editor, so it does not count. Off macOS, where upool reads no process, the
+  file counts as it always did. The rerun read the name `Unity` for the Editor its file named.
 
 ### Other open questions
 

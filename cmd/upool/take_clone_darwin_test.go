@@ -1,7 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -112,7 +115,7 @@ func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
 // With the main checkout's Editor open there is no seed: take clones nothing and says why.
 func TestTakeClonesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
 	e := leasedPool(t)
-	e.WriteFile(testenv.EditorInstanceFile, "{}\n")
+	e.WriteFile(testenv.EditorInstanceFile, fmt.Sprintf(`{"process_id": %d}`, runningUnity(t)))
 	r := runIn(t, e, e.Repo, "take", "feature-y")
 	want := "upool: not cloning a slot: no seed qualifies: the main checkout: the Unity Editor " +
 		"has it open (Library/EditorInstance.json names a running Editor)\n"
@@ -122,6 +125,48 @@ func TestTakeClonesNothingWhileTheMainCheckoutsEditorIsOpen(t *testing.T) {
 	if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=leased" {
 		t.Errorf("slots = %s, want slot-1 alone", got)
 	}
+}
+
+// editorStandIn, set in a process's environment, has TestEditorStandIn hold it open.
+const editorStandIn = "UPOOL_TEST_EDITOR_STAND_IN"
+
+// runningUnity starts a process the kernel names Unity, as it names a running Editor's
+// (clone.InstanceFile; A45): a copy of this test binary, named Unity, that runs TestEditorStandIn
+// until the test ends. It returns the process's PID.
+func runningUnity(t *testing.T) int {
+	t.Helper()
+	self, err := os.ReadFile(os.Args[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(tempDir(t), "Unity")
+	if err := os.WriteFile(bin, self, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(bin, "-test.run=^TestEditorStandIn$")
+	cmd.Env = append(os.Environ(), editorStandIn+"=1")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		// Either fails harmlessly once the stand-in has gone.
+		_ = stdin.Close()
+		_ = cmd.Wait()
+	})
+	return cmd.Process.Pid
+}
+
+// TestEditorStandIn is runningUnity's process: it holds until its stdin closes, and is skipped in
+// any other run.
+func TestEditorStandIn(t *testing.T) {
+	if os.Getenv(editorStandIn) == "" {
+		t.Skip("only a stand-in for a running Editor, started by runningUnity")
+	}
+	_, _ = io.Copy(io.Discard, os.Stdin)
 }
 
 // With --no-create take only waits, and fails after --timeout; at max_slots it waits the same way

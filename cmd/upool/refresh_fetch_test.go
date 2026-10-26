@@ -17,6 +17,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/testenv"
+	"github.com/weslo/upool/internal/unity"
 	"github.com/weslo/upool/internal/unity/fake"
 )
 
@@ -314,18 +315,23 @@ func TestRefreshRewarmFailures(t *testing.T) {
 		// re-warm it: ", with %s the slot.
 		warning string
 		closed  bool
+		// running is whether the Editor's process outlives the forced close that reports it
+		// closed, so that its instance files must stay (A45).
+		running bool
 	}{
-		{"not ready, closed", &closeForcedReply, false, notReady, true},
-		{"not ready, the close failed", &closeUnreachableReply, false, notReady, false},
+		{"not ready, closed", &closeForcedReply, false, notReady, true, false},
+		{"not ready, closed, but still running", &closeForcedReply, false, notReady, false,
+			true},
+		{"not ready, the close failed", &closeUnreachableReply, false, notReady, false, false},
 		{"exited before ready", nil, true, "the Editor of %s, process 25147, exited before " +
-			"it was ready", true},
+			"it was ready", true, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p, origin := fetchPool(t)
 			upstream := pushUpstream(t, p, origin)
 			replies := rewarmReplies(t, p, nil)[:3]
 			replies = append(replies, statusNoInstances)
-			forced := tt.close == &closeForcedReply
+			forced := tt.close == &closeForcedReply && !tt.running
 			if tt.close != nil {
 				replies = append(replies, *tt.close)
 			}
@@ -350,7 +356,16 @@ func TestRefreshRewarmFailures(t *testing.T) {
 			if tt.exits {
 				procs.checks[capturedPID] = 0
 			}
-			r := runRefresh(t, p, procs, "--fetch")
+			now := func() time.Time { return clock }
+			if tt.running {
+				// The Editor never goes, and each reading of the clock is past the last wait.
+				procs = newRewarmProcs(1000, nil)
+				var ticks atomic.Int64
+				now = func() time.Time {
+					return clock.Add(time.Duration(ticks.Add(1)) * unity.ExitTimeout)
+				}
+			}
+			r := runProcs(t, p.Env, p.Repo, procs, now, "refresh", "--fetch")
 			slot := p.slot("slot-1")
 			warning := "upool: warning: moved slot-1 to origin/main but did not re-warm it: " +
 				fmt.Sprintf(tt.warning, slot)

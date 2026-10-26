@@ -53,39 +53,39 @@ const editorInstanceFile = "Library/EditorInstance.json"
 
 var leftoverFiles = []string{"Library/ProtocolInstance.json", "Temp/UnityLockfile"}
 
-// InstanceFile returns Library/EditorInstance.json when the checkout at dir holds one whose Editor
-// is running, by procs, and "" otherwise: a seed, a slot prune would remove, or a checkout init
-// would pool, with one has a live Library ((g) step 0; docs/design.md, "Slot lifecycle": the tool
-// never prunes inside a live Library). The Editor is running when the process the file names
-// exists and started no later than the file was written, as the Editor that wrote it did; a
-// process that started later has reused the PID of one that is gone. A file a terminated Editor
-// left, upool's or anyone's, so does not count, nor does a Library/ProtocolInstance.json with no
-// live EditorInstance.json beside it (A45; #243). A file that names no process, or a process whose
-// start cannot be read, as off macOS, counts as running, since the Editor may be.
+// unityProcess is a Unity Editor's process name as the kernel records it, from
+// Unity.app/Contents/MacOS/Unity: the M4 gate's rerun read it, for the Editor whose PID its
+// Library/EditorInstance.json named (#243).
+const unityProcess = "Unity"
+
+// InstanceFile returns Library/EditorInstance.json when the checkout at dir holds one naming a
+// process that is running and is a Unity Editor, by procs, and "" otherwise: a seed, a slot prune
+// would remove, or a checkout init would pool, with one has a live Library ((g) step 0;
+// docs/design.md, "Slot lifecycle": the tool never prunes inside a live Library). So a file a
+// terminated Editor left, upool's or anyone's, does not count, nor does one that names no process,
+// nor a Library/ProtocolInstance.json with no live EditorInstance.json beside it (A45; #243). Off
+// macOS, where procs reads no process, the file counts as it always did, since the Editor may be
+// running.
 func InstanceFile(dir string, procs proc.Checker) (string, error) {
 	file := filepath.Join(dir, filepath.FromSlash(editorInstanceFile))
-	info, err := os.Lstat(file)
-	if errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(file); errors.Is(err, fs.ErrNotExist) {
 		return "", nil
-	}
-	if err != nil {
+	} else if err != nil {
 		return "", fmt.Errorf("checking for %s in %s: %w", editorInstanceFile, dir, err)
 	}
 	pid, ok := instancePID(file)
 	if !ok {
-		return editorInstanceFile, nil
+		return "", nil
 	}
-	start, err := procs.Start(pid)
+	name, err := procs.Name(pid)
 	switch {
 	case errors.Is(err, proc.ErrNoProcess):
 		return "", nil
 	case errors.Is(err, errors.ErrUnsupported):
 		return editorInstanceFile, nil
 	case err != nil:
-		return "", fmt.Errorf("checking the Editor %s names, process %d: %w", file, pid, err)
-	}
-	// Start times are read to the second; the file is written seconds after the Editor starts.
-	if start.After(info.ModTime().Add(time.Second)) {
+		return "", fmt.Errorf("checking the process %s names, %d: %w", file, pid, err)
+	case name != unityProcess:
 		return "", nil
 	}
 	return editorInstanceFile, nil

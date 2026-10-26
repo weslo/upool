@@ -18,4 +18,7 @@ func TestStartIsUnsupported(t *testing.T) {
 	if alive, err := Alive(os.Getpid(), time.Now()); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Alive = %v, %v, want errors.ErrUnsupported", alive, err)
 	}
+	if name, err := Name(os.Getpid()); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("Name = %q, %v, want errors.ErrUnsupported", name, err)
+	}
 }

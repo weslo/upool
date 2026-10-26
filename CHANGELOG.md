@@ -16,9 +16,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - closes an Editor that is ready without `--force`;
   - after a forced close, once the Editor is gone and `unity status` lists none, removes the files
     it left;
-  - counts an instance file only when the Editor it names is still running, so a file an Editor
-    that crashed or was force-quit left no longer blocks `init`, a clone or `prune`. A
-    `Library/ProtocolInstance.json` alone no longer refuses `init`.
+  - counts an instance file only when the process it names is running and is a Unity Editor, so a
+    file an Editor that crashed or was force-quit left no longer blocks `init`, a clone or `prune`.
+    A `Library/ProtocolInstance.json` alone no longer refuses `init`.
 
 ## [0.4.0-rc.2] - 2026-10-24
 

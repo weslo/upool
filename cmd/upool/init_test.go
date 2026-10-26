@@ -125,25 +125,14 @@ func TestInitRefusesTrackedLibrary(t *testing.T) {
 		"git tracks 1 file under Library/", "Library/ArtifactDB")
 }
 
-// init refuses a checkout whose EditorInstance.json names a running Editor, or names no process,
-// so that it cannot tell (clone.InstanceFile; A45).
+// init refuses a checkout whose EditorInstance.json names a running Unity Editor
+// (clone.InstanceFile; A45).
 func TestInitRefusesOpenEditor(t *testing.T) {
-	for _, tt := range []struct {
-		name    string
-		content string
-	}{
-		{"a running Editor", `{"process_id": 4242}`},
-		{"no process named", "{}\n"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			e := newInitEnv(t)
-			e.WriteFile(testenv.EditorInstanceFile, tt.content)
-			r := runProcs(t, e, e.Repo, procsAlive(4242), func() time.Time { return clock },
-				"init")
-			checkRefused(t, e, r, readFile(t, e, ".gitignore"),
-				"the Unity Editor has "+e.Repo+" open", testenv.EditorInstanceFile)
-		})
-	}
+	e := newInitEnv(t, testenv.OpenEditor())
+	r := runProcs(t, e, e.Repo, procsAlive(testenv.EditorPID), func() time.Time { return clock },
+		"init")
+	checkRefused(t, e, r, readFile(t, e, ".gitignore"), "the Unity Editor has "+e.Repo+" open",
+		testenv.EditorInstanceFile)
 }
 
 // A stale Library would hand the first slot, and every clone after it, a recompile
@@ -272,7 +261,8 @@ func TestInitOutsideAGitRepositoryFails(t *testing.T) {
 
 func TestInitJSONReportsARefusalAsAFailureEnvelope(t *testing.T) {
 	e := newInitEnv(t, testenv.OpenEditor())
-	r := runIn(t, e, e.Repo, "init", "--json")
+	r := runProcs(t, e, e.Repo, procsAlive(testenv.EditorPID), func() time.Time { return clock },
+		"init", "--json")
 	if r.code != output.ExitFailure || r.stderr != "" {
 		t.Errorf("exit = %d, stderr = %q, want %d and empty", r.code, r.stderr, output.ExitFailure)
 	}

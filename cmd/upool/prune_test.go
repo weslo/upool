@@ -118,7 +118,8 @@ func TestPruneListsOnlyCandidates(t *testing.T) {
 				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 		}},
 		{"an Editor upool did not open", func(t *testing.T, p harnessPool) {
-			p.WriteFile(".claude/worktrees/slot-2/Library/EditorInstance.json", "{}\n")
+			p.WriteFile(".claude/worktrees/slot-2/Library/EditorInstance.json",
+				fmt.Sprintf(`{"process_id": %d}`, os.Getpid()))
 		}},
 		{"idle less than shrink_after", func(t *testing.T, p harnessPool) {
 			p.update(t, func(pl *pool.Pool) {
@@ -833,6 +834,10 @@ func (unsupportedProcs) Start(int) (time.Time, error) {
 
 func (unsupportedProcs) Alive(int, time.Time) (bool, error) {
 	return false, fmt.Errorf("reading start times: %w", errors.ErrUnsupported)
+}
+
+func (unsupportedProcs) Name(int) (string, error) {
+	return "", fmt.Errorf("reading process names: %w", errors.ErrUnsupported)
 }
 
 // Where no process can be read, an agent worktree's parent counts as alive: a young one is not
