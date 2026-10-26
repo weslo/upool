@@ -7,6 +7,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- upool's session-start hook now exports `UNITY_PROJECT_PATH` for the session's slot on a
+  `claude -p --resume` launched from the main checkout too, as on every other start (#245;
+  docs/contracts.md A47). Claude Code reports such a resume's `cwd` as the main checkout, but a
+  capture showed it takes the session back into its slot. The hook finds the slot by the session's
+  `session_id`, as it already did to record the resumed CLI process as the lease's holder (#244).
+  The resumed session also keeps the export its first start made, which had been its only one.
+
 ## [0.4.0-rc.3] - 2026-10-25
 
 ### Fixed

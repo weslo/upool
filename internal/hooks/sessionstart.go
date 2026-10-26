@@ -19,9 +19,6 @@ import (
 // sources").
 const SourceStartup = "startup"
 
-// SourceResume is a SessionStart request's source when a session resumes ((b)).
-const SourceResume = "resume"
-
 // projectPathVar is the variable the session-start hook exports for a session in a slot, the one
 // the Unity CLI targets by (docs/contracts.md (b) and (c)).
 const projectPathVar = "UNITY_PROJECT_PATH"
@@ -32,14 +29,14 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // for its later starts, and then starts the detached top-up through env.StartRefresh (#79). On
 // any other source it only records env.ParentPID as the lease's holder while the slot has one,
 // re-copying no agent file, running no reset and starting no top-up (A14). Then, whatever the
-// source and whatever the confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile, but for
-// a resume found by its session_id with cwd outside the slot, as a `claude -p --resume` launched
-// from the main checkout is: where such a session works waits on #245, and nothing is exported
-// for it. The stdin cwd is read and $PWD never is, since the hook's own working directory is the
-// main checkout ((b)). For a session in a slot it returns the context document that gives the
-// session upool's instructions (ContextDocument; A43), on every source, and even when the confirm
-// fails, with that error. A session in no slot, the main checkout's own among them, is left
-// alone and gets nothing. The hook exits 0 whatever this returns, its error on stderr:
+// source and whatever the confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile, for a
+// resume found by its session_id with cwd outside the slot too: a `claude -p --resume` launched
+// from the main checkout reports that checkout as its cwd, but works in the slot (A47). The stdin
+// cwd is read and $PWD never is, since the hook's own working directory is the main checkout
+// ((b)). For a session in a slot it returns the context document that gives the session upool's
+// instructions (ContextDocument; A43), on every source, and even when the confirm fails, with that
+// error. A session in no slot, the main checkout's own among them, is left alone and gets
+// nothing. The hook exits 0 whatever this returns, its error on stderr:
 // SessionStart has no abort role ((d)).
 func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if req.HookEventName != EventSessionStart {
@@ -49,7 +46,7 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if !filepath.IsAbs(req.Cwd) {
 		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
 	}
-	ref, ok, in, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
+	ref, ok, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
 	if err != nil || !ok {
 		return "", err
 	}
@@ -71,12 +68,8 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	} else if err := recordHolder(ctx, env, ref); err != nil {
 		errs = append(errs, err)
 	}
-	// A resume found by its session_id outside the slot, as one launched from the main checkout
-	// is, exports nothing until #245 has shown where such a session works.
-	if in || req.Source != SourceResume {
-		if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
-			errs = append(errs, err)
-		}
+	if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
+		errs = append(errs, err)
 	}
 	return doc, errors.Join(errs...)
 }

@@ -139,7 +139,10 @@ worktree session's `/clear` does the same: a new session, with a new `session_id
 
 A `claude -p --resume` launched from the main checkout runs `SessionStart` with `source: "resume"`
 and `cwd` the main checkout, not the session's worktree, and its `transcript_path` is keyed by the
-main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43).
+main checkout (`hooks/cli-resume-checkout-session-start.json`; question 43). It keeps the
+`session_id`, and the resumed session works in its worktree again: in a slot, its Bash tool's `pwd`
+was the slot, and it still had the `UNITY_PROJECT_PATH` its first start exported
+(`hooks/cli-slot-resume-checkout-session-start.json`; A47).
 
 ### Context for the session
 
@@ -150,7 +153,7 @@ context (A43; #229).
 |---|---|
 | For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
-| For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context and has its holder recorded, and what it is exported waits on #245 | `hooks/cli-resume-checkout-session-start.json`; question 43; A46 |
+| For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context, has its holder recorded and is exported the slot, where it works (A47) | `hooks/cli-resume-checkout-session-start.json`; `hooks/cli-slot-resume-checkout-session-start.json`; question 43; A46; A47 |
 | A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
 | A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with the session's `session_id` and `cwd` where the subagent is; for a session in a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
 
@@ -161,7 +164,7 @@ Claude Code's documentation, not measured here, caps a hook's context at 10,000 
 | Rule | Source |
 |---|---|
 | Set for `SessionStart` hooks to `~/.claude/session-env/<SessionStart session_id>/sessionstart-hook-0.sh` | S§2 T7.5 |
-| The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree[^2] | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply) |
+| The hook appends shell lines of the form `export NAME=value`; they reach the session's Bash tool in the desktop app, with and without a worktree, and in a `claude -p` session resumed from the main checkout[^2]. The file is the session's: that resume kept the file its first start wrote, and upool's hook appends its line only to a file that does not already hold it | S§2 T7.5; S§7; S§8 A.5 (`UNITY_PROJECT_PATH=…/ta` seen in the reply); `hooks/cli-slot-resume-checkout-session-start.json`; A47 |
 | Unset for `WorktreeCreate` | S§7 (desktop probe log) |
 | upool's `SessionStart` hook runs `upool take --confirm "$cwd"`, which confirms the lease by path, runs the deferred reset if the slot is marked `needs-reset`, records its own parent (the session's CLI process) as the lease's holder PID, appends `export UNITY_PROJECT_PATH=<slot>`, and spawns a detached `upool refresh`. It copies no file into the slot: that refresh, and `upool release`, mirror the gitignored files the project's `.worktreeinclude` names into the free slots, ahead of the next handout (A44). That is for `source: "startup"`; other sources do less (A14) | D-env; D-lifecycle; A6; A14; A44 |
 | Project-level hooks for a slot session come from the **main checkout's** `.claude/settings*.json` and run with the main checkout as cwd; the slot's own copies never fired in five sessions | S§8 A.5; S§9 E, added hook source row |
@@ -1040,6 +1043,7 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   - A `claude -p --resume` launched from the main checkout ran the hook with `cwd` the main
     checkout, not the session's worktree. A hook that decides by `cwd`, as #229's does, cannot tell
     that session is in a slot. The resumed session still had the context its first start gave.
+    It worked in its worktree again (A47).
   - A subagent did not see `SessionStart` context. A `SubagentStart` hook's `additionalContext` did
     reach a subagent in `claude -p`.
   - Claude Code reads `CLAUDE.md`, and the files it imports, before `SessionStart` runs. A
@@ -1148,8 +1152,32 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   contains its `cwd`, a worktree inside the slot included. A start found either way gets the
   instructions, and a `startup` confirms that slot (maintainer decision, 2026-10-25, on #232). A
   `resume` found by its `session_id` with `cwd` outside the slot, as one launched from the main
-  checkout is, has its holder recorded (#238) and is exported nothing until #245's capture shows
-  where such a session works.
+  checkout is, has its holder recorded (#238); what it is exported is A47's.
+
+- **47. Where a session resumed from the main checkout works**
+  ([#245](https://github.com/weslo/upool/issues/245)). A `claude -p --resume` launched from the main
+  checkout reports that checkout as its `cwd` (question 43), so whether its session works in its
+  slot or in the main checkout was not known. The maintainer decided on #238 (2026-10-25) that such
+  a resume keeps its slot's lease, found by its `session_id` (A46), and that a capture decides the
+  export: the slot's path if Claude Code takes the session back into the slot, as A14 exports it,
+  and nothing if the session stays in the main checkout.
+
+  **Measured** (2026-10-25, Claude Code 2.1.305; `hooks/cli-slot-resume-checkout-session-start.json`
+  and its testdata/README.md row). In a scratch pool, a `claude -p --worktree` session was handed
+  slot-1 by upool's create hook, and its startup confirm recorded its `session_id`. A `claude -p
+  --resume` of it, launched from the main checkout, ran `SessionStart` with the same `session_id`,
+  `source: "resume"` and `cwd` the main checkout, and upool recorded the new CLI process as the
+  lease's holder. Asked to run `pwd` with the Bash tool, the resumed session printed slot-1's path.
+  Its `UNITY_PROJECT_PATH` was slot-1's, from the first start's `CLAUDE_ENV_FILE`
+  (`~/.claude/session-env/<session_id>/sessionstart-hook-0.sh`), which upool did not write on the
+  resume and Claude Code kept for the session.
+
+  **A47.** The session works in its slot, so upool's session-start hook exports the slot's path on a
+  `resume` found by its `session_id`, whatever its `cwd`, as A14 exports it on any other start. A
+  file that already holds the line, as that resume's did, is left as it is ((b), `CLAUDE_ENV_FILE`).
+  Work in the main checkout without a slot is left as it is: a session in no slot, whose
+  `session_id` names no lease and whose `cwd` is in no slot, gets nothing (A46). (Maintainer
+  decision, 2026-10-25, on #238; this capture decided the export.)
 
 ### Other open questions
 
@@ -1162,7 +1190,9 @@ None: every question raised so far is answered above.
 [^2]: The design (D-env) says the export "reached the Bash tool in both the CLI and the desktop app on
     2.1.295". The spike confirmed delivery only through the desktop app (S§2 T7.5; S§7); the
     standalone CLI run stopped at "Not logged in" before any Bash call (S§2 T7.4; S§8 A.9). The spike
-    wins: delivery through a standalone CLI session is unverified.
+    wins for a session's first start, which no capture has asked. #245's capture (2026-10-25, Claude
+    Code 2.1.305) saw the export of a `claude -p --worktree` session's first start in its Bash tool
+    once the session was resumed with `claude -p --resume` (A47).
 [^3]: Neither document names these states. `creating` is the design's "acquisition incomplete"
     entry (D-leases) and `warming` is `refresh`'s re-warm (D-commands); A4 settles both.
 [^4]: The design gives the defaults and the result ("at 64 GB that admits three Editors with headroom

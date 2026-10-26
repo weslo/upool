@@ -390,42 +390,42 @@ func findSlot(home, path string) (slotRef, bool, error) {
 }
 
 // sessionSlot returns the slot of the session whose SessionStart or SubagentStart has sessionID and
-// cwd, whether there is one, and whether cwd is in it, the slot or a path under it (A46; #244).
-// Claude Code reports cwd as where the session or subagent is now, which moves with a `cd` and is a
-// subagent's own worktree under isolation, so the slot is found first by the lease that records
-// sessionID, which the session's startup confirm set and every later start of it, and its
-// subagents', carries. Failing that, it is the slot whose path contains cwd, as `upool which` finds
-// it, a worktree the create hook made inside the slot included; the main checkout, which contains
-// every slot, is in none of them.
-func sessionSlot(home, sessionID, cwd string) (ref slotRef, found, in bool, err error) {
+// cwd, and whether there is one (A46; #244). Claude Code reports cwd as where the session or
+// subagent is now, which moves with a `cd`, is a subagent's own worktree under isolation, and is
+// the main checkout for a resume launched from there (A47), so the slot is found first by the
+// lease that records sessionID, which the session's startup confirm set and every later start of
+// it, and its subagents', carries. Failing that, it is the slot whose path contains cwd, as `upool
+// which` finds it, a worktree the create hook made inside the slot included; the main checkout,
+// which contains every slot, is in none of them.
+func sessionSlot(home, sessionID, cwd string) (ref slotRef, found bool, err error) {
 	want, err := paths.Key(cwd)
 	if err != nil {
-		return slotRef{}, false, false, err
+		return slotRef{}, false, err
 	}
 	repos, err := registry.List(home)
 	if err != nil {
-		return slotRef{}, false, false, err
+		return slotRef{}, false, err
 	}
 	var within slotRef
 	for _, repo := range repos {
 		p, err := pool.Load(home, repo.Key)
 		if err != nil {
-			return slotRef{}, false, false, err
+			return slotRef{}, false, err
 		}
 		for _, s := range p.Slots {
 			k, err := paths.Key(s.Path)
 			if err != nil {
-				return slotRef{}, false, false, err
+				return slotRef{}, false, err
 			}
 			cur := slotRef{repo: repo, pool: p, slot: s}
 			if l := s.Lease; sessionID != "" && l != nil && l.SessionID != nil &&
 				*l.SessionID == sessionID {
-				return cur, true, paths.Within(want, k), nil
+				return cur, true, nil
 			}
 			if !found && paths.Within(want, k) {
 				within, found = cur, true
 			}
 		}
 	}
-	return within, found, found, nil
+	return within, found, nil
 }

@@ -4,8 +4,6 @@ package hooks
 
 import (
 	"context"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -58,7 +56,7 @@ func TestSessionAndSubagentStartsFindTheSlotBySessionID(t *testing.T) {
 	compacted.checkExported(t, slot)
 
 	// A compaction found by its session_id after the session has gone outside the slot still
-	// exports the slot, as A14 has a compaction do; only a resume from outside it waits on #245.
+	// exports the slot, as A14 has a compaction do.
 	away := h
 	away.env.EnvFile = filepath.Join(t.TempDir(), "away.sh")
 	elsewhere := compact
@@ -83,8 +81,8 @@ func TestSessionAndSubagentStartsFindTheSlotBySessionID(t *testing.T) {
 	inside.checkExported(t, slot)
 
 	// The session_id finds the slot when cwd is outside it too: a subagent, and a resume launched
-	// from the main checkout, which records its parent as the holder and, until #245, exports
-	// nothing.
+	// from the main checkout, which records its parent as the holder and exports the slot, where
+	// the resumed session works (A47).
 	outside := h.capture(t, "desktop-slot-subagent-start.json")
 	outside.Cwd = h.e.Repo
 	got, err = SubagentStart(context.Background(), h.env, outside)
@@ -100,17 +98,15 @@ func TestSessionAndSubagentStartsFindTheSlotBySessionID(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	resumed := h.env
-	resumed.EnvFile = filepath.Join(t.TempDir(), "resumed.sh")
-	got, err = SessionStart(context.Background(), resumed, resume)
+	resumed := h
+	resumed.env.EnvFile = filepath.Join(t.TempDir(), "resumed.sh")
+	got, err = SessionStart(context.Background(), resumed.env, resume)
 	if err != nil {
 		t.Errorf("SessionStart resume from the main checkout: %v", err)
 	}
 	checkContext(t, got, EventSessionStart)
 	checkHolder(t, h.slot(t, "slot-1").Lease, os.Getpid())
-	if b, err := os.ReadFile(resumed.EnvFile); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the resumed session's CLAUDE_ENV_FILE = %q, %v; want nothing exported", b, err)
-	}
+	resumed.checkExported(t, slot)
 	if h.stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want nothing", h.stderr)
 	}
