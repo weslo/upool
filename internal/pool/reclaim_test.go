@@ -300,3 +300,51 @@ func TestReclaimRevertsDefineReorder(t *testing.T) {
 		t.Errorf("Reclaim = %+v, want slot-1 reclaimed ready with the reorder reverted", done)
 	}
 }
+
+// A dead holder's lease on a slot the desktop app still records is kept, not reclaimed: the app
+// resumes the session into the slot and refuses its path to any other (A50; #192). Kept names it,
+// and Candidates does not.
+func TestReclaimKeepsASlotTheAppStillRecords(t *testing.T) {
+	pid := holderPID
+	e := newReclaimEnv(t, &pid, fakeProcs{})
+	e.r.Held = func(s Slot) (string, bool) {
+		if s.Path != e.slot {
+			t.Errorf("Held asked of %s, want slot-1's path", s.Path)
+		}
+		return "pwd-c2e29a", true
+	}
+	p := e.mustLoad(t)
+	if c, err := e.r.Candidates(p); err != nil || len(c) != 0 {
+		t.Errorf("Candidates = %+v, %v; want none", c, err)
+	}
+	kept, err := e.r.Kept(p)
+	if err != nil || len(kept) != 1 || kept[0] != (Kept{Slot: "slot-1", HolderPID: holderPID,
+		App: "pwd-c2e29a"}) {
+		t.Errorf("Kept = %+v, %v; want slot-1 under pwd-c2e29a", kept, err)
+	}
+	done, err := e.r.Reclaim(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.checkUntouched(t, done)
+
+	// Once the app no longer records it, the slot is reclaimed as before.
+	e.r.Held = func(Slot) (string, bool) { return "", false }
+	if kept, err := e.r.Kept(e.mustLoad(t)); err != nil || len(kept) != 0 {
+		t.Errorf("Kept = %+v, %v; want none", kept, err)
+	}
+	if done, err := e.r.Reclaim(t.Context()); err != nil || len(done) != 1 ||
+		done[0].State != StateReady {
+		t.Errorf("Reclaim = %+v, %v; want slot-1 reclaimed ready", done, err)
+	}
+}
+
+// A live holder's lease is neither a candidate nor kept, whatever the app records.
+func TestReclaimKeepsNothingOfALiveHolder(t *testing.T) {
+	pid := holderPID
+	e := newReclaimEnv(t, &pid, fakeProcs{holderPID: holderStart})
+	e.r.Held = func(Slot) (string, bool) { return "pwd-c2e29a", true }
+	if kept, err := e.r.Kept(e.mustLoad(t)); err != nil || len(kept) != 0 {
+		t.Errorf("Kept = %+v, %v; want none", kept, err)
+	}
+}

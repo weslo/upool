@@ -74,6 +74,7 @@ by `session_id` (S§7 item 3; D-route).
 | stdout carries the worktree path and nothing else; every other byte goes to stderr. The app treats a path "selected from multi-line output" as not vouched | D-route; D-commands; `evidence/logs/desktop-probe-main.log` |
 | Any non-zero exit aborts the session with `worktree_hook_failed`; there is no fallback to the app's own creation | S§2 T7.6; S§8 A.7; S§8 "What this changes (updated)", hook scope row |
 | A path held by a live session is refused: `WorktreeCreate hook failed: hook printed "<path>", which is already in use by worktree "<name>"`, then `worktree_hook_failed`; no `WorktreeRemove` follows a refusal | S§8 A.7; S§9 E.7; `evidence/logs/sibling-slot-main.log`, `evidence/logs/managed-slot-main.log` |
+| The app records each session's worktree in `~/Library/Application Support/Claude/git-worktrees.json`, under `worktrees`, keyed by the worktree's name, with its `path` and `leasedBy` the session. The entry is removed when the session is archived or deleted, and kept through a quit and a crash, after which the session can be resumed into the worktree. The app refuses a recorded path to every other session, so the pooled branch passes over a slot the record names (A50) | #192; `evidence/session-end-probe/`; `evidence/session-end-probe/git-worktrees-shape.json`; `evidence/logs/desktop-session-end-main.log` |
 | Only a path inside `<repo>/.claude/worktrees` gets the config overlay and auto-trust ("Auto-trusted worktree … (inherited from <repo>)"); elsewhere the log says "hook returned a path outside the managed worktree directory" | S§8 A.5; S§9 E.5; `evidence/logs/managed-slot-main.log`, `evidence/logs/sibling-slot-main.log` |
 | The overlay copies only files the slot lacks ("Skipped 3 gitignored .claude files already present") and skips links to directories (21 under `.claude/skills`) | S§9 E.5; S§10 |
 | The hooks are registered per project, in its `.claude/settings.local.json` (exec form), by `init` (A26). The app runs a project-scope create hook and uses the path it prints, but skips the per-machine config overlay and auto-trust for the worktree: "hook came from a repo-committed settings tier … (provenance not vouched)". A user-scope hook clears that check, but runs in every repository | S§2 TB; S§8 A.2–3, A.5; A26; `evidence/logs/desktop-probe-main.log`; `evidence/logs/desktop-project-scope-main.log` |
@@ -256,8 +257,9 @@ The keys are the snake_case names below, exactly, and the types are JSON types (
 RFC 3339 strings in UTC, as Go encodes `time.Time`; a process start time (`holder_pid_start`,
 `owner_pid_start`) is the one `internal/proc` reads (sysctl, microseconds) and is compared at that
 precision, never against another source such as `ps -o lstart` (A7). Each file has a top-level
-`schema_version`, `1` for the format described here, but `2` for `state.json`, whose leases gained
-`session_id` (A46; a version-1 document reads as one without it): a binary that reads a higher
+`schema_version`, `1` for the format described here, but `3` for `state.json`, whose leases gained
+`session_id` at `2` (A46; a version-1 document reads as one without it) and whose slots gained
+`unconfirmed_expiries` at `3` (A50; an earlier document reads as 0): a binary that reads a higher
 version refuses with exit 1 and a message to upgrade upool, rather than rewriting the file and
 dropping fields it does not know, and one that reads a lower version migrates it on its next write
 (A7).
@@ -268,7 +270,7 @@ Pool:
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
-| `schema_version` | integer | `2`, since leases gained `session_id`; a `1` is read as one without it | every writer | A7; A46 |
+| `schema_version` | integer | `3`, since slots gained `unconfirmed_expiries`; a `2` is read with it 0, and a `1` also without the lease's `session_id` | every writer | A7; A46; A50 |
 | `repo` | string, absolute path | the main checkout | `init` | D-commands |
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool.toml` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool.toml` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
@@ -288,6 +290,7 @@ Slot:
 | `seed_dirty` | bool | whether the seed source had uncommitted changes, which (g) step 7 reverts in the slot | clone | same |
 | `reimport_pending` | bool | a checkout upool made in the slot changed `unity cache key`, so the next open is a large reimport | set by every checkout upool makes ((g) step 7, `release`, the deferred reset, `refresh`); cleared by the next `upool open`, which charges that open as a cold import | A20 |
 | `last_used` | timestamp | for LRU removal under `max_disk` and for `shrink_after`; a slot with none counts as last used when its directory was made | clone ((g) step 8), `release`, hook (remove) | D-disk; D-commands; A42 |
+| `unconfirmed_expiries` | integer | the create hook's leases on the slot that expired unconfirmed in a row (transition 7) while the desktop app's record could not be read. At 2 the slot is quarantined: neither the create hook nor `take` hands it out, the top-up does not count it as ready, and `status` and `doctor` say why | counted by each such expiry; cleared by a confirm (transition 6) and by `doctor --fix` | A50 |
 | `lease` | lease or null | current lease | `take`, `take --confirm`, `release`, hooks, reclaim | D-leases |
 
 Lease:
@@ -384,17 +387,17 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 1 | — | `creating` | `upool init` (first slot, from the main checkout with its Editor closed); `upool take` when no slot is `ready` or `needs-reset` and the pool is below `max_slots` (not with `--no-create`); `upool refresh` topping the pool up to `ready`, spawned detached by the `SessionStart` hook. After the first slot, only when a seed qualifies ((g) step 0) | D-commands; D-lifecycle; D-env; A4; A19 |
 | 2 | `creating` | `ready` | the clone recipe (g) completes and its step 8 checks pass | D-lifecycle; D-leases; A4 |
 | 3 | `ready` | `warming` | `upool refresh [--fetch]` moves an idle ready slot to the current base (`origin/<base>` with `--fetch`), forward only, and re-warms it under the cold-import semaphore | D-commands; D-lifecycle; A4; A41 |
-| 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20` | D-route |
-| 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; `take` checks out the branch `<name>`, creating it from `--base` (default `base`) when it does not exist, and the lease starts confirmed | D-commands; D-route; A6; A18 |
+| 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20`, passing over a slot that is quarantined or that the app's record names (A50) | D-route; A50 |
+| 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; `take` checks out the branch `<name>`, creating it from `--base` (default `base`) when it does not exist, and the lease starts confirmed. It skips a slot that is quarantined or that the app's record names (A50) | D-commands; D-route; A6; A18; A50 |
 | 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path; it records the holder PID | D-env; A6 |
-| 7 | `leased-unconfirmed` | `ready`, or `needs-reset` when the lease's `reset_pending` is set | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come. `take`, `status` and `doctor` end such a lease whenever they read the pool; the slot goes back to the state it was handed out from, since a slot that came through transition 10 never had its deferred reset | D-leases; S§8 A.7; A23 |
+| 7 | `leased-unconfirmed` | `ready`, or `needs-reset` when the lease's `reset_pending` is set | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come. `take`, `status` and `doctor` end such a lease whenever they read the pool; the slot goes back to the state it was handed out from, since a slot that came through transition 10 never had its deferred reset. While the app's record cannot be read, each expiry counts in the slot's `unconfirmed_expiries`, which quarantine it at 2 (A50) | D-leases; S§8 A.7; A23; A50 |
 | 8 | `leased` | `needs-reset` | `WorktreeRemove` hook, the slot clean | D-route; A5 |
 | 9 | `leased` | `parked` | `WorktreeRemove` hook, the slot dirty | D-route; S§8 A.8; A5 |
 | 10 | `needs-reset` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch, when no slot is `ready`; the deferred reset then runs inside transition 6's `take --confirm` | D-env; D-route; A5 |
 | 11 | `leased` | `ready` | `upool release`, clean: `save_all` then `unity close <path>` for an Editor it opened, revert define-order noise, checkout base detached, `git clean -fd` | D-commands; D-lifecycle; A5 |
 | 12 | `leased` | `parked` | `upool release`, dirty | D-commands; A5 |
-| 13 | `leased` | `ready` | reclaim: the lease has a holder PID **and** it is dead **and** no live Editor in the ledger **and** the slot clean. A lease with no holder PID (a bare `take`) is never reclaimed: it ends on `release`, or a person's `release --force`, and `doctor` warns once it is older than `agent_ttl` | D-leases; A6 |
-| 14 | `leased` | `parked` | reclaim: the holder PID dead, the slot dirty | D-leases |
+| 13 | `leased` | `ready` | reclaim: the lease has a holder PID **and** it is dead **and** no live Editor in the ledger **and** the app's record does not name the slot (A50) **and** the slot clean. A lease with no holder PID (a bare `take`) is never reclaimed: it ends on `release`, or a person's `release --force`, and `doctor` warns once it is older than `agent_ttl` | D-leases; A6 |
+| 14 | `leased` | `parked` | reclaim: the holder PID dead, the app's record not naming the slot (A50), the slot dirty | D-leases; A50 |
 | 15 | `ready` | removed | `upool prune --yes`: idle, merged, clean slots beyond `ready`; LRU to `max_disk`; `shrink_after` | D-commands; D-disk |
 | 16 | `parked` | — | no automatic transition; `prune` lists it and a person resolves it | D-route |
 | 17 | any | missing | the slot left the disk or `git worktree list`; `take` skips it, `doctor` reports it and it is recreated | D-route; S§10 |
@@ -797,6 +800,9 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   and `doctor --fix` (transitions 13 and 14), and its path stays blocked in the app until the
   session is resumed and archived clean. The M2 gate archives with the Archive button (maintainer
   decision, 2026-10-21; (a)).
+
+  Amended by A50: the reclaim now leaves such a slot leased while the app's record names it, and
+  `doctor` names its worktree and says how to free it.
 
 ### Decided for M3
 
@@ -1246,6 +1252,75 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     same checkout: it found the Editor at the first sample after the launch, 0.7 s, by both, and
     `EditorInstance.json` came at 7.7 s.
   - **Off macOS,** where upool reads no process, the check is the instance file's alone, as before.
+
+### Decided for M5
+
+- **50. Desktop sessions that end without `WorktreeRemove`**
+  ([#192](https://github.com/weslo/upool/issues/192)). A28 left a slot whose session was archived
+  through the app's session tool to the dead-PID reclaim of `take` and `doctor --fix`, and its path
+  blocked in the app. #192's step 1 (2026-10-27; desktop app 3.6556.2, Claude Code 2.1.308;
+  `evidence/session-end-probe/` and `evidence/logs/desktop-session-end-main.log`) ended desktop
+  sessions in slots the other ways a session ends:
+  - **Deleting a live session** ran the remove hook, as the Archive button does: a clean slot
+    became `needs-reset`, a dirty one `parked`, and the app dropped its record.
+  - **Quitting the app** and **a crash** (`kill -9` of its main process) ran none. Each holder
+    died, and each lease and each of the app's records, `leasedBy` the session, were kept. A
+    resumed session recorded its new process as its lease's holder, found by `session_id` (A46).
+  - **A dead-PID reclaim** of those sessions' slots, by a Terminal `take`, reset the clean ones and
+    handed them out. The app refused one of them to new sessions, again and again
+    (`already in use by worktree …`), its unconfirmed lease expiring and the slot handed out
+    again, while another slot was `ready`. A session resumed into another of them took up the
+    Terminal take's lease, found by `cwd`, so that two agents worked in one slot.
+
+  So a dead holder does not mean the desktop session is over: the app's record is what tells a
+  session it can resume from one that is gone.
+
+  **A50.** The maintainer decided (2026-10-27, on #192):
+  - **The app's record:** a slot whose path the app's `git-worktrees.json` names is not handed out,
+    and a dead holder's lease on it is not reclaimed.
+  - **Quarantine,** as the fallback when that file is missing or cannot be read: a slot handed out
+    and left unconfirmed a few times in a row is not handed out.
+  - **No adoption:** the session-start hook never takes up another holder's lease.
+  - **The pool short a slot:** a slot the app still records for a session stays leased, out of
+    rotation. `doctor` names the slot and the session, and says to unarchive the session and
+    archive it with the Archive button. The top-up clones around it within `max_slots`. upool
+    reads no other private file of the app, such as its session store's archived flag.
+  - **Upstream:** the session tool's dirty archive is the maintainer's to report to the app's
+    makers, outside this repository.
+  - **The manual gate** is `manual-gates/M5.md`.
+
+  What follows is the implementation's:
+  - **The record** is `internal/desktop`. Every entry under `worktrees` counts, whatever its
+    `leasedBy`, by its `path` compared as `paths.Key` makes paths. upool's messages name the
+    session by `leasedBy`, `local_<id>`, and the worktree by its `name`. A file that is missing,
+    cannot be read or has no `worktrees` object reads as unknown, and passes over nothing. `doctor`
+    warns of one that exists but cannot be read (`desktop-record`).
+  - **Handed out:** the pooled branch passes over a recorded slot, saying so on stderr once per
+    run, and `take` skips one as `recorded-by-desktop-app`.
+  - **Reclaimed:** the reclaim leaves a dead holder's lease on a recorded slot. `take` says so once
+    and `doctor` warns, each naming the session and its worktree; `doctor --fix` leaves it too. A
+    free slot the record names is a `doctor` warning as well.
+  - **Topped up:** the top-up counts no `ready` slot that is recorded or quarantined as ready, so
+    it clones around one within `max_slots`, as the pooled branch's error, which names `upool
+    refresh`, asks.
+  - **Quarantine:** while the record cannot be read, each expiry of an unconfirmed lease counts in
+    the slot's `unconfirmed_expiries` ((e); `state.json` at `schema_version` 3); with it readable,
+    an expiry counts for nothing, since it may have another cause, such as a session aborted
+    before its startup. A confirm clears the count. At 2 the slot is quarantined: neither the
+    pooled branch nor `take` hands it out, the expiry's line says so, `status` and `doctor` say why
+    and how to clear it, and `doctor --fix` clears the count.
+  - **No adoption:** a start found by `cwd` alone takes up a lease only if it is the create hook's
+    unconfirmed one, which a startup confirms; one its own process holds, as after a `/clear` in
+    the same CLI process; or a session's lease, with a `session_id`, whose holder has ended, as
+    after a desktop `/clear` that starts a new process. Any other lease, a Terminal take's or
+    `upool run`'s with no `session_id`, or a live process's, is left as it is, and the hook says so
+    on stderr. The start still gets the instructions and the export.
+  - **Unverified,** and checked by `manual-gates/M5.md`:
+    - that the pooled branch can read the app's record from the app's helper, which under
+      `~/Documents` could not open a repository's files ((a)); the record is the app's own file,
+      outside `~/Documents` (check 3);
+    - whether a desktop `/clear` runs in the same CLI process, which (b)'s sources table does not
+      record for the desktop app; either way its startup takes the lease up (check 4).
 
 ### Other open questions
 

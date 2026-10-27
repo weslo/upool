@@ -34,6 +34,9 @@ type UnconfirmedTake struct {
 	// as the create hook can tell from the desktop app's helper with a stat and git alone; a slot
 	// it rejects is passed over. Nil passes over none.
 	Present func(Slot) bool
+	// CountExpiries is whether the leases the take expires count towards their slots'
+	// quarantine: only while the desktop app's record cannot be read (A50).
+	CountExpiries bool
 }
 
 // Take leases a slot of the pool repoKey names under home, under the lock: a ready slot if there
@@ -49,7 +52,8 @@ func (t UnconfirmedTake) Take(ctx context.Context, home, repoKey string) (taken 
 	}
 	err = Update(ctx, home, repoKey, func(p *Pool) error {
 		taken = Slot{}
-		if expired, err = p.ExpireUnconfirmed(t.Now, t.ConfirmTimeout); err != nil {
+		if expired, err = p.ExpireUnconfirmed(t.Now, t.ConfirmTimeout,
+			t.CountExpiries); err != nil {
 			return err
 		}
 		i := p.handOut(t.Present)
@@ -79,12 +83,13 @@ func (t UnconfirmedTake) Take(ctx context.Context, home, repoKey string) (taken 
 }
 
 // handOut returns the index of the slot an unconfirmed take hands out, the first unleased ready
-// slot or else the first unleased needs-reset one (A5), of those present accepts when it is not
-// nil, or -1 when there is neither.
+// slot or else the first unleased needs-reset one (A5), not quarantined (A50), of those present
+// accepts when it is not nil, or -1 when there is neither.
 func (p *Pool) handOut(present func(Slot) bool) int {
 	for _, state := range []State{StateReady, StateNeedsReset} {
 		for i, s := range p.Slots {
-			if s.State == state && s.Lease == nil && (present == nil || present(s)) {
+			if s.State == state && s.Lease == nil && !s.Quarantined() &&
+				(present == nil || present(s)) {
 				return i
 			}
 		}
@@ -93,11 +98,15 @@ func (p *Pool) handOut(present func(Slot) bool) int {
 }
 
 // ExpireUnconfirmed ends every unconfirmed lease in p older than timeout at now, and returns the
-// slots it ended, as they were before. Each goes back to the state it was handed out from: ready,
-// or needs-reset when its deferred reset never ran (transition 7; A23). The caller writes p, and
+// slots it ended, as they were before but with the expiry counted. Each goes back to the state it
+// was handed out from: ready, or needs-reset when its deferred reset never ran (transition 7;
+// A23). With count, the expiry counts in the slot's unconfirmed_expiries, which quarantine it at
+// QuarantineAfter: the caller passes it while the desktop app's record cannot be read, which
+// would otherwise keep a slot the app refuses from being handed out (A50). The caller writes p, and
 // finishes each slot with EndExpired; take, status and doctor expire the leases of a pool they read
 // (#75).
-func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration) ([]Slot, error) {
+func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration, count bool) ([]Slot,
+	error) {
 	var expired []Slot
 	for i := range p.Slots {
 		s := &p.Slots[i]
@@ -107,6 +116,9 @@ func (p *Pool) ExpireUnconfirmed(now time.Time, timeout time.Duration) ([]Slot, 
 		state, err := Next(*s, ConfirmTimeout{})
 		if err != nil {
 			return nil, err
+		}
+		if count {
+			s.UnconfirmedExpiries++
 		}
 		expired = append(expired, *s)
 		s.State, s.Lease = state, nil
@@ -127,6 +139,9 @@ func EndExpired(ctx context.Context, g git.Client, repo string, expired []Slot,
 		}
 		line := fmt.Sprintf("ended the unconfirmed lease on %s, which no session confirmed "+
 			"within %s: %s is %s again", s.Name, timeout, s.Name, state)
+		if s.Quarantined() {
+			line += ", but quarantined: " + QuarantineReason(s.Name, s.UnconfirmedExpiries)
+		}
 		if err := Unlock(ctx, g, repo, s.Path); err != nil {
 			line += fmt.Sprintf(", but its git worktree lock stays: %v", err)
 		}
@@ -149,4 +164,13 @@ func NewLeaseID() (string, error) {
 		return "", fmt.Errorf("making a lease ID: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// QuarantineReason says why the slot name is quarantined, after expiries unconfirmed leases in a
+// row while the desktop app's record could not be read, and how to bring it back (A50).
+func QuarantineReason(name string, expiries int) string {
+	return fmt.Sprintf("%d sessions in a row were handed %s and none confirmed it, while the "+
+		"desktop app's record could not be read, so the app most likely refuses its path for a "+
+		"session it still records there: archive that session with the app's Archive button, "+
+		"then run upool doctor --fix to hand %s out again", expiries, name, name)
 }

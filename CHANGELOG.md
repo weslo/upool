@@ -7,6 +7,26 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A desktop session's slot is no longer reclaimed, or handed to another session, while the desktop
+  app can still resume the session into it (#192; docs/contracts.md A50). Quitting the app or a
+  crash ends its sessions' processes without a remove hook. The app keeps each session's worktree
+  in its record, `~/Library/Application Support/Claude/git-worktrees.json`, and refuses that path
+  to every other session. A dead-PID reclaim by `take` or `doctor --fix` then reset such a slot and
+  handed it out. The app refused it to each new session, the lease expired and the slot was handed
+  out again, or a resumed session shared it with the slot's new holder. Now:
+  - the create hook and `take` pass over a slot the app's record names, and the reclaim leaves a
+    dead holder's lease on one. `take` and `doctor` say so, naming the session and its worktree,
+    and say to archive that session with the app's Archive button to give the slot back. The
+    top-up clones around such a slot;
+  - while the app's record cannot be read, a slot handed out and left unconfirmed twice in a row
+    is quarantined: neither the create hook nor `take` hands it out, the top-up clones around it,
+    `status` and `doctor` say why, and `doctor --fix` clears it. `state.json` is now at
+    `schema_version` 3, which an earlier upool refuses with a message to upgrade;
+  - a session start found by its `cwd` alone no longer takes up a lease no session holds, such as
+    a Terminal `take`'s, or a live process's.
+
 ## [0.4.0] - 2026-10-26
 
 ### Added

@@ -11,6 +11,7 @@ import (
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
@@ -149,7 +150,7 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 		lane: opts.lane, holder: opts.holder, holderPID: opts.holderPID,
 		holderStart: opts.holderStart, confirmTimeout: cfg.ConfirmTimeout.Value, now: inv.now,
 		reclaimer: pool.Reclaimer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key,
-			Now: inv.now},
+			Now: inv.now, Held: appHolds(inv.home)},
 		recoverer: pool.Recoverer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key}}
 	if !opts.noCreate {
 		warn := func(line string) {
@@ -262,6 +263,9 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 	// unchecked are the warming slots that could not be checked again, told once.
 	unchecked := map[string]bool{}
 	var scene *pool.Slot // the slot whose lease holds the scene lane, at the last try
+	if err := sayKept(inv, l.reclaimer); err != nil {
+		return pool.Slot{}, "", err
+	}
 	for {
 		done, err := l.reclaimer.Reclaim(ctx)
 		if err != nil {
@@ -381,6 +385,40 @@ func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string
 	return true, nil
 }
 
+// appHolds is a Reclaimer's Held for the desktop app's record under home, read again each time it
+// is asked, since a session archived meanwhile drops its entry (A50).
+func appHolds(home string) func(pool.Slot) (string, bool) {
+	return func(s pool.Slot) (string, bool) {
+		w, held := desktop.Load(home).Holds(s.Path)
+		return w.String(), held
+	}
+}
+
+// sayKept tells stderr, once per take, of each lease whose holder is gone that the reclaim leaves,
+// since the desktop app still records its slot for a session it can resume (A50).
+func sayKept(inv *invocation, r pool.Reclaimer) error {
+	p, err := pool.Load(r.Home, r.Key)
+	if err != nil {
+		return err
+	}
+	kept, err := r.Kept(p)
+	if err != nil {
+		return err
+	}
+	for _, k := range kept {
+		_, _ = fmt.Fprintln(inv.stderr, "upool: "+keptLine(k)) // progress only
+	}
+	return nil
+}
+
+// keptLine says why the reclaim leaves k, and how to free its slot (A50).
+func keptLine(k pool.Kept) string {
+	return fmt.Sprintf("not reclaiming %s, though its holder, process %d, is gone: the desktop "+
+		"app still records it for %s, and can resume that session into it. Open that session, "+
+		"unarchiving it if it is archived, and archive it with the app's Archive button to give "+
+		"%s back to the pool", k.Slot, k.HolderPID, k.App, k.Slot)
+}
+
 // sayReclaimed tells stderr what the reclaim did with one slot; a slot it could not reclaim is
 // told once, though every try reclaims again, in failed.
 func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
@@ -407,7 +445,9 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 // each slot was skipped). A ready slot qualifies only while its directory exists, git lists it
 // and its backlink checks out; otherwise it is skipped as missing-from-worktree-list
 // ((f) transition 17). One whose Editor the ledger records with a running process is skipped as
-// editor-running (docs/contracts.md (f), the conditions take skips for). First it ends the
+// editor-running (docs/contracts.md (f), the conditions take skips for), and one the desktop app
+// still records for a session, which the app would resume into it, as recorded-by-desktop-app
+// (A50). First it ends the
 // unconfirmed leases older than confirm_timeout, and returns the slots they were on, whose leases
 // the caller finishes (#75). A scene lease is taken only while no other lease holds the scene
 // lane: otherwise every slot that could be handed out is skipped, naming the lease that holds it,
@@ -420,8 +460,10 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 	}
 	err = pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
 		skipped, scene = nil, nil
+		rec := desktop.Load(l.home)
 		var err error
-		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout); err != nil {
+		// An expiry counts towards quarantine only while the app's record cannot be read (A50).
+		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout, !rec.Known); err != nil {
 			return err
 		}
 		if l.lane == pool.LaneScene {
@@ -438,6 +480,10 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 		for i := range p.Slots {
 			s := &p.Slots[i]
 			reason := skipReason(*s, listed, l.repo)
+			if _, held := rec.Holds(s.Path); reason == "" && held {
+				// The app would resume the session it records there into the slot (A50).
+				reason = "recorded-by-desktop-app"
+			}
 			if reason == "" {
 				live, err := editors.LiveIn(l.reclaimer.Proc, s.Path)
 				if err != nil {
@@ -496,7 +542,8 @@ func sceneHeld(s pool.Slot) string {
 
 // skipReason is why take does not hand s out, or "" when it may: the reasons are the design's
 // (docs/design.md, "Leases that survive crashes and never reclaim a live tree"), with each state
-// that is not ready named as it is.
+// that is not ready named as it is, and a ready slot handed out too often unconfirmed as
+// quarantined (A50).
 func skipReason(s pool.Slot, listed map[string]bool, repo string) string {
 	switch s.State {
 	case pool.StateReady:
@@ -507,6 +554,9 @@ func skipReason(s pool.Slot, listed map[string]bool, repo string) string {
 	}
 	if s.Lease != nil {
 		return "leased"
+	}
+	if s.Quarantined() {
+		return "quarantined"
 	}
 	info, err := os.Stat(s.Path)
 	if err != nil || !info.IsDir() {

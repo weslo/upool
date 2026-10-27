@@ -1,0 +1,33 @@
+== e3-relaunched at 2026-10-27 07:46:47 (since 2026-10-27 07:45:24)
+== upool status
+${repo} (base main)
+SLOT    STATE   LANE    HOLDER                                AGE    CONFIRMED
+slot-1  leased  script  3abad311-c5b5-4182-8699-21309c37e642  8m47s  yes
+slot-2  parked  -       -                                     -      -
+slot-3  leased  script  45b836fd-81b2-4f5a-9d54-2825ff125e9b  8m23s  yes
+slot-4  leased  script  1e55923b-a88c-428b-8fae-2fd629d6dbdd  5m34s  yes
+slot-5  ready   -       -                                     -      -
+== upool status --json leases
+{"name":"slot-1","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-2","state":"parked","holder":null,"session":null,"confirmed":null}
+{"name":"slot-3","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-4","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-5","state":"ready","holder":null,"session":null,"confirmed":null}
+== state.json leases
+{"name":"slot-1","state":"leased","holder_pid":42780,"session_id":"6270d607-773a-4268-8a5b-2c462d0f3189","confirmed":true}
+{"name":"slot-2","state":"parked","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-3","state":"leased","holder_pid":42955,"session_id":"b66b108c-bbfa-4a58-8ce2-6810db3cfa07","confirmed":true}
+{"name":"slot-4","state":"leased","holder_pid":42311,"session_id":"bdc547d7-7f83-47c8-95db-216b76dc5b0f","confirmed":true}
+{"name":"slot-5","state":"ready","holder_pid":null,"session_id":null,"confirmed":null}
+holder 42780 gone
+holder 42955 gone
+holder 42311 gone
+== slots
+${repo}/.claude/worktrees/slot-1: 
+${repo}/.claude/worktrees/slot-3: ?? upool-192-dirty.txt 
+${repo}/.claude/worktrees/slot-4: 
+${repo}/.claude/worktrees/slot-5: 
+== the app's record
+{"name":"pwd-c2e29a","path":"${repo}/.claude/worktrees/slot-1","leasedBy":"local_3abad311-c5b5-4182-8699-21309c37e642","leaseCleared":null,"parkedStateKey":null}
+{"name":"create-upool-192-dirty-file-b6e873","path":"${repo}/.claude/worktrees/slot-3","leasedBy":"local_45b836fd-81b2-4f5a-9d54-2825ff125e9b","leaseCleared":null,"parkedStateKey":null}
+{"name":"pwd-03f0cb","path":"${repo}/.claude/worktrees/slot-4","leasedBy":"local_1e55923b-a88c-428b-8fae-2fd629d6dbdd","leaseCleared":null,"parkedStateKey":null}

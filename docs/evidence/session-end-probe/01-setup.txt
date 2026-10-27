@@ -1,0 +1,10 @@
+== setup at 2026-10-27 07:31:20 (since 2026-10-27 07:31:20)
+== upool status
+${repo} (base main)
+SLOT    STATE  LANE  HOLDER  AGE  CONFIRMED
+slot-1  ready  -     -       -    -
+== upool status --json leases
+{"name":"slot-1","state":"ready","holder":null,"session":null,"confirmed":null}
+== slots
+${repo}/.claude/worktrees/slot-1: 
+== the app's record

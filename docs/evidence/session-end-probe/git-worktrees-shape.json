@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "top_level_keys": [
+    "originPins",
+    "originUrls",
+    "schemaVersion",
+    "untrackedDirGc",
+    "worktrees"
+  ],
+  "worktrees": "object",
+  "entry_keys_equal_names": true,
+  "first_entry_types": {
+    "name": "string",
+    "path": "string",
+    "leasedBy": "null",
+    "baseRepo": "string",
+    "branch": "string",
+    "sourceBranch": "string",
+    "createdAt": "number",
+    "originRemote": "object",
+    "anchors": "array",
+    "originTopLevel": "string",
+    "autoTrusted": "boolean",
+    "creationGrant": "boolean",
+    "leaseCleared": "boolean",
+    "pooledAt": "number",
+    "parkedStateKey": "string"
+  }
+}

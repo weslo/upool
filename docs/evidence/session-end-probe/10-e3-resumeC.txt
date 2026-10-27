@@ -1,0 +1,35 @@
+== e3-resumeC at 2026-10-27 07:54:08 (since 2026-10-27 07:47:00)
+== upool status
+${repo} (base main)
+SLOT    STATE   LANE    HOLDER  AGE   CONFIRMED
+slot-1  leased  script  -       7m7s  yes
+slot-2  parked  -       -       -     -
+slot-3  parked  -       -       -     -
+slot-4  ready   -       -       -     -
+slot-5  ready   -       -       -     -
+upool: warning: ended the unconfirmed lease on slot-4, which no session confirmed within 1m0s: slot-4 is ready again
+== upool status --json leases
+{"name":"slot-1","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-2","state":"parked","holder":null,"session":null,"confirmed":null}
+{"name":"slot-3","state":"parked","holder":null,"session":null,"confirmed":null}
+{"name":"slot-4","state":"ready","holder":null,"session":null,"confirmed":null}
+{"name":"slot-5","state":"ready","holder":null,"session":null,"confirmed":null}
+== state.json leases
+{"name":"slot-1","state":"leased","holder_pid":44090,"session_id":null,"confirmed":true}
+{"name":"slot-2","state":"parked","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-3","state":"parked","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-4","state":"ready","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-5","state":"ready","holder_pid":null,"session_id":null,"confirmed":null}
+holder 44090 alive
+== slots
+${repo}/.claude/worktrees/slot-1: 
+${repo}/.claude/worktrees/slot-3: ?? upool-192-dirty.txt 
+${repo}/.claude/worktrees/slot-4: 
+${repo}/.claude/worktrees/slot-5: 
+== the app's record
+{"name":"pwd-c2e29a","path":"${repo}/.claude/worktrees/slot-1","leasedBy":"local_3abad311-c5b5-4182-8699-21309c37e642","leaseCleared":null,"parkedStateKey":null}
+{"name":"create-upool-192-dirty-file-b6e873","path":"${repo}/.claude/worktrees/slot-3","leasedBy":"local_45b836fd-81b2-4f5a-9d54-2825ff125e9b","leaseCleared":null,"parkedStateKey":null}
+{"name":"pwd-03f0cb","path":"${repo}/.claude/worktrees/slot-4","leasedBy":"local_1e55923b-a88c-428b-8fae-2fd629d6dbdd","leaseCleared":null,"parkedStateKey":null}
+== session C, resumed: its reply
+pwd -> ${repo}/.claude/worktrees/slot-1
+git status --short --branch -> ## probe-cli-take

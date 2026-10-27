@@ -1,0 +1,231 @@
+2026-10-27 07:32:30 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-27 07:32:33 [info] LocalSessions.saveTrust: cwd=${repo}
+2026-10-27 07:32:33 [info] [GitWorktreeManager] recorded that this repository has no origin URL { baseRepo: '${repo}' }
+2026-10-27 07:32:33 [info] Saved workspace trust for ${repo}
+2026-10-27 07:32:33 [info] LocalSessions.checkGhAvailable: cwd=${repo}
+2026-10-27 07:32:33 [info] [GitWorktreeManager] Pinned origin (none) for ${repo}/.git (no origin; vouched: no)
+2026-10-27 07:32:36 [info] Creating worktree for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 from ${repo}
+2026-10-27 07:32:38 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:32:38 [info] Created hook-based worktree "pwd-ff02fc" at ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:32:38 [info] Using worktree "pwd-ff02fc" at ${repo}/.claude/worktrees/slot-1 for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:38 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-1 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-27 07:32:38 [info] Starting local session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 in ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:32:38 [info] [CCD] passing --project-config-root ${repo} for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:38 [info] [permissionMode] spawn local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 mode=auto provisional=true source=auto_default autoState=available requested=auto effective=auto mdmAutoOff=false
+2026-10-27 07:32:39 [info] LocalSessions.updateSession: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114, keys=title,titleSource
+2026-10-27 07:32:39 [info] Updated session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114: { title: '<redacted>', titleSource: 'auto' }
+2026-10-27 07:32:39 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:39 [info] LocalSessions.startShellPty: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114, cols=80, rows=24
+2026-10-27 07:32:40 [info] Mapping internal session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 to CLI session d6335385-e5bd-4771-80d1-0f4b6ee213a2
+2026-10-27 07:32:41 [info] [WarmLifecycle:preview] Starting idle timeout for local_6c3afa52-946b-4c1f-9cf8-3da30cc14114: 1800s
+2026-10-27 07:32:43 [info] [CCD start-timing] local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 preflight=11ms worktree=2155ms mcp=31ms query=4ms enqueue=5ms init=1047ms first_assistant=3347ms | ccd_overhead=2201ms total_to_init=3253ms total_to_assistant=6600ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/12ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=3 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-27 07:32:48 [info] [Stop hook] Query completed for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:48 [info] [WarmLifecycle:preview] Starting idle timeout for local_6c3afa52-946b-4c1f-9cf8-3da30cc14114: 1800s
+2026-10-27 07:32:48 [info] [CCD CycleHealth] healthy cycle for local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 (9s, hadFirstResponse=true)
+2026-10-27 07:32:53 [info] [WarmLifecycle:preview] Warming up session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:53 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:32:54 [info] LocalSessions.startShellPty: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114, cols=80, rows=24
+2026-10-27 07:32:56 [info] [WarmLifecycle:preview] Starting idle timeout for local_6c3afa52-946b-4c1f-9cf8-3da30cc14114: 1800s
+2026-10-27 07:33:16 [error] Git command failed: git fetch --porcelain --verbose --no-write-fetch-head --no-prune --no-tags --no-prune-tags --refmap= origin +refs/heads/main:refs/remotes/origin/main { code: 128, spawnErrno: undefined, stderr: "fatal: transport 'file' not allowed\n", cwd: '${repo}' }
+2026-10-27 07:33:16 [info] [refreshSourceRef] single-ref fetch of origin/main failed (continuing with on-disk ref): fatal: transport 'file' not allowed { baseRepo: '${repo}' }
+2026-10-27 07:33:19 [info] Creating worktree for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc from ${repo}
+2026-10-27 07:33:19 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-2
+2026-10-27 07:33:19 [info] Created hook-based worktree "create-upool-192-dirty-file-853cff" at ${repo}/.claude/worktrees/slot-2
+2026-10-27 07:33:19 [info] Using worktree "create-upool-192-dirty-file-853cff" at ${repo}/.claude/worktrees/slot-2 for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:33:19 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-2 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-27 07:33:19 [info] Starting local session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc in ${repo}/.claude/worktrees/slot-2
+2026-10-27 07:33:19 [info] [CCD] passing --project-config-root ${repo} for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:33:19 [info] [permissionMode] spawn local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc mode=auto provisional=true source=auto_default autoState=available requested=auto effective=auto mdmAutoOff=false
+2026-10-27 07:33:19 [info] LocalSessions.updateSession: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc, keys=title,titleSource
+2026-10-27 07:33:19 [info] Updated session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc: { title: '<redacted>', titleSource: 'auto' }
+2026-10-27 07:33:19 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:33:19 [info] LocalSessions.startShellPty: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc, cols=80, rows=24
+2026-10-27 07:33:20 [info] Mapping internal session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc to CLI session 02b43d99-c41b-48fe-8a13-ddb7570969c9
+2026-10-27 07:33:26 [info] [CCD start-timing] local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc preflight=11ms worktree=136ms mcp=43ms query=5ms enqueue=7ms init=776ms first_assistant=6465ms | ccd_overhead=195ms total_to_init=978ms total_to_assistant=7443ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/18ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:26/pending:1/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=3 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-27 07:33:40 [info] [Stop hook] Query completed for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:33:40 [info] [CCD CycleHealth] healthy cycle for local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc (21s, hadFirstResponse=true)
+2026-10-27 07:34:18 [info] [WarmLifecycle:preview] Starting idle timeout for local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc: 1800s
+2026-10-27 07:36:22 [info] LocalSessions.delete: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] Stopping shell PTY for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] Archived session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] [CCD] delete local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc: 0 side session(s) named, 0 left live
+2026-10-27 07:36:22 [info] Cleaning up worktree create-upool-192-dirty-file-853cff for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] Removing worktree "create-upool-192-dirty-file-853cff" (leased by local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc): ${repo}/.claude/worktrees/slot-2
+2026-10-27 07:36:22 [info] Deleted session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] Shell PTY for session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc exited (stale — already replaced)
+2026-10-27 07:36:22 [info] LocalSessions.stopShellPty: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] LocalSessions.stopShellPty: sessionId=local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc
+2026-10-27 07:36:22 [info] Session local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc query iterator completed
+2026-10-27 07:36:25 [info] LocalSessions.delete: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Stopping shell PTY for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Archived session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] [CCD] delete local_6c3afa52-946b-4c1f-9cf8-3da30cc14114: 0 side session(s) named, 0 left live
+2026-10-27 07:36:25 [info] Deleted session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Shell PTY for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 exited (stale — already replaced)
+2026-10-27 07:36:25 [info] LocalSessions.stopShellPty: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Cleaning up worktree pwd-ff02fc for session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Removing worktree "pwd-ff02fc" (leased by local_6c3afa52-946b-4c1f-9cf8-3da30cc14114): ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:36:25 [info] LocalSessions.stopShellPty: sessionId=local_6c3afa52-946b-4c1f-9cf8-3da30cc14114
+2026-10-27 07:36:25 [info] Session local_6c3afa52-946b-4c1f-9cf8-3da30cc14114 query iterator completed
+2026-10-27 07:37:56 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-27 07:37:59 [info] Creating worktree for session local_3abad311-c5b5-4182-8699-21309c37e642 from ${repo}
+2026-10-27 07:37:59 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:37:59 [info] Created hook-based worktree "pwd-c2e29a" at ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:37:59 [info] Using worktree "pwd-c2e29a" at ${repo}/.claude/worktrees/slot-1 for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:37:59 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-1 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-27 07:37:59 [info] Starting local session local_3abad311-c5b5-4182-8699-21309c37e642 in ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:37:59 [info] [CCD] passing --project-config-root ${repo} for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:37:59 [info] [permissionMode] spawn local_3abad311-c5b5-4182-8699-21309c37e642 mode=auto provisional=true source=auto_default autoState=available requested=auto effective=auto mdmAutoOff=false
+2026-10-27 07:37:59 [info] LocalSessions.updateSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, keys=title,titleSource
+2026-10-27 07:37:59 [info] Updated session local_3abad311-c5b5-4182-8699-21309c37e642: { title: '<redacted>', titleSource: 'auto' }
+2026-10-27 07:37:59 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:00 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:38:00 [info] Mapping internal session local_3abad311-c5b5-4182-8699-21309c37e642 to CLI session 6270d607-773a-4268-8a5b-2c462d0f3189
+2026-10-27 07:38:04 [info] [WarmLifecycle:preview] Warming up session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:04 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:04 [info] LocalSessions.startShellPty: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, cols=80, rows=24
+2026-10-27 07:38:07 [info] [CCD start-timing] local_3abad311-c5b5-4182-8699-21309c37e642 preflight=17ms worktree=109ms mcp=32ms query=6ms enqueue=4ms init=774ms first_assistant=7686ms | ccd_overhead=164ms total_to_init=942ms total_to_assistant=8628ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/11ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=2 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-27 07:38:14 [info] [Stop hook] Query completed for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:14 [info] [CCD CycleHealth] healthy cycle for local_3abad311-c5b5-4182-8699-21309c37e642 (15s, hadFirstResponse=true)
+2026-10-27 07:38:20 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:38:23 [info] Creating worktree for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b from ${repo}
+2026-10-27 07:38:23 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-3
+2026-10-27 07:38:23 [info] Created hook-based worktree "create-upool-192-dirty-file-b6e873" at ${repo}/.claude/worktrees/slot-3
+2026-10-27 07:38:23 [info] Using worktree "create-upool-192-dirty-file-b6e873" at ${repo}/.claude/worktrees/slot-3 for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:23 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-3 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-27 07:38:23 [info] Starting local session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b in ${repo}/.claude/worktrees/slot-3
+2026-10-27 07:38:23 [info] [CCD] passing --project-config-root ${repo} for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:23 [info] [permissionMode] spawn local_45b836fd-81b2-4f5a-9d54-2825ff125e9b mode=auto provisional=true source=auto_default autoState=available requested=auto effective=auto mdmAutoOff=false
+2026-10-27 07:38:23 [info] LocalSessions.updateSession: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b, keys=title,titleSource
+2026-10-27 07:38:23 [info] Updated session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: { title: '<redacted>', titleSource: 'auto' }
+2026-10-27 07:38:23 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:24 [info] LocalSessions.startShellPty: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b, cols=80, rows=24
+2026-10-27 07:38:24 [info] Mapping internal session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b to CLI session b66b108c-bbfa-4a58-8ce2-6810db3cfa07
+2026-10-27 07:38:30 [info] [CCD start-timing] local_45b836fd-81b2-4f5a-9d54-2825ff125e9b preflight=10ms worktree=64ms mcp=27ms query=3ms enqueue=9ms init=747ms first_assistant=5907ms | ccd_overhead=104ms total_to_init=860ms total_to_assistant=6767ms cache_hit=true worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/12ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=3 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-27 07:38:40 [info] [WarmLifecycle:preview] Warming up session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:40 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:40 [info] [WarmLifecycle:preview] Starting idle timeout for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: 1800s
+2026-10-27 07:38:40 [info] LocalSessions.startShellPty: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, cols=80, rows=24
+2026-10-27 07:38:41 [info] [Stop hook] Query completed for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:41 [info] [WarmLifecycle:preview] Starting idle timeout for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: 1800s
+2026-10-27 07:38:41 [info] [CCD CycleHealth] healthy cycle for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b (17s, hadFirstResponse=true)
+2026-10-27 07:38:41 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:41 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:38:41 [info] LocalSessions.startShellPty: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b, cols=80, rows=24
+2026-10-27 07:38:41 [info] [WarmLifecycle:preview] Warming up session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:38:42 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:38:42 [info] [WarmLifecycle:preview] Starting idle timeout for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: 1800s
+2026-10-27 07:38:42 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:40:01 [info] beforeQuit: handler fired, going down
+2026-10-27 07:40:01 [info] beforeQuit: handler is not yet run, preventing quit and cleaning things up
+2026-10-27 07:40:01 [info] [CCD] Stopping 12 active session(s) on quit
+2026-10-27 07:40:02 [info] Stopping session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:40:02 [info] Stopping session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:40:02 [info] [CCD] Killing 11 PTY process tree(s) on quit
+2026-10-27 07:40:02 [info] Stopping shell PTY for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:40:02 [info] Stopping shell PTY for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:40:02 [info] [CCD] quit: went over 0 SSH session record(s) in 0ms (0 waiting-input snapshot(s) queued), stopped 12 local session(s) in 89ms, flush: records 2ms, waiting input 0ms
+2026-10-27 07:40:02 [info] Shell PTY for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b exited (stale — already replaced)
+2026-10-27 07:40:02 [info] Shell PTY for session local_3abad311-c5b5-4182-8699-21309c37e642 exited (stale — already replaced)
+2026-10-27 07:40:02 [info] beforeQuit: handler fired, going down
+2026-10-27 07:40:02 [info] beforeQuit: handler is ready for quit, so quitting
+2026-10-27 07:40:02 [info] willQuit: handler fired, going down
+2026-10-27 07:40:02 [info] willQuit: handler is ready for quit, so quitting
+2026-10-27 07:40:02 [info] Session local_3abad311-c5b5-4182-8699-21309c37e642 query iterator completed
+2026-10-27 07:40:04 [info] [quit-cleanup] previous quit: {
+2026-10-27 07:40:05 [info] LocalSessions.checkGhAvailable: cwd=${repo}
+2026-10-27 07:40:05 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-27 07:41:11 [error] Git command failed: git fetch --porcelain --verbose --no-write-fetch-head --no-prune --no-tags --no-prune-tags --refmap= origin +refs/heads/main:refs/remotes/origin/main { code: 128, spawnErrno: undefined, stderr: "fatal: transport 'file' not allowed\n", cwd: '${repo}' }
+2026-10-27 07:41:11 [info] [refreshSourceRef] single-ref fetch of origin/main failed (continuing with on-disk ref): fatal: transport 'file' not allowed { baseRepo: '${repo}' }
+2026-10-27 07:41:12 [info] Creating worktree for session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd from ${repo}
+2026-10-27 07:41:12 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-4
+2026-10-27 07:41:12 [info] Created hook-based worktree "pwd-03f0cb" at ${repo}/.claude/worktrees/slot-4
+2026-10-27 07:41:12 [info] Using worktree "pwd-03f0cb" at ${repo}/.claude/worktrees/slot-4 for session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:41:12 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-4 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-10-27 07:41:12 [info] Starting local session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd in ${repo}/.claude/worktrees/slot-4
+2026-10-27 07:41:12 [info] [CCD] passing --project-config-root ${repo} for session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:41:12 [info] [permissionMode] spawn local_1e55923b-a88c-428b-8fae-2fd629d6dbdd mode=auto provisional=true source=auto_default autoState=available requested=auto effective=auto mdmAutoOff=false
+2026-10-27 07:41:13 [info] LocalSessions.updateSession: sessionId=local_1e55923b-a88c-428b-8fae-2fd629d6dbdd, keys=title,titleSource
+2026-10-27 07:41:13 [info] Updated session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd: { title: '<redacted>', titleSource: 'auto' }
+2026-10-27 07:41:13 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:41:13 [info] LocalSessions.startShellPty: sessionId=local_1e55923b-a88c-428b-8fae-2fd629d6dbdd, cols=80, rows=24
+2026-10-27 07:41:13 [info] Mapping internal session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd to CLI session bdc547d7-7f83-47c8-95db-216b76dc5b0f
+2026-10-27 07:41:19 [info] [CCD start-timing] local_1e55923b-a88c-428b-8fae-2fd629d6dbdd preflight=14ms worktree=80ms mcp=30ms query=7ms enqueue=11ms init=747ms first_assistant=5655ms | ccd_overhead=131ms total_to_init=889ms total_to_assistant=6544ms cache_hit=false worktree=true mcp_count=25 online=true rpm_enabled_state=empty-manifest/12ms overlay_wait=0ms barrier=none/predicate/not_applicable deferred_reads=false mcp_config=stdio:0/sdk:25/http:0 plugin_dirs=1(initialize) registry_plugins=0 init_mcp=connected:25/pending:2/failed:0/needs_auth:0/disabled:0/other:0 init_plugins=4 | pool: hook ms=4 wait=0 cand=0 probes=0 deferred=0 indeterminate=0 unclean=0 refused=0 busy=0 rebind=0/0ms
+2026-10-27 07:41:26 [info] [Stop hook] Query completed for session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:41:26 [info] [CCD CycleHealth] healthy cycle for local_1e55923b-a88c-428b-8fae-2fd629d6dbdd (14s, hadFirstResponse=true)
+2026-10-27 07:41:36 [info] [WarmLifecycle:preview] Starting idle timeout for local_1e55923b-a88c-428b-8fae-2fd629d6dbdd: 1800s
+2026-10-27 07:44:17 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:44:17 [info] [CCD] Warming session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:44:17 [info] [CCD] passing --project-config-root ${repo} for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:44:17 [info] [CCD] Session local_3abad311-c5b5-4182-8699-21309c37e642 warmed successfully in 76ms
+2026-10-27 07:44:18 [info] LocalSessions.startShellPty: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, cols=80, rows=24
+2026-10-27 07:44:19 [info] LocalSessions.sendMessage: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, messageLength=3, imageCount=0, toolStates=0, attachmentCount=0, priority=(default)
+2026-10-27 07:44:19 [info] Sending message to session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:44:19 [info] Mapping internal session local_3abad311-c5b5-4182-8699-21309c37e642 to CLI session 6270d607-773a-4268-8a5b-2c462d0f3189
+2026-10-27 07:44:21 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:44:26 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:44:26 [info] [CCD] Warming session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:44:26 [info] [CCD] passing --project-config-root ${repo} for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:44:26 [info] [CCD] Session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b warmed successfully in 59ms
+2026-10-27 07:44:26 [info] LocalSessions.startShellPty: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b, cols=80, rows=24
+2026-10-27 07:44:27 [info] LocalSessions.sendMessage: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b, messageLength=59, imageCount=0, toolStates=0, attachmentCount=0, priority=(default)
+2026-10-27 07:44:27 [info] Sending message to session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:44:27 [info] Mapping internal session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b to CLI session b66b108c-bbfa-4a58-8ce2-6810db3cfa07
+2026-10-27 07:44:28 [info] [Stop hook] Query completed for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:44:28 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:44:28 [info] [CCD CycleHealth] healthy cycle for local_3abad311-c5b5-4182-8699-21309c37e642 (9s, hadFirstResponse=true)
+2026-10-27 07:44:37 [info] [Stop hook] Query completed for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:44:37 [info] [CCD CycleHealth] healthy cycle for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b (10s, hadFirstResponse=true)
+2026-10-27 07:44:57 [info] [WarmLifecycle:preview] Starting idle timeout for local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: 1800s
+2026-10-27 07:46:34 [info] LocalSessions.checkGhAvailable: cwd=${repo}
+2026-10-27 07:46:34 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-27 07:48:27 [error] Git command failed: git fetch --porcelain --verbose --no-write-fetch-head --no-prune --no-tags --no-prune-tags --refmap= origin +refs/heads/main:refs/remotes/origin/main { code: 128, spawnErrno: undefined, stderr: "fatal: transport 'file' not allowed\n", cwd: '${repo}' }
+2026-10-27 07:48:27 [info] [refreshSourceRef] single-ref fetch of origin/main failed (continuing with on-disk ref): fatal: transport 'file' not allowed { baseRepo: '${repo}' }
+2026-10-27 07:48:29 [info] Creating worktree for session local_29b1ee31-92ec-401c-be21-ad981a545d87 from ${repo}
+2026-10-27 07:48:29 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-4
+2026-10-27 07:48:29 [error] WorktreeCreate hook failed: hook printed "${repo}/.claude/worktrees/slot-4", which is already in use by worktree "pwd-03f0cb"
+2026-10-27 07:48:29 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '${repo}', sessionId: 'local_29b1ee31-92ec-401c-be21-ad981a545d87' }
+2026-10-27 07:49:42 [info] Updated session local_3abad311-c5b5-4182-8699-21309c37e642: { title: '<redacted>', titleSource: 'tool' }
+2026-10-27 07:49:43 [info] Updated session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: { title: '<redacted>', titleSource: 'tool' }
+2026-10-27 07:49:44 [info] Updated session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd: { title: '<redacted>', titleSource: 'tool' }
+2026-10-27 07:50:16 [info] Creating worktree for session local_9cb6e894-3308-40b5-bc93-1572d2c23a1a from ${repo}
+2026-10-27 07:50:16 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-4
+2026-10-27 07:50:16 [error] WorktreeCreate hook failed: hook printed "${repo}/.claude/worktrees/slot-4", which is already in use by worktree "pwd-03f0cb"
+2026-10-27 07:50:16 [error] Worktree creation failed with error: worktree_hook_failed, aborting session { baseRepo: '${repo}', sessionId: 'local_9cb6e894-3308-40b5-bc93-1572d2c23a1a' }
+2026-10-27 07:53:01 [error] Git command failed: git fetch --porcelain --verbose --no-write-fetch-head --no-prune --no-tags --no-prune-tags --refmap= origin +refs/heads/probe-cli-take:refs/remotes/origin/probe-cli-take { code: 128, spawnErrno: undefined, stderr: "fatal: transport 'file' not allowed\n", cwd: '${repo}' }
+2026-10-27 07:53:01 [info] [refreshSourceRef] single-ref fetch of origin/probe-cli-take failed (continuing with on-disk ref): fatal: transport 'file' not allowed { baseRepo: '${repo}' }
+2026-10-27 07:53:01 [info] LocalSessions.checkTrust: cwd=${repo}
+2026-10-27 07:53:01 [info] [CCD] LocalSessions.setFocusedSession: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:53:01 [info] [CCD] Warming session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:53:01 [info] [CCD] passing --project-config-root ${repo} for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:53:01 [info] [CCD] Session local_3abad311-c5b5-4182-8699-21309c37e642 warmed successfully in 58ms
+2026-10-27 07:53:01 [info] LocalSessions.startShellPty: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, cols=80, rows=24
+2026-10-27 07:53:02 [error] Git command failed: git fetch --porcelain --verbose --no-write-fetch-head --no-prune --no-tags --no-prune-tags --refmap= origin +refs/heads/main:refs/remotes/origin/main { code: 128, spawnErrno: undefined, stderr: "fatal: transport 'file' not allowed\n", cwd: '${repo}' }
+2026-10-27 07:53:02 [info] [refreshSourceRef] single-ref fetch of origin/main failed (continuing with on-disk ref): fatal: transport 'file' not allowed { baseRepo: '${repo}' }
+2026-10-27 07:53:02 [info] LocalSessions.sendMessage: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642, messageLength=73, imageCount=0, toolStates=0, attachmentCount=0, priority=(default)
+2026-10-27 07:53:02 [info] Sending message to session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:53:02 [info] Mapping internal session local_3abad311-c5b5-4182-8699-21309c37e642 to CLI session 6270d607-773a-4268-8a5b-2c462d0f3189
+2026-10-27 07:53:13 [info] [Stop hook] Query completed for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:53:13 [info] [CCD CycleHealth] healthy cycle for local_3abad311-c5b5-4182-8699-21309c37e642 (11s, hadFirstResponse=true)
+2026-10-27 07:53:57 [info] [WarmLifecycle:preview] Starting idle timeout for local_3abad311-c5b5-4182-8699-21309c37e642: 1800s
+2026-10-27 07:55:30 [info] LocalSessions.archive: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:55:30 [info] Stopping shell PTY for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:55:30 [info] Archived session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:55:30 [info] [CCD] archive local_3abad311-c5b5-4182-8699-21309c37e642: 0 side session(s) named, 0 left live
+2026-10-27 07:55:30 [info] Shell PTY for session local_3abad311-c5b5-4182-8699-21309c37e642 exited (stale — already replaced)
+2026-10-27 07:55:30 [info] LocalSessions.stopShellPty: sessionId=local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:55:30 [info] Cleaning up worktree pwd-c2e29a for session local_3abad311-c5b5-4182-8699-21309c37e642
+2026-10-27 07:55:30 [info] Removing worktree "pwd-c2e29a" (leased by local_3abad311-c5b5-4182-8699-21309c37e642): ${repo}/.claude/worktrees/slot-1
+2026-10-27 07:55:30 [info] Session local_3abad311-c5b5-4182-8699-21309c37e642 query iterator completed
+2026-10-27 07:55:33 [info] LocalSessions.archive: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:55:33 [info] Archived session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:55:33 [info] [CCD] archive local_45b836fd-81b2-4f5a-9d54-2825ff125e9b: 0 side session(s) named, 0 left live
+2026-10-27 07:55:33 [info] Cleaning up worktree create-upool-192-dirty-file-b6e873 for session local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:55:33 [info] Removing worktree "create-upool-192-dirty-file-b6e873" (leased by local_45b836fd-81b2-4f5a-9d54-2825ff125e9b): ${repo}/.claude/worktrees/slot-3
+2026-10-27 07:55:33 [info] LocalSessions.stopShellPty: sessionId=local_45b836fd-81b2-4f5a-9d54-2825ff125e9b
+2026-10-27 07:55:34 [info] LocalSessions.archive: sessionId=local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:55:34 [info] Archived session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:55:34 [info] [CCD] archive local_1e55923b-a88c-428b-8fae-2fd629d6dbdd: 0 side session(s) named, 0 left live
+2026-10-27 07:55:34 [info] LocalSessions.stopShellPty: sessionId=local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:55:34 [info] Cleaning up worktree pwd-03f0cb for session local_1e55923b-a88c-428b-8fae-2fd629d6dbdd
+2026-10-27 07:55:34 [info] Removing worktree "pwd-03f0cb" (leased by local_1e55923b-a88c-428b-8fae-2fd629d6dbdd): ${repo}/.claude/worktrees/slot-4

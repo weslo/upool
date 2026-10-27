@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 )
 
 // SourceStartup is a SessionStart request's source when a session starts. A session that resumes,
@@ -28,7 +29,8 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // slot's lease in-process on startup, as `upool take --confirm` does, recording the session_id
 // for its later starts, and then starts the detached top-up through env.StartRefresh (#79). On
 // any other source it only records env.ParentPID as the lease's holder while the slot has one,
-// re-copying no agent file, running no reset and starting no top-up (A14). Then, whatever the
+// re-copying no agent file, running no reset and starting no top-up (A14). Neither takes up a
+// lease that is another holder's (takesUp; A50). Then, whatever the
 // source and whatever the confirm did, it exports UNITY_PROJECT_PATH through env.EnvFile, for a
 // resume found by its session_id with cwd outside the slot too: a `claude -p --resume` launched
 // from the main checkout reports that checkout as its cwd, but works in the slot (A47). The stdin
@@ -52,7 +54,12 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	}
 	doc, err := ContextDocument(EventSessionStart)
 	errs := []error{err}
-	if req.Source == SourceStartup {
+	if !takesUp(ref, req.SessionID, env.ParentPID) {
+		l := ref.slot.Lease
+		errs = append(errs, fmt.Errorf("%s's lease %s is another holder's, not this session's, "+
+			"so it is left as it is: neither confirmed nor recorded as this process's",
+			ref.slot.Name, l.LeaseID))
+	} else if req.Source == SourceStartup {
 		c, warnings, err := Confirm(ctx, env, ref.slot.Path, req.SessionID)
 		for _, w := range warnings {
 			// stderr is for warnings only; stdout would reach the session's context.
@@ -72,6 +79,39 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 		errs = append(errs, err)
 	}
 	return doc, errors.Join(errs...)
+}
+
+// takesUp says whether a start of the session sessionID, whose CLI is ppid, may confirm the lease
+// on ref's slot or record itself as its holder. Found by its session_id, the lease is the
+// session's own. Found by cwd alone, it is the session's to take up only when it is:
+//   - the create hook's unconfirmed lease, which a startup confirms;
+//   - one ppid already holds, as after a /clear in the same CLI process;
+//   - a session's lease, with a session_id, whose holder has ended, as after a desktop /clear,
+//     whose startup comes with a new session_id, if that starts a new process: no capture says
+//     whether it does (A50; manual-gates/M5.md).
+//
+// Any other is another holder's: one no session holds, a Terminal take's or `upool run`'s, which a
+// dead-PID reclaim may have handed the slot to while the session could still be resumed into it,
+// or a live process's. Taking it up would put two agents in one slot (#192). A slot with no lease
+// is left to Confirm, which refuses it.
+func takesUp(ref slotRef, sessionID string, ppid int) bool {
+	l := ref.slot.Lease
+	switch {
+	case l == nil:
+		return true
+	case sessionID != "" && l.SessionID != nil && *l.SessionID == sessionID:
+		return true
+	case ref.slot.State == pool.StateLeasedUnconfirmed && !l.Confirmed:
+		return true
+	case l.HolderPID != nil && *l.HolderPID == ppid:
+		return true
+	case l.SessionID == nil:
+		return false
+	case l.HolderPID == nil || l.HolderPIDStart == nil:
+		return true
+	}
+	alive, err := (proc.System{}).Alive(*l.HolderPID, *l.HolderPIDStart)
+	return err == nil && !alive
 }
 
 // recordHolder records env.ParentPID as the holder of the lease on ref's slot, if it has one: a
