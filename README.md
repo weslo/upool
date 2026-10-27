@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/weslo/upool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weslo/upool/actions/workflows/ci.yml?query=branch%3Amain)
 
-**Status: pre-alpha.** v0.4.0, the pool core, its Claude Code integration, Editor governance and
+**Status: pre-alpha.** v0.5.0, the pool core, its Claude Code integration, Editor governance and
 the pool's hygiene, is on Homebrew, as the Quickstart installs it, and on
 [GitHub Releases](https://github.com/weslo/upool/releases). The [roadmap](#-roadmap) shows where the
 build stands.
@@ -69,7 +69,7 @@ is tagged only once that gate passes.
 | ✅ Done | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `init`'s per-project hooks that hand each session a slot, the background top-up, the skill and `run` | v0.2.0 |
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ✅ Done | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
-| 🚧 In progress | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | — |
+| ✅ Done | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | v0.5.0 |
 
 ## 📚 Documentation
 
