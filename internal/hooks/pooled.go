@@ -63,10 +63,11 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 		if err != nil {
 			return "", err
 		}
-		present = notRecorded(env, present, told)
+		rec := desktop.Load(env.Home)
 		s, expired, err := pool.UnconfirmedTake{Holder: strings.TrimPrefix(req.SessionID,
 			localPrefix), NameHint: req.Name, Now: env.Now(), ConfirmTimeout: timeout,
-			Present: present}.Take(ctx, env.Home, repo.Key)
+			Present:       notRecorded(env, rec, present, told),
+			CountExpiries: !rec.Known}.Take(ctx, env.Home, repo.Key)
 		for _, line := range pool.EndExpired(ctx, env.Git, checkout, expired, timeout) {
 			// stderr is for warnings only; the app takes the worktree path from stdout.
 			_, _ = fmt.Fprintln(env.Stderr, "upool: "+line)
@@ -85,21 +86,21 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 	}
 }
 
-// notRecorded returns present, passing over too each slot the desktop app's record names, which
-// the app would refuse as "already in use by worktree …" (A50), and saying so once per slot in
-// told. A record upool cannot read passes over nothing: the slot's quarantine is the fallback.
-func notRecorded(env Env, present func(pool.Slot) bool, told map[string]bool) func(pool.Slot) bool {
-	rec := desktop.Load(env.Home)
+// notRecorded returns present, passing over too each slot rec, the desktop app's record, names,
+// which the app would refuse as "already in use by worktree …" (A50), and saying so once per slot
+// in told. A record upool cannot read passes over nothing: the slot's quarantine is the fallback.
+func notRecorded(env Env, rec desktop.Record, present func(pool.Slot) bool,
+	told map[string]bool) func(pool.Slot) bool {
 	return func(s pool.Slot) bool {
 		if !present(s) {
 			return false
 		}
-		if name, held := rec.Holds(s.Path); held {
+		if w, held := rec.Holds(s.Path); held {
 			if !told[s.Name] {
 				told[s.Name] = true
 				// stderr is for warnings only; the app takes the worktree path from stdout.
 				_, _ = fmt.Fprintf(env.Stderr, "upool: passing over %s: the desktop app still "+
-					"records it as the worktree %s of another session\n", s.Name, name)
+					"records it for %s\n", s.Name, w)
 			}
 			return false
 		}

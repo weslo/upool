@@ -9,6 +9,7 @@ import (
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -196,7 +197,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 			if err != nil {
 				return err
 			}
-			if n := readyCount(p); n >= cfg.Ready.Value {
+			if n := readyCount(p, desktop.Load(inv.home)); n >= cfg.Ready.Value {
 				r.Stopped = fmt.Sprintf("the pool has %d ready, as ready = %d asks", n,
 					cfg.Ready.Value)
 				return nil
@@ -255,12 +256,17 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 
 // readyCount is how many of p's slots the top-up counts as ready: the ready ones no lease holds,
 // and the creating and warming ones, which become ready when their clone or re-warm finishes (A4).
-func readyCount(p pool.Pool) int {
+// A ready slot no session is handed, quarantined or recorded in rec, the desktop app's record, does
+// not count, so that the top-up clones around it (A50).
+func readyCount(p pool.Pool, rec desktop.Record) int {
 	n := 0
 	for _, s := range p.Slots {
 		switch {
-		case s.State == pool.StateReady && s.Lease == nil, s.State == pool.StateCreating,
-			s.State == pool.StateWarming:
+		case s.State == pool.StateReady && s.Lease == nil:
+			if _, held := rec.Holds(s.Path); !held && !s.Quarantined() {
+				n++
+			}
+		case s.State == pool.StateCreating, s.State == pool.StateWarming:
 			n++
 		}
 	}

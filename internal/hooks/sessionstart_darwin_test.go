@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 )
 
 // The tests of the SessionStart hook's startup confirm. They run on macOS only, since a lease's
@@ -201,5 +203,55 @@ func TestSessionStartConfirmEndsTheUnconfirmedRun(t *testing.T) {
 	if got := h.slot(t, name); got.State != pool.StateLeased || got.UnconfirmedExpiries != 0 {
 		t.Errorf("%s = %s with %d unconfirmed expiries, want leased with 0", name, got.State,
 			got.UnconfirmedExpiries)
+	}
+}
+
+// A desktop /clear's startup comes with a new session_id, found by cwd. If it starts a new CLI
+// process, the lease it finds is still its session's, with the old session_id and a holder that has
+// ended: the startup takes it up. A session's lease whose holder is another live process stays
+// that process's (A50).
+func TestSessionStartAfterAClearInANewProcess(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		holder  func(t *testing.T) (int, time.Time)
+		takenUp bool
+	}{
+		{"the old process ended", func(*testing.T) (int, time.Time) {
+			// This process at a start time it did not start at reads as ended.
+			return os.Getpid(), clock
+		}, true},
+		{"another process alive", func(t *testing.T) (int, time.Time) {
+			start, err := (proc.System{}).Start(os.Getppid())
+			if err != nil {
+				t.Fatal(err)
+			}
+			return os.Getppid(), start
+		}, false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := startHarness(t, true, "session")
+			req := h.capture(t, "desktop-clear-session-start.json")
+			name := filepath.Base(req.Cwd)
+			h.readySlot(t, name, req.Cwd)
+			pid, start := tt.holder(t)
+			before := "0c7e6e2c-66e6-464a-a850-ecd38269346d"
+			h.setLease(t, name, pool.StateLeased, &pool.Lease{LeaseID: "session's",
+				WorktreePath: req.Cwd, HolderPID: &pid, HolderPIDStart: &start, AcquiredAt: clock,
+				Confirmed: true, Lane: pool.LaneScript, SessionID: &before}, 0)
+			err := h.start(t, req)
+			got := h.slot(t, name).Lease
+			if tt.takenUp {
+				if err != nil || got == nil || got.SessionID == nil ||
+					*got.SessionID != req.SessionID {
+					t.Errorf("SessionStart = %v, lease %+v; want it taken up with session_id %s",
+						err, got, req.SessionID)
+				}
+				checkHolder(t, got, os.Getpid())
+				return
+			}
+			if err == nil || got == nil || *got.SessionID != before || *got.HolderPID != pid {
+				t.Errorf("SessionStart = %v, lease %+v; want it left to process %d", err, got, pid)
+			}
+		})
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/proc"
 )
 
 // SourceStartup is a SessionStart request's source when a session starts. A session that resumes,
@@ -82,11 +83,17 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 
 // takesUp says whether a start of the session sessionID, whose CLI is ppid, may confirm the lease
 // on ref's slot or record itself as its holder. Found by its session_id, the lease is the
-// session's own. Found by cwd alone, only the create hook's unconfirmed lease is, which a startup
-// confirms, or one that ppid already holds, as after a /clear, which the same CLI process carries
-// on. Any other is another holder's, such as a Terminal take's that a dead-PID reclaim handed the
-// slot to while the session could still be resumed into it: taking it up would put two agents in
-// one slot (A50; #192). A slot with no lease is left to Confirm, which refuses it.
+// session's own. Found by cwd alone, it is the session's to take up only when it is:
+//   - the create hook's unconfirmed lease, which a startup confirms;
+//   - one ppid already holds, as after a /clear in the same CLI process;
+//   - a session's lease, with a session_id, whose holder has ended, as after a desktop /clear, whose
+//     startup comes with a new session_id, if that starts a new process: no capture says whether
+//     it does (A50; manual-gates/M5.md).
+//
+// Any other is another holder's: one no session holds, a Terminal take's or `upool run`'s, which a
+// dead-PID reclaim may have handed the slot to while the session could still be resumed into it,
+// or a live process's. Taking it up would put two agents in one slot (#192). A slot with no lease
+// is left to Confirm, which refuses it.
 func takesUp(ref slotRef, sessionID string, ppid int) bool {
 	l := ref.slot.Lease
 	switch {
@@ -96,9 +103,15 @@ func takesUp(ref slotRef, sessionID string, ppid int) bool {
 		return true
 	case ref.slot.State == pool.StateLeasedUnconfirmed && !l.Confirmed:
 		return true
-	default:
-		return l.HolderPID != nil && *l.HolderPID == ppid
+	case l.HolderPID != nil && *l.HolderPID == ppid:
+		return true
+	case l.SessionID == nil:
+		return false
+	case l.HolderPID == nil || l.HolderPIDStart == nil:
+		return true
 	}
+	alive, err := (proc.System{}).Alive(*l.HolderPID, *l.HolderPIDStart)
+	return err == nil && !alive
 }
 
 // recordHolder records env.ParentPID as the holder of the lease on ref's slot, if it has one: a

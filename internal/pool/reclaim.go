@@ -27,8 +27,8 @@ type Reclaimer struct {
 	Home, Key string
 	// Now stamps last_used on a slot reclaimed clean.
 	Now func() time.Time
-	// Held says whether the desktop app's record still names a slot, and the name of its worktree
-	// there. A dead holder's lease on such a slot is kept: the app keeps a session's record through
+	// Held says whether the desktop app's record still names a slot, and how: the session and
+	// the worktree, as desktop.Worktree says them. A dead holder's lease on such a slot is kept: the app keeps a session's record through
 	// a quit or a crash and resumes the session into the slot, and refuses the path to any other
 	// (A50; #192). Nil holds none.
 	Held func(Slot) (string, bool)
@@ -37,9 +37,10 @@ type Reclaimer struct {
 // Kept is a lease whose holder is dead that Reclaim leaves, since the app still records its slot.
 type Kept struct {
 	Slot string
-	// HolderPID is the dead holder's PID, and Worktree the name the app records the slot under.
+	// HolderPID is the dead holder's PID, and App how the app records the slot: the session and
+	// its worktree.
 	HolderPID int
-	Worktree  string
+	App       string
 }
 
 // Reclaimed is one lease Reclaim dealt with.
@@ -84,7 +85,7 @@ func (r Reclaimer) Kept(p Pool) ([]Kept, error) {
 	var kept []Kept
 	for _, s := range dead {
 		if name, held := r.held(s); held {
-			kept = append(kept, Kept{Slot: s.Name, HolderPID: *s.Lease.HolderPID, Worktree: name})
+			kept = append(kept, Kept{Slot: s.Name, HolderPID: *s.Lease.HolderPID, App: name})
 		}
 	}
 	return kept, nil

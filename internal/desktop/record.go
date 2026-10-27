@@ -27,22 +27,37 @@ type Record struct {
 	// nothing.
 	Known bool
 	Why   string
-	// names maps the canonical key of each recorded worktree's path to its name.
-	names map[string]string
+	// worktrees maps the canonical key of each recorded worktree's path to it.
+	worktrees map[string]Worktree
+}
+
+// Worktree is one entry of the record: the worktree's name, and the app's id of the session it is
+// leased by, `local_<uuid>`, or "" when none is recorded.
+type Worktree struct {
+	Name, Session string
+}
+
+// String names the session the app records w for, and w by its name, as upool's messages give it.
+func (w Worktree) String() string {
+	if w.Session == "" {
+		return "a session, as its worktree " + w.Name
+	}
+	return "session " + w.Session + ", as its worktree " + w.Name
 }
 
 // file is the part of the record upool reads: `worktrees`, an object keyed by worktree name whose
-// entries hold the worktree's `name` and absolute `path`
+// entries hold the worktree's `name`, its absolute `path`, and `leasedBy`, the session's id or null
 // (docs/evidence/session-end-probe/git-worktrees-shape.json).
 type file struct {
 	Worktrees map[string]struct {
-		Name string `json:"name"`
-		Path string `json:"path"`
+		Name     string  `json:"name"`
+		Path     string  `json:"path"`
+		LeasedBy *string `json:"leasedBy"`
 	} `json:"worktrees"`
 }
 
-// Load reads the record under home. Every entry counts, whatever its `leasedBy`: the app refuses a
-// recorded path by the entry alone.
+// Load reads the record under home. Every entry counts, whatever its `leasedBy`, which names the
+// session when it is set: the app refuses a recorded path by the entry alone.
 func Load(home string) Record {
 	path := filepath.Join(home, filepath.FromSlash(RecordFile))
 	data, err := os.ReadFile(path)
@@ -59,7 +74,7 @@ func Load(home string) Record {
 	if f.Worktrees == nil {
 		return Record{Why: path + " has no worktrees object"}
 	}
-	names := map[string]string{}
+	worktrees := map[string]Worktree{}
 	for key, w := range f.Worktrees {
 		if !filepath.IsAbs(w.Path) {
 			continue
@@ -68,24 +83,27 @@ func Load(home string) Record {
 		if err != nil {
 			continue
 		}
-		name := w.Name
-		if name == "" {
-			name = key
+		e := Worktree{Name: w.Name}
+		if e.Name == "" {
+			e.Name = key
 		}
-		names[k] = name
+		if w.LeasedBy != nil {
+			e.Session = *w.LeasedBy
+		}
+		worktrees[k] = e
 	}
-	return Record{Known: true, names: names}
+	return Record{Known: true, worktrees: worktrees}
 }
 
-// Holds returns the name of the worktree the app records at path, if it records one.
-func (r Record) Holds(path string) (string, bool) {
-	if len(r.names) == 0 {
-		return "", false
+// Holds returns the worktree the app records at path, if it records one.
+func (r Record) Holds(path string) (Worktree, bool) {
+	if len(r.worktrees) == 0 {
+		return Worktree{}, false
 	}
 	k, err := paths.Key(path)
 	if err != nil {
-		return "", false
+		return Worktree{}, false
 	}
-	name, ok := r.names[k]
-	return name, ok
+	w, ok := r.worktrees[k]
+	return w, ok
 }

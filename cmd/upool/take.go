@@ -388,7 +388,10 @@ func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string
 // appHolds is a Reclaimer's Held for the desktop app's record under home, read again each time it
 // is asked, since a session archived meanwhile drops its entry (A50).
 func appHolds(home string) func(pool.Slot) (string, bool) {
-	return func(s pool.Slot) (string, bool) { return desktop.Load(home).Holds(s.Path) }
+	return func(s pool.Slot) (string, bool) {
+		w, held := desktop.Load(home).Holds(s.Path)
+		return w.String(), held
+	}
 }
 
 // sayKept tells stderr, once per take, of each lease whose holder is gone that the reclaim leaves,
@@ -411,9 +414,9 @@ func sayKept(inv *invocation, r pool.Reclaimer) error {
 // keptLine says why the reclaim leaves k, and how to free its slot (A50).
 func keptLine(k pool.Kept) string {
 	return fmt.Sprintf("not reclaiming %s, though its holder, process %d, is gone: the desktop "+
-		"app still records it as the worktree %s, for a session it can resume into it. Open that "+
-		"session, unarchiving it if it is archived, and archive it with the app's Archive button "+
-		"to give %s back to the pool", k.Slot, k.HolderPID, k.Worktree, k.Slot)
+		"app still records it for %s, and can resume that session into it. Open that session, "+
+		"unarchiving it if it is archived, and archive it with the app's Archive button to give "+
+		"%s back to the pool", k.Slot, k.HolderPID, k.App, k.Slot)
 }
 
 // sayReclaimed tells stderr what the reclaim did with one slot; a slot it could not reclaim is
@@ -457,8 +460,10 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 	}
 	err = pool.Update(ctx, l.home, l.key, func(p *pool.Pool) error {
 		skipped, scene = nil, nil
+		rec := desktop.Load(l.home)
 		var err error
-		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout); err != nil {
+		// An expiry counts towards quarantine only while the app's record cannot be read (A50).
+		if expired, err = p.ExpireUnconfirmed(l.now(), l.confirmTimeout, !rec.Known); err != nil {
 			return err
 		}
 		if l.lane == pool.LaneScene {
@@ -472,7 +477,6 @@ func (l leaser) lease(ctx context.Context) (taken pool.Slot, leaseID string, ski
 		if err != nil {
 			return err
 		}
-		rec := desktop.Load(l.home)
 		for i := range p.Slots {
 			s := &p.Slots[i]
 			reason := skipReason(*s, listed, l.repo)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
@@ -55,9 +56,11 @@ func expireLeases(ctx context.Context, inv *invocation, keep func(registry.Repo)
 			continue
 		}
 		var expired []pool.Slot
+		// An expiry counts towards quarantine only while the app's record cannot be read (A50).
+		count := !desktop.Load(inv.home).Known
 		err = pool.Update(ctx, inv.home, repo.Key, func(p *pool.Pool) error {
 			var err error
-			expired, err = p.ExpireUnconfirmed(now, timeout)
+			expired, err = p.ExpireUnconfirmed(now, timeout, count)
 			return err
 		})
 		if err != nil {

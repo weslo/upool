@@ -319,7 +319,7 @@ func TestReclaimKeepsASlotTheAppStillRecords(t *testing.T) {
 	}
 	kept, err := e.r.Kept(p)
 	if err != nil || len(kept) != 1 || kept[0] != (Kept{Slot: "slot-1", HolderPID: holderPID,
-		Worktree: "pwd-c2e29a"}) {
+		App: "pwd-c2e29a"}) {
 		t.Errorf("Kept = %+v, %v; want slot-1 under pwd-c2e29a", kept, err)
 	}
 	done, err := e.r.Reclaim(t.Context())

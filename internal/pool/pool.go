@@ -94,16 +94,17 @@ type Slot struct {
 	// LastUsed drives LRU removal under max_disk and shrink_after.
 	LastUsed time.Time `json:"last_used"`
 	// UnconfirmedExpiries counts the create hook's leases on the slot that expired unconfirmed in a
-	// row, since the last one a session confirmed: at QuarantineAfter the slot is quarantined, not
-	// handed out until `doctor --fix` clears it (A50).
+	// row while the desktop app's record could not be read, since the last one a session
+	// confirmed: at QuarantineAfter the slot is quarantined, not handed out until `doctor --fix`
+	// clears it (A50).
 	UnconfirmedExpiries int `json:"unconfirmed_expiries"`
 	// Lease is the current lease, or nil.
 	Lease *Lease `json:"lease"`
 }
 
-// QuarantineAfter is how many unconfirmed leases in a row quarantine a slot: the desktop app
-// refused the path each time, most likely for a session it still records there, so a third session
-// handed the slot would be refused too (A50; #192).
+// QuarantineAfter is how many unconfirmed leases in a row, while the desktop app's record cannot
+// be read, quarantine a slot: the app most likely refused the path each time, for a session it
+// still records there, so a third session handed the slot would be refused too (A50; #192).
 const QuarantineAfter = 2
 
 // Quarantined says whether s is quarantined: handed out QuarantineAfter times in a row without a

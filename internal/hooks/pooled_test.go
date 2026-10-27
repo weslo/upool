@@ -324,7 +324,7 @@ func TestPooledPassesOverASlotTheAppRecords(t *testing.T) {
 		t.Errorf("slot-1 = %+v, want it left ready, unleased", s)
 	}
 	if got := h.stderr.String(); got != "upool: passing over slot-1: the desktop app still "+
-		"records it as the worktree pwd-03f0cb of another session\n" {
+		"records it for session local_pwd-03f0cb, as its worktree pwd-03f0cb\n" {
 		t.Errorf("stderr = %q, want slot-1 passed over, once", got)
 	}
 
@@ -374,5 +374,34 @@ func TestPooledPassesOverAQuarantinedSlot(t *testing.T) {
 	h.create(t, req, h.slotPath("slot-2"))
 	if s := h.slot(t, "slot-1"); s.State != pool.StateReady || s.Lease != nil {
 		t.Errorf("slot-1 = %+v, want it left ready, unleased", s)
+	}
+}
+
+// The create hook's take counts an expired lease towards its slot's quarantine only while the app's
+// record cannot be read (A50).
+func TestPooledCountsExpiriesOnlyWithoutTheAppRecord(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		record string
+		want   int
+	}{{"record unreadable", "{", 1}, {"record readable", `{"worktrees": {}}`, 0}} {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t, true)
+			h.readySlot(t, "slot-1", h.slotPath("slot-1"))
+			path := filepath.Join(h.e.Home, filepath.FromSlash(desktop.RecordFile))
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tt.record), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			req := h.capture(t, "desktop-session-create.json")
+			h.create(t, req, h.slotPath("slot-1"))
+			h.env.Now = func() time.Time { return clock.Add(2 * time.Minute) }
+			h.create(t, req, h.slotPath("slot-1"))
+			if got := h.slot(t, "slot-1").UnconfirmedExpiries; got != tt.want {
+				t.Errorf("unconfirmed_expiries = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }

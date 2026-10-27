@@ -156,7 +156,10 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	sd := slotDoctor{g: g, proc: proc.System{}, home: inv.home, key: rp.repo.Key, repo: repo,
 		fix: fix, record: rec, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{},
 			Home: inv.home, Key: rp.repo.Key, Now: inv.now,
-			Held: func(s pool.Slot) (string, bool) { return rec.Holds(s.Path) }}}
+			Held: func(s pool.Slot) (string, bool) {
+				w, held := rec.Holds(s.Path)
+				return w.String(), held
+			}}}
 	if c, ok := desktopRecordCheck(rec); ok {
 		r.Checks = append(r.Checks, c)
 	}
@@ -323,11 +326,11 @@ func (d *slotDoctor) free(ctx context.Context, s pool.Slot, c doctorCheck) docto
 	if s.Lease != nil || (s.State != pool.StateReady && s.State != pool.StateNeedsReset) {
 		return c
 	}
-	if name, held := d.record.Holds(s.Path); held {
+	if w, held := d.record.Holds(s.Path); held {
 		return doctorCheck{s.Name, checkWarn, fmt.Sprintf("%s, but the desktop app still records "+
-			"it as the worktree %s, for a session it can resume into it, so no other session is "+
-			"handed it. Open that session, unarchiving it if it is archived, and archive it with "+
-			"the app's Archive button", s.State, name)}
+			"it for %s, and can resume that session into it, so no other session is handed it. "+
+			"Open that session, unarchiving it if it is archived, and archive it with the app's "+
+			"Archive button", s.State, w)}
 	}
 	if !s.Quarantined() {
 		return c

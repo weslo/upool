@@ -7,24 +7,32 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/testenv"
 )
 
 // take, doctor and status with the desktop app's record of its sessions' worktrees, and with a
 // quarantined slot (#192; A50). macOS only, as dead holders are (reclaim_darwin_test.go).
 
 // writeAppRecord writes the desktop app's record under p's home, naming each path in worktrees as
-// the worktree its key names, or content as it is when worktrees is nil.
+// the worktree its key names, for session local_3abad311-…, or content as it is when worktrees is
+// nil.
 func (p harnessPool) writeAppRecord(t *testing.T, worktrees map[string]string, content string) {
+	t.Helper()
+	writeAppRecordIn(t, p.Home, worktrees, content)
+}
+
+// writeAppRecordIn is writeAppRecord for the home directory home.
+func writeAppRecordIn(t *testing.T, home string, worktrees map[string]string, content string) {
 	t.Helper()
 	if worktrees != nil {
 		entries := map[string]any{}
 		for name, path := range worktrees {
-			entries[name] = map[string]any{"name": name, "path": path,
-				"leasedBy": "local_3abad311-c5b5-4182-8699-21309c37e642"}
+			entries[name] = map[string]any{"name": name, "path": path, "leasedBy": appSession}
 		}
 		b, err := json.Marshal(map[string]any{"schemaVersion": 2, "worktrees": entries})
 		if err != nil {
@@ -32,7 +40,7 @@ func (p harnessPool) writeAppRecord(t *testing.T, worktrees map[string]string, c
 		}
 		content = string(b)
 	}
-	path := filepath.Join(p.Home, filepath.FromSlash(desktop.RecordFile))
+	path := filepath.Join(home, filepath.FromSlash(desktop.RecordFile))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -41,13 +49,17 @@ func (p harnessPool) writeAppRecord(t *testing.T, worktrees map[string]string, c
 	}
 }
 
+// appSession is the session writeAppRecord records each worktree for.
+const appSession = "local_3abad311-c5b5-4182-8699-21309c37e642"
+
 // keptWant is the line that says the reclaim leaves the dead holder's slot-1 of deadHolderPool,
 // recorded by the app as pwd-c2e29a.
 func keptWant() string {
 	return "not reclaiming slot-1, though its holder, process " + strconv.Itoa(os.Getpid()) +
-		", is gone: the desktop app still records it as the worktree pwd-c2e29a, for a session " +
-		"it can resume into it. Open that session, unarchiving it if it is archived, and archive " +
-		"it with the app's Archive button to give slot-1 back to the pool"
+		", is gone: the desktop app still records it for session " + appSession + ", as its " +
+		"worktree pwd-c2e29a, and can resume that session into it. Open that session, " +
+		"unarchiving it if it is archived, and archive it with the app's Archive button to give " +
+		"slot-1 back to the pool"
 }
 
 // take leaves a dead holder's slot that the app still records for a session, saying so once, and
@@ -106,9 +118,10 @@ func TestTakeAndDoctorPassOverAReadySlotTheAppRecords(t *testing.T) {
 	}
 	r = runIn(t, p.Env, p.Repo, "doctor", "--json")
 	c := findCheck(t, doctorChecks(t, r), "slot-1")
-	want := "ready, but the desktop app still records it as the worktree pwd-03f0cb, for a " +
-		"session it can resume into it, so no other session is handed it. Open that session, " +
-		"unarchiving it if it is archived, and archive it with the app's Archive button"
+	want := "ready, but the desktop app still records it for session " + appSession + ", as its " +
+		"worktree pwd-03f0cb, and can resume that session into it, so no other session is handed " +
+		"it. Open that session, unarchiving it if it is archived, and archive it with the app's " +
+		"Archive button"
 	if c.Result != checkWarn || c.Reason != want {
 		t.Errorf("doctor: slot-1 %s %q; want warn %q", c.Result, c.Reason, want)
 	}
@@ -120,7 +133,8 @@ func TestAQuarantinedSlotIsReportedAndCleared(t *testing.T) {
 	p := newHarnessPool(t)
 	p.update(t, func(pl *pool.Pool) { pl.Slots[0].UnconfirmedExpiries = pool.QuarantineAfter })
 	reason := pool.QuarantineReason("slot-1", pool.QuarantineAfter)
-	if !strings.HasPrefix(reason, "2 sessions in a row were handed slot-1 and none confirmed it") {
+	if !strings.HasPrefix(reason, "2 sessions in a row were handed slot-1 and none confirmed it, "+
+		"while the desktop app's record could not be read") {
 		t.Fatalf("QuarantineReason = %q", reason)
 	}
 	r := runIn(t, p.Env, p.Repo, "status")
@@ -175,5 +189,60 @@ func TestDoctorWarnsOfAnAppRecordItCannotRead(t *testing.T) {
 		"slot the app still records for a session may be handed out regardless, until it is "+
 		"quarantined") {
 		t.Errorf("doctor: %s %s %q; want a warning", checkDesktopRecord, c.Result, c.Reason)
+	}
+}
+
+// The top-up counts no ready slot that no session is handed, recorded by the app or quarantined, so
+// it clones around it, as a refused session's error says to run refresh for (A50).
+func TestRefreshClonesAroundASlotNoSessionIsHanded(t *testing.T) {
+	for name, keep := range map[string]func(t *testing.T, e *testenv.Env){
+		"recorded by the app": func(t *testing.T, e *testenv.Env) {
+			writeAppRecordIn(t, e.Home, map[string]string{"pwd-03f0cb": slotPath(e)}, "")
+		},
+		"quarantined": func(t *testing.T, e *testenv.Env) {
+			setSlot(t, e, func(s *pool.Slot) { s.UnconfirmedExpiries = pool.QuarantineAfter })
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newInitEnv(t)
+			mustInit(t, e)
+			keep(t, e)
+			r := refresh(t, e)
+			if want := "cloned slot-2\nthe pool has 1 ready, as ready = 1 asks\n"; r.stdout != want {
+				t.Errorf("stdout = %q, want %q; stderr %q", r.stdout, want, r.stderr)
+			}
+			if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=ready slot-2=ready" {
+				t.Errorf("slots = %s, want slot-2 cloned beside slot-1", got)
+			}
+		})
+	}
+}
+
+// status, doctor and take end an unconfirmed lease past confirm_timeout, and count the expiry
+// towards the slot's quarantine only while the app's record cannot be read (A50).
+func TestExpiriesCountOnlyWithoutTheAppRecord(t *testing.T) {
+	for _, cmd := range [][]string{{"status"}, {"doctor"}, {"take", "feature-z", "--no-create"}} {
+		for _, record := range []string{"", `{"worktrees": {}}`} {
+			t.Run(strings.Join(cmd, " ")+" with record "+strconv.Quote(record), func(t *testing.T) {
+				p := newHarnessPool(t)
+				if record != "" {
+					p.writeAppRecord(t, nil, record)
+				}
+				p.update(t, func(pl *pool.Pool) {
+					s := &pl.Slots[0]
+					s.State = pool.StateLeasedUnconfirmed
+					s.Lease = &pool.Lease{LeaseID: "hook", Holder: appSession,
+						WorktreePath: s.Path, AcquiredAt: clock.Add(-time.Hour), Lane: "script"}
+				})
+				runIn(t, p.Env, p.Repo, cmd...)
+				want := 1
+				if record != "" {
+					want = 0
+				}
+				if got := p.loadPool(t).Slots[0].UnconfirmedExpiries; got != want {
+					t.Errorf("unconfirmed_expiries = %d, want %d", got, want)
+				}
+			})
+		}
 	}
 }

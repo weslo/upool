@@ -3,6 +3,7 @@ package pool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -138,7 +139,7 @@ func TestUnconfirmedExpiresAfterConfirmTimeout(t *testing.T) {
 	first := take(t, home, start)
 
 	p := load(t, home)
-	if expired, err := p.ExpireUnconfirmed(start.Add(timeout), timeout); err != nil ||
+	if expired, err := p.ExpireUnconfirmed(start.Add(timeout), timeout, false); err != nil ||
 		len(expired) != 0 || p.Slots[0].State != StateLeasedUnconfirmed {
 		t.Errorf("at confirm_timeout: expired %+v, %v, slot %s; want nothing expired yet",
 			expired, err, p.Slots[0].State)
@@ -149,7 +150,7 @@ func TestUnconfirmedExpiresAfterConfirmTimeout(t *testing.T) {
 	}
 
 	later := start.Add(timeout + time.Second)
-	expired, err := p.ExpireUnconfirmed(later, timeout)
+	expired, err := p.ExpireUnconfirmed(later, timeout, false)
 	if err != nil || len(expired) != 1 || expired[0].Lease.LeaseID != first.Lease.LeaseID {
 		t.Fatalf("after confirm_timeout: expired %+v, %v; want slot-1's lease", expired, err)
 	}
@@ -171,7 +172,7 @@ func TestExpiredNeedsResetLeaseReturnsToNeedsReset(t *testing.T) {
 	home := poolOf(t, StateNeedsReset)
 	take(t, home, start)
 	p := load(t, home)
-	expired, err := p.ExpireUnconfirmed(start.Add(timeout+time.Second), timeout)
+	expired, err := p.ExpireUnconfirmed(start.Add(timeout+time.Second), timeout, false)
 	if err != nil || len(expired) != 1 {
 		t.Fatalf("expired %+v, %v; want slot-1's lease", expired, err)
 	}
@@ -193,7 +194,7 @@ func TestUnconfirmedExpiryLeavesOtherLeasesAlone(t *testing.T) {
 			Confirmed: true, ResetPending: true}},
 		young,
 	}}
-	expired, err := p.ExpireUnconfirmed(now, timeout)
+	expired, err := p.ExpireUnconfirmed(now, timeout, false)
 	if err != nil || len(expired) != 0 {
 		t.Errorf("expired %+v, %v; want none", expired, err)
 	}
@@ -204,42 +205,57 @@ func TestUnconfirmedExpiryLeavesOtherLeasesAlone(t *testing.T) {
 	}
 }
 
-// Each lease that expires unconfirmed counts on its slot, and the second in a row quarantines it:
-// the take passes it over for the next slot, saying so when it ends the lease, and with no other
-// slot hands out nothing (A50; #192, where the app refused one slot's path each time).
+// While the desktop app's record cannot be read, each lease that expires unconfirmed counts on its
+// slot, and the second in a row quarantines it: the take passes it over for the next slot, saying
+// so when it ends the lease, and with no other slot hands out nothing (A50; #192, where the app
+// refused one slot's path each time). With the record readable, an expiry counts for nothing: the
+// record keeps a refused slot from being handed out, and an expiry may have another cause.
 func TestUnconfirmedExpiriesQuarantineASlot(t *testing.T) {
-	home := poolOf(t, StateReady, StateReady)
-	take(t, home, start)
-	at := start
-	for n := 1; n <= QuarantineAfter; n++ {
-		at = at.Add(timeout + time.Second)
-		s, expired, err := hookTake(at).Take(context.Background(), home, key)
-		if err != nil || len(expired) != 1 || expired[0].Name != "slot-1" {
-			t.Fatalf("take after expiry %d = %+v, %+v, %v; want slot-1's lease expired", n, s,
-				expired, err)
-		}
-		lines := EndExpired(context.Background(), git.Client{Runner: noLocks{}}, "/src/down",
-			expired, timeout)
-		quarantined := strings.Contains(lines[0], ", but quarantined: 2 sessions in a row were "+
-			"handed slot-1 and none confirmed it")
-		if quarantined != (n == QuarantineAfter) {
-			t.Errorf("expiry %d says %q; want quarantined: %t", n, lines[0], n == QuarantineAfter)
-		}
-		want := "slot-1"
-		if n == QuarantineAfter {
-			want = "slot-2"
-		}
-		if s.Name != want {
-			t.Errorf("take after expiry %d = %s, want %s", n, s.Name, want)
-		}
-	}
-	p := load(t, home)
-	if got := p.Slots[0]; got.UnconfirmedExpiries != QuarantineAfter || !got.Quarantined() ||
-		got.State != StateReady {
-		t.Errorf("slot-1 = %+v; want ready, quarantined after %d expiries", got, QuarantineAfter)
-	}
-	if _, _, err := hookTake(at).Take(context.Background(), home, key); !errors.Is(err, ErrNoSlot) {
-		t.Errorf("a take with slot-2 leased and slot-1 quarantined = %v, want ErrNoSlot", err)
+	for _, count := range []bool{true, false} {
+		t.Run(fmt.Sprintf("counted %t", count), func(t *testing.T) {
+			home := poolOf(t, StateReady, StateReady)
+			take(t, home, start)
+			at := start
+			for n := 1; n <= QuarantineAfter; n++ {
+				at = at.Add(timeout + time.Second)
+				tk := hookTake(at)
+				tk.CountExpiries = count
+				s, expired, err := tk.Take(context.Background(), home, key)
+				if err != nil || len(expired) != 1 || expired[0].Name != "slot-1" {
+					t.Fatalf("take after expiry %d = %+v, %+v, %v; want slot-1's lease expired",
+						n, s, expired, err)
+				}
+				lines := EndExpired(context.Background(), git.Client{Runner: noLocks{}},
+					"/src/down", expired, timeout)
+				quarantined := strings.Contains(lines[0], ", but quarantined: 2 sessions in a "+
+					"row were handed slot-1 and none confirmed it, while the desktop app's "+
+					"record could not be read")
+				if want := count && n == QuarantineAfter; quarantined != want {
+					t.Errorf("expiry %d says %q; want quarantined: %t", n, lines[0], want)
+				}
+				want := "slot-1"
+				if count && n == QuarantineAfter {
+					want = "slot-2"
+				}
+				if s.Name != want {
+					t.Errorf("take after expiry %d = %s, want %s", n, s.Name, want)
+				}
+			}
+			got := load(t, home).Slots[0]
+			if want := map[bool]int{true: QuarantineAfter, false: 0}[count]; got.UnconfirmedExpiries !=
+				want || got.Quarantined() != count {
+				t.Errorf("slot-1 = %+v; want %d expiries counted, quarantined %t", got, want,
+					count)
+			}
+			if !count {
+				return
+			}
+			_, _, err := hookTake(at).Take(context.Background(), home, key)
+			if !errors.Is(err, ErrNoSlot) {
+				t.Errorf("a take with slot-2 leased and slot-1 quarantined = %v, want ErrNoSlot",
+					err)
+			}
+		})
 	}
 }
 

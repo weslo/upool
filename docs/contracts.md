@@ -290,7 +290,7 @@ Slot:
 | `seed_dirty` | bool | whether the seed source had uncommitted changes, which (g) step 7 reverts in the slot | clone | same |
 | `reimport_pending` | bool | a checkout upool made in the slot changed `unity cache key`, so the next open is a large reimport | set by every checkout upool makes ((g) step 7, `release`, the deferred reset, `refresh`); cleared by the next `upool open`, which charges that open as a cold import | A20 |
 | `last_used` | timestamp | for LRU removal under `max_disk` and for `shrink_after`; a slot with none counts as last used when its directory was made | clone ((g) step 8), `release`, hook (remove) | D-disk; D-commands; A42 |
-| `unconfirmed_expiries` | integer | the create hook's leases on the slot that expired unconfirmed in a row (transition 7). At 2 the slot is quarantined: neither the create hook nor `take` hands it out, and `status` and `doctor` say why | counted by every expiry; cleared by a confirm (transition 6) and by `doctor --fix` | A50 |
+| `unconfirmed_expiries` | integer | the create hook's leases on the slot that expired unconfirmed in a row (transition 7) while the desktop app's record could not be read. At 2 the slot is quarantined: neither the create hook nor `take` hands it out, the top-up does not count it as ready, and `status` and `doctor` say why | counted by each such expiry; cleared by a confirm (transition 6) and by `doctor --fix` | A50 |
 | `lease` | lease or null | current lease | `take`, `take --confirm`, `release`, hooks, reclaim | D-leases |
 
 Lease:
@@ -390,7 +390,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 4 | `ready` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch: `upool take --no-create --holder <session_id> --timeout 20`, passing over a slot that is quarantined or that the app's record names (A50) | D-route; A50 |
 | 5 | `ready` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`; `take` checks out the branch `<name>`, creating it from `--base` (default `base`) when it does not exist, and the lease starts confirmed. It skips a slot that is quarantined or that the app's record names (A50) | D-commands; D-route; A6; A18; A50 |
 | 6 | `leased-unconfirmed` | `leased` | `SessionStart` hook: `upool take --confirm "$cwd"`, matched by worktree path; it records the holder PID | D-env; A6 |
-| 7 | `leased-unconfirmed` | `ready`, or `needs-reset` when the lease's `reset_pending` is set | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come. `take`, `status` and `doctor` end such a lease whenever they read the pool; the slot goes back to the state it was handed out from, since a slot that came through transition 10 never had its deferred reset. Each expiry counts in the slot's `unconfirmed_expiries`, which quarantine it at 2 (A50) | D-leases; S§8 A.7; A23; A50 |
+| 7 | `leased-unconfirmed` | `ready`, or `needs-reset` when the lease's `reset_pending` is set | the lease is older than `confirm_timeout` (60 s): the app refused the session and no remove will come. `take`, `status` and `doctor` end such a lease whenever they read the pool; the slot goes back to the state it was handed out from, since a slot that came through transition 10 never had its deferred reset. While the app's record cannot be read, each expiry counts in the slot's `unconfirmed_expiries`, which quarantine it at 2 (A50) | D-leases; S§8 A.7; A23; A50 |
 | 8 | `leased` | `needs-reset` | `WorktreeRemove` hook, the slot clean | D-route; A5 |
 | 9 | `leased` | `parked` | `WorktreeRemove` hook, the slot dirty | D-route; S§8 A.8; A5 |
 | 10 | `needs-reset` | `leased-unconfirmed` | `WorktreeCreate` hook, pooled branch, when no slot is `ready`; the deferred reset then runs inside transition 6's `take --confirm` | D-env; D-route; A5 |
@@ -1282,8 +1282,8 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     and left unconfirmed a few times in a row is not handed out.
   - **No adoption:** the session-start hook never takes up another holder's lease.
   - **The pool short a slot:** a slot the app still records for a session stays leased, out of
-    rotation. `doctor` names the slot and the app's worktree, and says to unarchive the session
-    and archive it with the Archive button. The top-up clones around it within `max_slots`. upool
+    rotation. `doctor` names the slot and the session, and says to unarchive the session and
+    archive it with the Archive button. The top-up clones around it within `max_slots`. upool
     reads no other private file of the app, such as its session store's archived flag.
   - **Upstream:** the session tool's dirty archive is the maintainer's to report to the app's
     makers, outside this repository.
@@ -1291,28 +1291,36 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
 
   What follows is the implementation's:
   - **The record** is `internal/desktop`. Every entry under `worktrees` counts, whatever its
-    `leasedBy`, by its `path` compared as `paths.Key` makes paths. A file that is missing, cannot
-    be read or has no `worktrees` object reads as unknown, and passes over nothing. `doctor` warns
-    of one that exists but cannot be read (`desktop-record`).
+    `leasedBy`, by its `path` compared as `paths.Key` makes paths. upool's messages name the
+    session by `leasedBy`, `local_<id>`, and the worktree by its `name`. A file that is missing,
+    cannot be read or has no `worktrees` object reads as unknown, and passes over nothing. `doctor`
+    warns of one that exists but cannot be read (`desktop-record`).
   - **Handed out:** the pooled branch passes over a recorded slot, saying so on stderr once per
     run, and `take` skips one as `recorded-by-desktop-app`.
   - **Reclaimed:** the reclaim leaves a dead holder's lease on a recorded slot. `take` says so once
-    and `doctor` warns, each naming the app's worktree; `doctor --fix` leaves it too. A free slot
-    the record names is a `doctor` warning as well.
-  - **Quarantine:** each expiry of an unconfirmed lease counts in the slot's
-    `unconfirmed_expiries` ((e); `state.json` at `schema_version` 3), and a confirm clears the
-    count. At 2 the slot is quarantined: neither the pooled branch nor `take` hands it out, the
-    expiry's line says so, `status` and `doctor` say why and how to clear it, and `doctor --fix`
-    clears the count. The count is kept with the record readable too: the record keeps a slot it
-    names from being handed out, so expiries pile up only when the record misses the app's claim
-    or cannot be read.
+    and `doctor` warns, each naming the session and its worktree; `doctor --fix` leaves it too. A
+    free slot the record names is a `doctor` warning as well.
+  - **Topped up:** the top-up counts no `ready` slot that is recorded or quarantined as ready, so
+    it clones around one within `max_slots`, as the pooled branch's error, which names `upool
+    refresh`, asks.
+  - **Quarantine:** while the record cannot be read, each expiry of an unconfirmed lease counts in
+    the slot's `unconfirmed_expiries` ((e); `state.json` at `schema_version` 3); with it readable,
+    an expiry counts for nothing, since it may have another cause, such as a session aborted
+    before its startup. A confirm clears the count. At 2 the slot is quarantined: neither the
+    pooled branch nor `take` hands it out, the expiry's line says so, `status` and `doctor` say why
+    and how to clear it, and `doctor --fix` clears the count.
   - **No adoption:** a start found by `cwd` alone takes up a lease only if it is the create hook's
-    unconfirmed one, which a startup confirms, or one its own process holds, as after a `/clear`,
-    which the same CLI process carries on. Any other lease is left as it is, and the hook says so
+    unconfirmed one, which a startup confirms; one its own process holds, as after a `/clear` in
+    the same CLI process; or a session's lease, with a `session_id`, whose holder has ended, as
+    after a desktop `/clear` that starts a new process. Any other lease, a Terminal take's or
+    `upool run`'s with no `session_id`, or a live process's, is left as it is, and the hook says so
     on stderr. The start still gets the instructions and the export.
-  - **Unverified:** that the pooled branch can read the app's record from the app's helper, which
-    under `~/Documents` could not open a repository's files ((a)); the record is the app's own
-    file, outside `~/Documents`. `manual-gates/M5.md` checks it.
+  - **Unverified,** and checked by `manual-gates/M5.md`:
+    - that the pooled branch can read the app's record from the app's helper, which under
+      `~/Documents` could not open a repository's files ((a)); the record is the app's own file,
+      outside `~/Documents` (check 3);
+    - whether a desktop `/clear` runs in the same CLI process, which (b)'s sources table does not
+      record for the desktop app; either way its startup takes the lease up (check 4).
 
 ### Other open questions
 

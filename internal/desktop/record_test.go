@@ -36,20 +36,26 @@ func TestLoadFindsTheWorktreesTheAppRecords(t *testing.T) {
 	if !r.Known || r.Why != "" {
 		t.Fatalf("Load = %+v; want it known", r)
 	}
+	const session = "local_1e55923b-a88c-428b-8fae-2fd629d6dbdd"
 	for _, tt := range []struct {
-		path, want string
+		path string
+		want Worktree
+		says string
 	}{
-		{slot, "pwd-03f0cb"},
-		{slot + string(filepath.Separator), "pwd-03f0cb"},
-		{filepath.Join(home, "other"), "pwd-f8ad8e"},
-		{filepath.Join(home, "unnamed"), "unnamed"},
-		{filepath.Join(home, "named"), "by-name"},
-		{filepath.Join(home, "repo", ".claude", "worktrees", "slot-5"), ""},
-		{filepath.Join(home, "repo", "x"), ""},
+		{slot, Worktree{"pwd-03f0cb", session}, "session " + session + ", as its worktree pwd-03f0cb"},
+		{slot + string(filepath.Separator), Worktree{"pwd-03f0cb", session}, ""},
+		{filepath.Join(home, "other"), Worktree{"pwd-f8ad8e", ""}, "a session, as its worktree pwd-f8ad8e"},
+		{filepath.Join(home, "unnamed"), Worktree{"unnamed", ""}, ""},
+		{filepath.Join(home, "named"), Worktree{"by-name", ""}, ""},
+		{filepath.Join(home, "repo", ".claude", "worktrees", "slot-5"), Worktree{}, ""},
+		{filepath.Join(home, "repo", "x"), Worktree{}, ""},
 	} {
 		got, ok := r.Holds(tt.path)
-		if got != tt.want || ok != (tt.want != "") {
-			t.Errorf("Holds(%s) = %q, %t; want %q", tt.path, got, ok, tt.want)
+		if got != tt.want || ok != (tt.want != Worktree{}) {
+			t.Errorf("Holds(%s) = %+v, %t; want %+v", tt.path, got, ok, tt.want)
+		}
+		if tt.says != "" && got.String() != tt.says {
+			t.Errorf("Holds(%s) says %q, want %q", tt.path, got, tt.says)
 		}
 	}
 }
@@ -66,8 +72,8 @@ func TestHoldsComparesPathsAsKeys(t *testing.T) {
 	if _, err := os.Stat(strings.ToLower(slot)); err != nil {
 		t.Skip("a case-sensitive volume")
 	}
-	if got, ok := Load(home).Holds(slot); !ok || got != "w" {
-		t.Errorf("Holds = %q, %t; want w", got, ok)
+	if got, ok := Load(home).Holds(slot); !ok || got.Name != "w" {
+		t.Errorf("Holds = %+v, %t; want w", got, ok)
 	}
 }
 
