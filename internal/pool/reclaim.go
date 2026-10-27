@@ -27,6 +27,19 @@ type Reclaimer struct {
 	Home, Key string
 	// Now stamps last_used on a slot reclaimed clean.
 	Now func() time.Time
+	// Held says whether the desktop app's record still names a slot, and the name of its worktree
+	// there. A dead holder's lease on such a slot is kept: the app keeps a session's record through
+	// a quit or a crash and resumes the session into the slot, and refuses the path to any other
+	// (A50; #192). Nil holds none.
+	Held func(Slot) (string, bool)
+}
+
+// Kept is a lease whose holder is dead that Reclaim leaves, since the app still records its slot.
+type Kept struct {
+	Slot string
+	// HolderPID is the dead holder's PID, and Worktree the name the app records the slot under.
+	HolderPID int
+	Worktree  string
 }
 
 // Reclaimed is one lease Reclaim dealt with.
@@ -43,10 +56,51 @@ type Reclaimed struct {
 }
 
 // Candidates returns the slots of p that Reclaim would reclaim, changing nothing: leased, with a
-// holder PID that Proc says is dead at its recorded start time, and no live Editor in the slot in
-// ~/.upool/editors.json. A lease with no holder PID, a bare take's, is never reclaimed (A6), and
-// nor is one whose holder's start time was not recorded, since it cannot be shown dead.
+// holder PID that Proc says is dead at its recorded start time, no live Editor in the slot in
+// ~/.upool/editors.json, and no record of it in the desktop app (Held; A50). A lease with no holder
+// PID, a bare take's, is never reclaimed (A6), and nor is one whose holder's start time was not
+// recorded, since it cannot be shown dead.
 func (r Reclaimer) Candidates(p Pool) ([]Slot, error) {
+	dead, err := r.dead(p)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []Slot
+	for _, s := range dead {
+		if _, held := r.held(s); !held {
+			candidates = append(candidates, s)
+		}
+	}
+	return candidates, nil
+}
+
+// Kept returns the leases of p that would be candidates but that the desktop app still records,
+// which Reclaim leaves (A50), changing nothing.
+func (r Reclaimer) Kept(p Pool) ([]Kept, error) {
+	dead, err := r.dead(p)
+	if err != nil {
+		return nil, err
+	}
+	var kept []Kept
+	for _, s := range dead {
+		if name, held := r.held(s); held {
+			kept = append(kept, Kept{Slot: s.Name, HolderPID: *s.Lease.HolderPID, Worktree: name})
+		}
+	}
+	return kept, nil
+}
+
+// held is Held, or nothing held when it is nil.
+func (r Reclaimer) held(s Slot) (string, bool) {
+	if r.Held == nil {
+		return "", false
+	}
+	return r.Held(s)
+}
+
+// dead returns the slots of p leased to a holder that Proc says is dead at its recorded start
+// time, with no live Editor in the slot in ~/.upool/editors.json.
+func (r Reclaimer) dead(p Pool) ([]Slot, error) {
 	var leased []Slot
 	for _, s := range p.Slots {
 		if s.State == StateLeased && s.Lease != nil && s.Lease.HolderPID != nil &&

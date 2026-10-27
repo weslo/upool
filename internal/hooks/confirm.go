@@ -80,6 +80,9 @@ func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, [
 		}
 		cur.Lease.Confirmed = true
 		cur.Lease.HolderPID, cur.Lease.HolderPIDStart = holderPID, holderStart
+		// A session took the slot, so its path is not refused: the run of unconfirmed leases
+		// that would quarantine it ends (A50).
+		cur.UnconfirmedExpiries = 0
 		if sessionID != "" {
 			cur.Lease.SessionID = &sessionID
 		}

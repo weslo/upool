@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -84,6 +85,8 @@ func full(loc *time.Location) Pool {
 				OwnerPIDStart: new(at(9, 14, 6, 654321)),
 				SeedHead:      "e2a1d6b5c3f4e9a8b7c6d5e47d4c0b4b0f178cf8",
 				LastUsed:      at(9, 14, 6, 0),
+				// A clone keeps its slot's count, here from a lease that expired before.
+				UnconfirmedExpiries: 1,
 			},
 		},
 		AgentWorktrees: []AgentWorktree{{
@@ -212,7 +215,7 @@ func TestGoldenHasExactlyTheContractKeys(t *testing.T) {
 	for i, raw := range array(t, pool["slots"]) {
 		slot := object(t, raw)
 		check("slot", slot, "name", "path", "state", "owner_pid", "owner_pid_start", "seed_head",
-			"seed_dirty", "reimport_pending", "last_used", "lease")
+			"seed_dirty", "reimport_pending", "last_used", "unconfirmed_expiries", "lease")
 		if i == 0 {
 			check("lease", object(t, slot["lease"]), "lease_id", "holder", "worktree_path",
 				"holder_pid", "holder_pid_start", "acquired_at", "confirmed", "reset_pending",
@@ -310,8 +313,8 @@ func TestEmptyPoolIsWrittenWithArrays(t *testing.T) {
 			t.Errorf("%s = %s, want []", k, got)
 		}
 	}
-	if got := string(doc["schema_version"]); got != "2" {
-		t.Errorf("schema_version = %s, want 2", got)
+	if got := string(doc["schema_version"]); got != fmt.Sprint(SchemaVersion) {
+		t.Errorf("schema_version = %s, want %d", got, SchemaVersion)
 	}
 }
 
@@ -386,7 +389,7 @@ func TestRepoKeyMustBeOnePathElement(t *testing.T) {
 }
 
 // A version-1 document, from before the lease had session_id, reads with the field null and is
-// written at version 2 on its next update (A7; A46).
+// written at the current version on its next update (A7; A46).
 func TestVersionOneIsMigrated(t *testing.T) {
 	home := tempDir(t)
 	writeFile(t, home, `{"schema_version":1,"repo":"/src/down","base":"main","slots":[{"name":`+
@@ -405,21 +408,49 @@ func TestVersionOneIsMigrated(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := object(t, []byte(readFile(t, home)))
-	if got := string(doc["schema_version"]); got != "2" {
-		t.Errorf("schema_version after an update = %s, want 2", got)
+	if got := string(doc["schema_version"]); got != fmt.Sprint(SchemaVersion) {
+		t.Errorf("schema_version after an update = %s, want %d", got, SchemaVersion)
+	}
+}
+
+// A version-2 document, from before a slot had unconfirmed_expiries, reads with the count 0 and is
+// written at version 3 on its next update, with the count (A7; A50).
+func TestVersionTwoIsMigrated(t *testing.T) {
+	home := tempDir(t)
+	writeFile(t, home, `{"schema_version":2,"repo":"/src/down","base":"main","slots":[{"name":`+
+		`"slot-1","path":"/src/down/.claude/worktrees/slot-1","state":"ready","owner_pid":null,`+
+		`"owner_pid_start":null,"seed_head":"","seed_dirty":false,"reimport_pending":false,`+
+		`"last_used":"2026-10-19T09:14:05Z","lease":null}],"agent_worktrees":[]}`)
+	p, err := Load(home, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := p.Slots[0].UnconfirmedExpiries; got != 0 {
+		t.Fatalf("unconfirmed_expiries = %d, want 0", got)
+	}
+	if err := unchanged(home); err != nil {
+		t.Fatal(err)
+	}
+	doc := object(t, []byte(readFile(t, home)))
+	if got := string(doc["schema_version"]); got != "3" {
+		t.Errorf("schema_version after an update = %s, want 3", got)
+	}
+	slot := object(t, array(t, doc["slots"])[0])
+	if got := string(slot["unconfirmed_expiries"]); got != "0" {
+		t.Errorf("unconfirmed_expiries after an update = %s, want 0", got)
 	}
 }
 
 func TestNewerSchemaVersionIsRefused(t *testing.T) {
 	home := tempDir(t)
 	// A newer upool may add keys too; the version is what the message is about.
-	doc := `{"schema_version":3,"repo":"/src/down","slots":[],"added_later":true}`
+	doc := `{"schema_version":4,"repo":"/src/down","slots":[],"added_later":true}`
 	writeFile(t, home, doc)
 	check := func(op string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "schema_version 3") ||
+		if err == nil || !strings.Contains(err.Error(), "schema_version 4") ||
 			!strings.Contains(err.Error(), "upgrade upool") || !strings.Contains(err.Error(), shown) {
-			t.Errorf("%s error = %v, want %s, schema_version 3 and upgrade upool", op, err, shown)
+			t.Errorf("%s error = %v, want %s, schema_version 4 and upgrade upool", op, err, shown)
 		}
 	}
 	_, err := Load(home, key)

@@ -27,7 +27,9 @@ import (
 // SchemaVersion is the state.json format this package reads and writes: a document with a higher
 // schema_version is refused, and one with a lower version is written at this one (A7). Version 2
 // adds the lease's session_id (A46; #244), which a version-1 document lacks and reads as null.
-const SchemaVersion = 2
+// Version 3 adds the slot's unconfirmed_expiries (A50; #192), which an earlier document lacks and
+// reads as 0.
+const SchemaVersion = 3
 
 // State is a slot's lifecycle state, one of the states in docs/contracts.md (f).
 type State string
@@ -91,8 +93,24 @@ type Slot struct {
 	ReimportPending bool `json:"reimport_pending"`
 	// LastUsed drives LRU removal under max_disk and shrink_after.
 	LastUsed time.Time `json:"last_used"`
+	// UnconfirmedExpiries counts the create hook's leases on the slot that expired unconfirmed in a
+	// row, since the last one a session confirmed: at QuarantineAfter the slot is quarantined, not
+	// handed out until `doctor --fix` clears it (A50).
+	UnconfirmedExpiries int `json:"unconfirmed_expiries"`
 	// Lease is the current lease, or nil.
 	Lease *Lease `json:"lease"`
+}
+
+// QuarantineAfter is how many unconfirmed leases in a row quarantine a slot: the desktop app
+// refused the path each time, most likely for a session it still records there, so a third session
+// handed the slot would be refused too (A50; #192).
+const QuarantineAfter = 2
+
+// Quarantined says whether s is quarantined: handed out QuarantineAfter times in a row without a
+// session confirming it. A quarantined slot is not handed out, by the create hook or by take, until
+// `doctor --fix` clears its count (A50).
+func (s Slot) Quarantined() bool {
+	return s.UnconfirmedExpiries >= QuarantineAfter
 }
 
 // The lanes a lease is in (docs/design.md, "Lanes: scripts in parallel, scenes one at a time,

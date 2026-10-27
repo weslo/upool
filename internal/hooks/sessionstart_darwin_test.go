@@ -111,3 +111,95 @@ func TestSessionStartSpawnsRefresh(t *testing.T) {
 		h.checkExported(t, req.Cwd)
 	}
 }
+
+// setLease gives the slot name in h's pool lease, as some other take left it, and the count of
+// unconfirmed expiries.
+func (h harness) setLease(t *testing.T, name string, state pool.State, lease *pool.Lease,
+	expiries int) {
+	t.Helper()
+	err := pool.Update(t.Context(), h.e.Home, h.key, func(p *pool.Pool) error {
+		for i := range p.Slots {
+			if p.Slots[i].Name == name {
+				p.Slots[i].State, p.Slots[i].Lease = state, lease
+				p.Slots[i].UnconfirmedExpiries = expiries
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A start found by cwd alone, in a slot whose lease is another holder's, a Terminal take's with no
+// session_id, neither confirms that lease nor records itself as its holder, and says so, though it
+// still gets the instructions and the export: a session resumed into a slot a dead-PID reclaim had
+// handed to the Terminal take took that lease up in #192's step 1 (A50).
+func TestSessionStartTakesUpNoOtherHoldersLease(t *testing.T) {
+	for _, file := range []string{"session-start.json", "session-start-resume.json",
+		"session-start-compact.json"} {
+		t.Run(file, func(t *testing.T) {
+			h := startHarness(t, true, "session")
+			path := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+			h.readySlot(t, "slot-1", path)
+			other := os.Getppid()
+			lease := &pool.Lease{LeaseID: "terminal-take", WorktreePath: path,
+				HolderPID: &other, HolderPIDStart: &clock, AcquiredAt: clock, Confirmed: true,
+				Lane: pool.LaneScript}
+			h.setLease(t, "slot-1", pool.StateLeased, lease, 0)
+			req := h.capture(t, file)
+			req.Cwd = path
+			err := h.start(t, req)
+			if err == nil || !strings.Contains(err.Error(), "slot-1's lease terminal-take is "+
+				"another holder's, not this session's") {
+				t.Errorf("SessionStart = %v, want it to leave the other holder's lease", err)
+			}
+			got := h.slot(t, "slot-1").Lease
+			if got == nil || got.LeaseID != "terminal-take" || got.SessionID != nil ||
+				got.HolderPID == nil || *got.HolderPID != other {
+				t.Errorf("lease = %+v, want the Terminal take's, untouched", got)
+			}
+			h.checkExported(t, path)
+		})
+	}
+}
+
+// A desktop /clear starts a new session with source startup in the same CLI process, found by
+// cwd, since its new session_id names no lease: a lease its own process holds is still its own,
+// and the startup records the new session_id on it (A46; A50).
+func TestSessionStartAfterAClearKeepsItsOwnLease(t *testing.T) {
+	h := startHarness(t, true, "session")
+	req := h.capture(t, "desktop-clear-session-start.json")
+	name := filepath.Base(req.Cwd)
+	h.readySlot(t, name, req.Cwd)
+	self, before := os.Getpid(), "0c7e6e2c-66e6-464a-a850-ecd38269346d"
+	h.setLease(t, name, pool.StateLeased, &pool.Lease{LeaseID: "own", WorktreePath: req.Cwd,
+		HolderPID: &self, HolderPIDStart: &clock, AcquiredAt: clock, Confirmed: true,
+		Lane: pool.LaneScript, SessionID: &before}, 0)
+	if err := h.start(t, req); err != nil {
+		t.Fatalf("SessionStart: %v, want no error", err)
+	}
+	got := h.slot(t, name).Lease
+	if got == nil || got.LeaseID != "own" || got.SessionID == nil || *got.SessionID != req.SessionID {
+		t.Errorf("lease = %+v, want its own, with the new session_id %s", got, req.SessionID)
+	}
+	checkHolder(t, got, self)
+}
+
+// A confirm shows the slot's path is not refused, so it ends the run of unconfirmed leases that
+// would quarantine the slot (A50).
+func TestSessionStartConfirmEndsTheUnconfirmedRun(t *testing.T) {
+	h := startHarness(t, true, "session")
+	req := h.capture(t, "session-start.json")
+	name := filepath.Base(req.Cwd)
+	h.readySlot(t, name, req.Cwd)
+	h.setLease(t, name, pool.StateReady, nil, pool.QuarantineAfter-1)
+	h.hookLease(t)
+	if err := h.start(t, req); err != nil {
+		t.Fatalf("SessionStart: %v, want no error", err)
+	}
+	if got := h.slot(t, name); got.State != pool.StateLeased || got.UnconfirmedExpiries != 0 {
+		t.Errorf("%s = %s with %d unconfirmed expiries, want leased with 0", name, got.State,
+			got.UnconfirmedExpiries)
+	}
+}

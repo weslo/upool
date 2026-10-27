@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
@@ -32,7 +33,9 @@ const localPrefix = "local_"
 // session a free slot in milliseconds, with the create hook's unconfirmed lease, held by the
 // session's id with its name as a hint (A6), which SessionStart confirms (docs/design.md, "Route
 // Claude Code's worktrees through the pool: three branches in one hook"). A slot is free when it is
-// ready, or else needs-reset (A5), and is still on disk and in `git worktree list`. With none free
+// ready, or else needs-reset (A5), is still on disk and in `git worktree list`, is not quarantined,
+// and is not a worktree the desktop app still records for another session, whose path it would
+// refuse (A50; #192). With none free
 // it tries again once a second for pooledWait, then fails, which aborts the session, naming upool
 // refresh. It runs in the desktop app's helper, so it opens no file under the repository: a stat
 // and git are all it uses there (docs/contracts.md (a)).
@@ -54,11 +57,13 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 	}
 	timeout := cfg.ConfirmTimeout.Value
 	deadline := env.Now().Add(pooledWait)
+	told := map[string]bool{}
 	for {
 		present, err := presentSlots(ctx, env, checkout)
 		if err != nil {
 			return "", err
 		}
+		present = notRecorded(env, present, told)
 		s, expired, err := pool.UnconfirmedTake{Holder: strings.TrimPrefix(req.SessionID,
 			localPrefix), NameHint: req.Name, Now: env.Now(), ConfirmTimeout: timeout,
 			Present: present}.Take(ctx, env.Home, repo.Key)
@@ -77,6 +82,28 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 				"top the pool up, or release a slot", checkout, pooledWait, checkout)
 		}
 		time.Sleep(pooledRetry)
+	}
+}
+
+// notRecorded returns present, passing over too each slot the desktop app's record names, which
+// the app would refuse as "already in use by worktree …" (A50), and saying so once per slot in
+// told. A record upool cannot read passes over nothing: the slot's quarantine is the fallback.
+func notRecorded(env Env, present func(pool.Slot) bool, told map[string]bool) func(pool.Slot) bool {
+	rec := desktop.Load(env.Home)
+	return func(s pool.Slot) bool {
+		if !present(s) {
+			return false
+		}
+		if name, held := rec.Holds(s.Path); held {
+			if !told[s.Name] {
+				told[s.Name] = true
+				// stderr is for warnings only; the app takes the worktree path from stdout.
+				_, _ = fmt.Fprintf(env.Stderr, "upool: passing over %s: the desktop app still "+
+					"records it as the worktree %s of another session\n", s.Name, name)
+			}
+			return false
+		}
+		return true
 	}
 }
 

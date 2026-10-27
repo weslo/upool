@@ -3,8 +3,11 @@ package pool
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/weslo/upool/internal/git"
 )
 
 // The tests of the create hook's take and the expiry of its leases (#75), against a state.json
@@ -199,4 +202,52 @@ func TestUnconfirmedExpiryLeavesOtherLeasesAlone(t *testing.T) {
 			t.Errorf("%s lost its lease", s.Name)
 		}
 	}
+}
+
+// Each lease that expires unconfirmed counts on its slot, and the second in a row quarantines it:
+// the take passes it over for the next slot, saying so when it ends the lease, and with no other
+// slot hands out nothing (A50; #192, where the app refused one slot's path each time).
+func TestUnconfirmedExpiriesQuarantineASlot(t *testing.T) {
+	home := poolOf(t, StateReady, StateReady)
+	take(t, home, start)
+	at := start
+	for n := 1; n <= QuarantineAfter; n++ {
+		at = at.Add(timeout + time.Second)
+		s, expired, err := hookTake(at).Take(context.Background(), home, key)
+		if err != nil || len(expired) != 1 || expired[0].Name != "slot-1" {
+			t.Fatalf("take after expiry %d = %+v, %+v, %v; want slot-1's lease expired", n, s,
+				expired, err)
+		}
+		lines := EndExpired(context.Background(), git.Client{Runner: noLocks{}}, "/src/down",
+			expired, timeout)
+		quarantined := strings.Contains(lines[0], ", but quarantined: 2 sessions in a row were "+
+			"handed slot-1 and none confirmed it")
+		if quarantined != (n == QuarantineAfter) {
+			t.Errorf("expiry %d says %q; want quarantined: %t", n, lines[0], n == QuarantineAfter)
+		}
+		want := "slot-1"
+		if n == QuarantineAfter {
+			want = "slot-2"
+		}
+		if s.Name != want {
+			t.Errorf("take after expiry %d = %s, want %s", n, s.Name, want)
+		}
+	}
+	p := load(t, home)
+	if got := p.Slots[0]; got.UnconfirmedExpiries != QuarantineAfter || !got.Quarantined() ||
+		got.State != StateReady {
+		t.Errorf("slot-1 = %+v; want ready, quarantined after %d expiries", got, QuarantineAfter)
+	}
+	if _, _, err := hookTake(at).Take(context.Background(), home, key); !errors.Is(err, ErrNoSlot) {
+		t.Errorf("a take with slot-2 leased and slot-1 quarantined = %v, want ErrNoSlot", err)
+	}
+}
+
+// noLocks is a git runner for EndExpired that lists only the main checkout, so finds no slot
+// locked.
+type noLocks struct{}
+
+func (noLocks) Run(context.Context, string, []string, ...string) (git.Result, error) {
+	return git.Result{Stdout: []byte("worktree /src/down\nHEAD " +
+		"0000000000000000000000000000000000000000\nbranch refs/heads/main\n\n")}, nil
 }

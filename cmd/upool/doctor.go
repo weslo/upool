@@ -14,6 +14,7 @@ import (
 
 	"github.com/weslo/upool/internal/clone"
 	"github.com/weslo/upool/internal/config"
+	"github.com/weslo/upool/internal/desktop"
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
@@ -91,6 +92,9 @@ const (
 	checkCloneSharing = "clone-sharing"
 	checkStateVolume  = "state-volume"
 	checkLeases       = "leases"
+	// checkDesktopRecord reports the desktop app's record of its worktrees, when upool cannot read
+	// it (A50).
+	checkDesktopRecord = "desktop-record"
 	// checkDeadHolders reports only a failure to look for leases whose holder died; each such
 	// lease is reported on its slot's line.
 	checkDeadHolders = "dead-holders"
@@ -148,9 +152,14 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
 	r := doctorReport{Repo: repo}
 	r.Checks = append(r.Checks, gitignoreCheck(ctx, g, repo), libraryCheck(ctx, g, repo))
+	rec := desktop.Load(inv.home)
 	sd := slotDoctor{g: g, proc: proc.System{}, home: inv.home, key: rp.repo.Key, repo: repo,
-		fix: fix, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{}, Home: inv.home,
-			Key: rp.repo.Key, Now: inv.now}}
+		fix: fix, record: rec, reclaimer: pool.Reclaimer{Git: g, Proc: proc.System{},
+			Home: inv.home, Key: rp.repo.Key, Now: inv.now,
+			Held: func(s pool.Slot) (string, bool) { return rec.Holds(s.Path) }}}
+	if c, ok := desktopRecordCheck(rec); ok {
+		r.Checks = append(r.Checks, c)
+	}
 	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
@@ -216,10 +225,14 @@ type slotDoctor struct {
 	listed  map[string]bool
 	listErr error
 	// reclaimer finds and, with fix, reclaims the leases whose holder died (#61). dead names the
-	// slots it found without fix, and reclaimed what it did with fix, by slot name.
+	// slots it found without fix, reclaimed what it did with fix, and kept the leases it leaves
+	// because the desktop app still records their slots (A50), by slot name.
 	reclaimer pool.Reclaimer
 	dead      map[string]bool
 	reclaimed map[string]pool.Reclaimed
+	kept      map[string]pool.Kept
+	// record is the desktop app's record of its sessions' worktrees (A50).
+	record desktop.Record
 }
 
 // checks checks each slot in slots, the pool as doctor read it: a creating slot by its owner, and
@@ -239,6 +252,9 @@ func (d *slotDoctor) checks(ctx context.Context, slots []pool.Slot) []doctorChec
 		if c.Result == checkPass {
 			c = d.holder(s, c)
 		}
+		if c.Result == checkPass {
+			c = d.free(ctx, s, c)
+		}
 		checks = append(checks, c)
 	}
 	return checks
@@ -248,6 +264,14 @@ func (d *slotDoctor) checks(ctx context.Context, slots []pool.Slot) []doctorChec
 // is checked: the release reset for a clean slot, parked for a dirty one ((f) transitions 13 and
 // 14). Without fix it only finds them.
 func (d *slotDoctor) findDeadHolders(ctx context.Context, slots []pool.Slot) error {
+	kept, err := d.reclaimer.Kept(pool.Pool{Slots: slots})
+	if err != nil {
+		return err
+	}
+	d.kept = make(map[string]pool.Kept, len(kept))
+	for _, k := range kept {
+		d.kept[k.Slot] = k
+	}
 	if d.fix {
 		done, err := d.reclaimer.Reclaim(ctx)
 		d.reclaimed = make(map[string]pool.Reclaimed, len(done))
@@ -266,8 +290,12 @@ func (d *slotDoctor) findDeadHolders(ctx context.Context, slots []pool.Slot) err
 
 // holder turns the passing presence check c of the leased slot s into what became of a lease
 // whose holder died: a warning without fix, since the next take reclaims it anyway, and with fix
-// what the reclaim did.
+// what the reclaim did. A lease the reclaim keeps, since the desktop app still records the slot,
+// is a warning either way, saying how to free the slot (A50).
 func (d *slotDoctor) holder(s pool.Slot, c doctorCheck) doctorCheck {
+	if k, ok := d.kept[s.Name]; ok {
+		return doctorCheck{s.Name, checkWarn, keptLine(k)}
+	}
 	if rc, ok := d.reclaimed[s.Name]; ok {
 		gone := fmt.Sprintf("its holder, process %d, was gone", rc.HolderPID)
 		switch {
@@ -285,6 +313,53 @@ func (d *slotDoctor) holder(s pool.Slot, c doctorCheck) doctorCheck {
 			"upool doctor --fix or the next upool take reclaims it", *s.Lease.HolderPID)}
 	}
 	return c
+}
+
+// free turns the passing check c of a slot with no lease into a warning when no session can be
+// handed it: the desktop app still records it for a session, whose path the app would refuse to
+// any other, or it is quarantined. With fix, a quarantined slot's count is cleared, so that it is
+// handed out again (A50).
+func (d *slotDoctor) free(ctx context.Context, s pool.Slot, c doctorCheck) doctorCheck {
+	if s.Lease != nil || (s.State != pool.StateReady && s.State != pool.StateNeedsReset) {
+		return c
+	}
+	if name, held := d.record.Holds(s.Path); held {
+		return doctorCheck{s.Name, checkWarn, fmt.Sprintf("%s, but the desktop app still records "+
+			"it as the worktree %s, for a session it can resume into it, so no other session is "+
+			"handed it. Open that session, unarchiving it if it is archived, and archive it with "+
+			"the app's Archive button", s.State, name)}
+	}
+	if !s.Quarantined() {
+		return c
+	}
+	if !d.fix {
+		return doctorCheck{s.Name, checkWarn, "quarantined: " +
+			pool.QuarantineReason(s.Name, s.UnconfirmedExpiries)}
+	}
+	err := pool.Update(ctx, d.home, d.key, func(p *pool.Pool) error {
+		for i := range p.Slots {
+			if p.Slots[i].Name == s.Name {
+				p.Slots[i].UnconfirmedExpiries = 0
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return failedCheck(s.Name, err)
+	}
+	return doctorCheck{s.Name, checkPass, fmt.Sprintf("fixed: cleared its quarantine, after %d "+
+		"unconfirmed leases in a row, so it is handed out again", s.UnconfirmedExpiries)}
+}
+
+// desktopRecordCheck reports a desktop app record that exists but that upool cannot read: a slot
+// the app still records may then be handed out, with quarantine the only fallback (A50). With no
+// record, as without the app, there is nothing to report.
+func desktopRecordCheck(rec desktop.Record) (doctorCheck, bool) {
+	if rec.Known || strings.HasSuffix(rec.Why, " does not exist") {
+		return doctorCheck{}, false
+	}
+	return doctorCheck{checkDesktopRecord, checkWarn, rec.Why + "; a slot the app still records " +
+		"for a session may be handed out regardless, until it is quarantined"}, true
 }
 
 // creating checks a creating slot: it passes while its owner is alive, and fails once the owner is

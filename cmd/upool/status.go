@@ -78,13 +78,18 @@ type slotStatus struct {
 	Lease *leaseReport `json:"lease"`
 	// Disk is the slot's disk use, with --du; nil without it, or when its directory is gone.
 	Disk *diskReport `json:"disk,omitempty"`
+	// Quarantined is set on a slot whose leases were left unconfirmed too often in a row, which is
+	// not handed out until `doctor --fix` clears it (A50); expiries is how often.
+	Quarantined bool `json:"quarantined,omitempty"`
+	expiries    int
 }
 
 // Human returns each pool as a line naming its main checkout and base, then a table of its slots:
 // name, state, lease lane, lease holder, lease age and whether the lease is confirmed, with "-"
 // for a slot that has no lease, after a line announcing the refresh job while it runs. With --du
 // the table adds each slot's private and apparent size, "-" for a slot whose directory is gone,
-// and a line after it gives the pool's sums. Pools are separated by a blank line.
+// and a line after it gives the pool's sums. A line after the table says why each quarantined slot
+// is quarantined and how to clear it (A50). Pools are separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -133,6 +138,12 @@ func (r statusReport) Human() string {
 			_, _ = fmt.Fprintln(tw, row)
 		}
 		_ = tw.Flush()
+		for _, s := range p.Slots {
+			if s.Quarantined {
+				fmt.Fprintf(&b, "%s is quarantined: %s\n", s.Name,
+					pool.QuarantineReason(s.Name, s.expiries))
+			}
+		}
 		if d := p.Disk; d != nil {
 			fmt.Fprintf(&b, "disk: %s private, %s apparent\n", bytesSize(d.PrivateBytes),
 				bytesSize(d.ApparentBytes))
@@ -285,7 +296,8 @@ func newPoolStatus(rp registeredPool) poolStatus {
 	}
 	for _, s := range rp.pool.Slots {
 		p.Slots = append(p.Slots, slotStatus{Name: s.Name, Path: s.Path, State: s.State,
-			Lease: newLeaseReport(s.Lease)})
+			Lease: newLeaseReport(s.Lease), Quarantined: s.Quarantined(),
+			expiries: s.UnconfirmedExpiries})
 	}
 	return p
 }
