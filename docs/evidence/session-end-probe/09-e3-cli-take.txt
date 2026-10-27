@@ -1,0 +1,17 @@
+== upool take probe-cli-take, from Terminal, after the crash and relaunch
+upool: reclaimed slot-1, since its holder, process 42780, is gone
+upool: parked slot-3, since its holder, process 42955, is gone and it is dirty: ?? upool-192-dirty.txt
+upool: reclaimed slot-4, since its holder, process 42311, is gone
+${repo}/.claude/worktrees/slot-1
+${repo} (base main)
+SLOT    STATE   LANE    HOLDER  AGE  CONFIRMED
+slot-1  leased  script  -       0s   yes
+slot-2  parked  -       -       -    -
+slot-3  parked  -       -       -    -
+slot-4  ready   -       -       -    -
+slot-5  ready   -       -       -    -
+{"name":"slot-1","state":"leased","holder_pid":null,"session_id":null}
+{"name":"slot-2","state":"parked","holder_pid":null,"session_id":null}
+{"name":"slot-3","state":"parked","holder_pid":null,"session_id":null}
+{"name":"slot-4","state":"ready","holder_pid":null,"session_id":null}
+{"name":"slot-5","state":"ready","holder_pid":null,"session_id":null}

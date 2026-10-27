@@ -1,0 +1,18 @@
+== e1-live at 2026-10-27 07:34:29 (since 2026-10-27 07:31:20)
+== upool status
+${repo} (base main)
+SLOT    STATE   LANE    HOLDER                                AGE    CONFIRMED
+slot-1  leased  script  6c3afa52-946b-4c1f-9cf8-3da30cc14114  1m50s  yes
+slot-2  leased  script  746ee91c-bfe9-4d3e-b616-35de8e1c7dfc  1m9s   yes
+slot-3  ready   -       -                                     -      -
+== upool status --json leases
+{"name":"slot-1","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-2","state":"leased","holder":null,"session":null,"confirmed":true}
+{"name":"slot-3","state":"ready","holder":null,"session":null,"confirmed":null}
+== slots
+${repo}/.claude/worktrees/slot-1: 
+${repo}/.claude/worktrees/slot-2: ?? upool-192-dirty.txt 
+${repo}/.claude/worktrees/slot-3: 
+== the app's record
+{"name":"pwd-ff02fc","path":"${repo}/.claude/worktrees/slot-1","leasedBy":"local_6c3afa52-946b-4c1f-9cf8-3da30cc14114","leaseCleared":null,"parkedStateKey":null}
+{"name":"create-upool-192-dirty-file-853cff","path":"${repo}/.claude/worktrees/slot-2","leasedBy":"local_746ee91c-bfe9-4d3e-b616-35de8e1c7dfc","leaseCleared":null,"parkedStateKey":null}

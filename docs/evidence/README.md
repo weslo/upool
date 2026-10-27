@@ -25,6 +25,7 @@ look for.
 | `desktop-exec-probe-main.log` | none: #163 | contracts.md A24 | a create hook running a upool built under `~/Documents`: "Created hook-based worktree" and the session started (desktop app 3.1623.0) |
 | `desktop-dirty-archive-main.log` | none: #185 | contracts.md A28 | a slot path refused as "already in use" by a record the app kept; a dirty slot archived through the app's session tool (`Archived session` and nothing more), then resumed and archived clean; and a dirty slot archived with the Archive button (`LocalSessions.archive`, the cleanup and `Removed hook-based worktree`) (desktop app 3.1623.0) |
 | `desktop-archive-lock-main.log` | none: #181 | contracts.md A27 | the first M2 gate run: two desktop sessions handed slots by upool's project-scope create hook (`worktree=121296ms`, then `75ms`), then archived, each refused as "locked with `git worktree lock` (kept with its entry)" with no remove hook run (desktop app 3.1623.0) |
+| `desktop-session-end-main.log` | none: #192 | #192, step 1 | a throwaway pooled project's desktop sessions: two deleted while live, each running the remove hook (`LocalSessions.delete`, then the cleanup and `Removed hook-based worktree`); a quit (`Stopping 12 active session(s) on quit`) and a crash, neither running one; the quit sessions resumed; and a new session refused twice for the same slot, `already in use by worktree "pwd-03f0cb"` then `worktree_hook_failed`, 1 m 47 s apart (desktop app 3.6556.2) |
 
 ## exec-probe/
 
@@ -112,3 +113,25 @@ paths as variables. The probe is `scripts/sessionprobe`, in three builds:
 |---|---|
 | `probe.txt` | The scratch repository's hooks and the probe's log, one line per hook run. It holds every `claude -p` answer: the context reaching the model as JSON `additionalContext` and as plain stdout, whole at 3.5 KB, and again on resume (the resumes' `cwd` was the main checkout, not the worktree, despite the file's opening line); the hook firing on a compaction; a subagent without the context, and with it from a `SubagentStart` hook; and a `CLAUDE.md` the hook copied into the worktree not loading in that session, but loading in the next. It also holds the maintainer's desktop session: its answers, with `/clear` starting a new session whose `source` is `startup` and a `compact` context reaching the model; its transcripts' `hook_additional_context` attachments; and the hook stdin the probe recorded |
 | `imports.txt` | #235's run: a file `CLAUDE.md` imports with `@`, written into the worktree by a second `SessionStart` hook, not read in that session (`grove unknown`), and read by the next, which found it at the start (`grove olive`) |
+
+## session-end-probe/
+
+#192's step 1 (2026-10-27; desktop app 3.6556.2, whose sessions ran Claude Code 2.1.308; macOS
+15.7.3), recorded as it ran: which ways a desktop session in a slot can end without
+`WorktreeRemove`, and what upool and the app are left with. `${repo}` here is a throwaway Unity
+project made for the probe, pooled by a upool built from the `issue-192` branch, its `max_slots`
+raised to 6 after the first event. Each file is a snapshot of `upool status`, `state.json`'s leases
+and whether each holder PID was alive, each slot's `git status`, and the app's record of each slot
+in its `git-worktrees.json`. The app's log for the whole run is `logs/desktop-session-end-main.log`.
+
+| File | What it shows |
+|---|---|
+| `01-setup.txt` | the pool after `upool init`: slot-1 `ready`, and no record in the app |
+| `02-e1-live.txt`, `03-e1-deleted.txt` | event 1: sessions A (slot-1, clean) and B (slot-2, an untracked file) live, then both deleted from the sidebar. The remove hook ran for each: slot-1 `needs-reset`, slot-2 `parked`, and both records gone. Slot-2 was then removed by hand, which left it `parked` in `state.json` |
+| `04-e2-live.txt`, `05-e2-relaunched.txt` | event 2: sessions C (slot-1, clean) and D (slot-3, dirty) live, then the app quit with ⌘Q and relaunched. No remove hook ran: both holders gone, both leases and both records kept |
+| `06-e2-sessionE.txt` | a new session E handed the `ready` slot-4: the create hook reclaimed neither dead lease |
+| `07-e2-resumed.txt` | C and D resumed: upool recorded each resumed process as its lease's holder, found by `session_id` |
+| `08-e3-relaunched.txt` | event 3: C, D and E live, then the app's main process killed with `kill -9` and the app relaunched. As for the quit: three dead holders, their leases and records kept |
+| `09-e3-cli-take.txt` | a Terminal `upool take`, which reclaims dead holders' leases: C's slot-1 reset and taken, D's slot-3 parked, E's slot-4 `ready`, though all three sessions could still be resumed |
+| `10-e3-resumeC.txt` | after a new session was handed slot-4 and refused twice for E's record, with slot-5 `ready` throughout: C resumed in slot-1, on the Terminal take's branch, `probe-cli-take`, and recorded as the holder of the Terminal take's lease |
+| `11-e3-archived.txt` | C, D and E archived with the Archive button: each record gone, and slot-1 `needs-reset`, ending the Terminal take's lease too |

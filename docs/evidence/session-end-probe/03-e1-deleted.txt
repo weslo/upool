@@ -1,0 +1,20 @@
+== e1-deleted at 2026-10-27 07:36:35 (since 2026-10-27 07:34:45)
+== upool status
+${repo} (base main)
+SLOT    STATE        LANE  HOLDER  AGE  CONFIRMED
+slot-1  needs-reset  -     -       -    -
+slot-2  parked       -     -       -    -
+slot-3  ready        -     -       -    -
+== upool status --json leases
+{"name":"slot-1","state":"needs-reset","holder":null,"session":null,"confirmed":null}
+{"name":"slot-2","state":"parked","holder":null,"session":null,"confirmed":null}
+{"name":"slot-3","state":"ready","holder":null,"session":null,"confirmed":null}
+== state.json leases
+{"name":"slot-1","state":"needs-reset","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-2","state":"parked","holder_pid":null,"session_id":null,"confirmed":null}
+{"name":"slot-3","state":"ready","holder_pid":null,"session_id":null,"confirmed":null}
+== slots
+${repo}/.claude/worktrees/slot-1: 
+${repo}/.claude/worktrees/slot-2: ?? upool-192-dirty.txt 
+${repo}/.claude/worktrees/slot-3: 
+== the app's record
