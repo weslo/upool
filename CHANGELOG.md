@@ -7,99 +7,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.4.0-rc.5] - 2026-10-26
-
-### Fixed
-
-- upool no longer clones from a checkout whose Editor is still starting (#255; docs/contracts.md
-  A49). It knew such an Editor only by its `Library/EditorInstance.json`, which comes several
-  seconds after the launch: in the M4 gate's fourth run, a `take` in that window cloned the main
-  checkout while its Editor was loading it. A checkout now counts as open too while a running Unity
-  Editor has it as its `-projectpath` or holds its `Temp/UnityLockfile` open, as one does from its
-  first second. Seeds, `prune` and `init` all judge a checkout this way.
-
-## [0.4.0-rc.4] - 2026-10-26
-
-### Fixed
-
-- A seed refresh no longer leaves its Editor running when a plain close cannot close it yet (#252;
-  docs/contracts.md A48). In the M4 gate's third run, a headless Editor of the main checkout,
-  closed as soon as it was ready, timed out the close and kept running: no clone could seed from
-  the checkout. The refresh now sends the close again 2 s after each failure, and closes the
-  Editor with `--force` once two minutes have passed, clearing the instance files that leaves.
-
-## [0.4.0-rc.3] - 2026-10-25
-
-### Changed
-
-- upool's session-start hook now exports `UNITY_PROJECT_PATH` for the session's slot on a
-  `claude -p --resume` launched from the main checkout too, as on every other start (#245;
-  docs/contracts.md A47). Claude Code reports such a resume's `cwd` as the main checkout, but a
-  capture showed it takes the session back into its slot. The hook finds the slot by the session's
-  `session_id`, as it already did to record the resumed CLI process as the lease's holder (#244).
-  The resumed session also keeps the export its first start made, which had been its only one.
-
-### Fixed
-
-- upool's instructions now reach every start of a session in a slot, wherever Claude Code reports
-  its `cwd` (#244; docs/contracts.md A46). Before, only a start whose `cwd` was the slot itself got
-  them. A subagent with `isolation: worktree`, one started after the session ran `cd`, and the
-  compaction after that `cd` got none. The startup confirm now records the session's `session_id`
-  on the lease, and later starts, and every subagent's, find the slot by it. A start whose
-  `session_id` names no lease falls back to the slot that contains its `cwd`. `state.json` is now
-  at `schema_version` 2, which an earlier upool refuses with a message to upgrade. A version-1 file
-  is migrated on its next write.
-
-- A Library refresh no longer leaves the checkout looking open (#243; docs/contracts.md A45). Every
-  stale-seed refresh closed its headless Editor with `unity close --force`. That left
-  `Library/EditorInstance.json` and `Temp/UnityLockfile` behind, so no clone could seed from the
-  checkout and the next `upool init` refused it. upool now:
-  - closes an Editor that is ready without `--force`;
-  - after a forced close, once the Editor is gone and `unity status` lists none, removes the files
-    it left;
-  - counts an instance file only when the process it names is running and is a Unity Editor, so a
-    file an Editor that crashed or was force-quit left no longer blocks `init`, a clone or `prune`.
-    A `Library/ProtocolInstance.json` alone no longer refuses `init`.
-
-## [0.4.0-rc.2] - 2026-10-24
-
-### Added
-
-- upool honours a project's `.worktreeinclude`, Claude Code's list of gitignored files to copy into
-  a new worktree, which Claude Code does not process for the worktrees upool's hook makes (#233;
-  docs/contracts.md A44). The top-up that each session start launches, and `upool release`, mirror
-  the files it names from the main checkout into every free slot: one that is missing or differs
-  is copied as an APFS clone, and one the main checkout no longer has is deleted. A subagent's
-  worktree gets them when the hook makes it. Only files git ignores are touched, by Claude Code's
-  rule for a directory ignored as a whole, so a slot's `Library/` is left alone and no slot is
-  made dirty. `refresh --json` and `release --json` report the slots under `mirrored`.
-
-- `upool hook session-start` gives a session in a slot upool's instructions as context on every
-  start (`startup`, `resume`, `clear`, `compact`), as Claude Code's `additionalContext`, and a new
-  `upool hook subagent-start` gives them to that session's subagents, which do not see their
-  session's context (#229; docs/contracts.md A43). The context is printed even when the startup
-  confirm fails. `upool init` registers the new hook; run `upool init` again in each project after
-  upgrading, which `upool doctor` reports until then.
-
-### Changed
-
-- `upool take --confirm`, which each session start runs, no longer copies `CLAUDE.md`,
-  `AGENTS.md`, `.agents/` and `.claude/` from the main checkout into the slot (#233). Where git
-  saw those files, the copy made the slot dirty, and the slot was parked when its session was
-  archived. List the gitignored files a slot should keep current in `.worktreeinclude` instead.
-- `upool init` writes nothing into a project's agent files: no block in `CLAUDE.md` or
-  `AGENTS.md`, and no skill under `.claude/skills/` or `.agents/skills/` (#230; docs/contracts.md
-  A43). `.claude/settings.local.json`, `.upool.toml` and the `.gitignore` line are all it writes.
-  Run again after upgrading, it takes out the block and skill an earlier upool wrote: the block by
-  its markers, deleting a file the block alone filled, and a `SKILL.md` only when upool wrote it,
-  with its directory if nothing else is in it. It never writes into a file git tracks: a block or
-  skill there stays, and `init` warns, naming the file, for you to take it out in a commit. A
-  `CLAUDE.md` or `AGENTS.md` whose upool markers do not pair is left as it is, with a warning,
-  where `init` used to refuse. `upool deinit` removes the block and skill under the same rules,
-  never from a tracked file, and still refuses a file whose markers do not pair. `init --json`
-  drops `claude_md_block`, `agents_md_block` and `skills` for `retired`.
-
-## [0.4.0-rc.1] - 2026-10-23
+## [0.4.0] - 2026-10-26
 
 ### Added
 
@@ -195,6 +103,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `ready` and a dirty one is parked, each with a line on stderr (docs/contracts.md (f) transition
   22).
 
+- upool honours a project's `.worktreeinclude`, Claude Code's list of gitignored files to copy into
+  a new worktree, which Claude Code does not process for the worktrees upool's hook makes (#233;
+  docs/contracts.md A44). The top-up that each session start launches, and `upool release`, mirror
+  the files it names from the main checkout into every free slot: one that is missing or differs
+  is copied as an APFS clone, and one the main checkout no longer has is deleted. A subagent's
+  worktree gets them when the hook makes it. Only files git ignores are touched, by Claude Code's
+  rule for a directory ignored as a whole, so a slot's `Library/` is left alone and no slot is
+  made dirty. `refresh --json` and `release --json` report the slots under `mirrored`.
+
+- `upool hook session-start` gives a session in a slot upool's instructions as context on every
+  start (`startup`, `resume`, `clear`, `compact`), as Claude Code's `additionalContext`, and a new
+  `upool hook subagent-start` gives them to that session's subagents, which do not see their
+  session's context (#229; docs/contracts.md A43). The context is printed even when the startup
+  confirm fails. `upool init` registers the new hook; run `upool init` again in each project after
+  upgrading, which `upool doctor` reports until then.
+
 ### Changed
 
 - A tag with a pre-release suffix, such as `v0.4.0-rc.1`, is published as a GitHub pre-release,
@@ -217,12 +141,68 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   close, moved into `internal/unity` (docs/design.md, the layout), where the clone recipe's
   refresh uses them too. Their behaviour is unchanged.
 
+- `upool take --confirm`, which each session start runs, no longer copies `CLAUDE.md`,
+  `AGENTS.md`, `.agents/` and `.claude/` from the main checkout into the slot (#233). Where git
+  saw those files, the copy made the slot dirty, and the slot was parked when its session was
+  archived. List the gitignored files a slot should keep current in `.worktreeinclude` instead.
+- `upool init` writes nothing into a project's agent files: no block in `CLAUDE.md` or
+  `AGENTS.md`, and no skill under `.claude/skills/` or `.agents/skills/` (#230; docs/contracts.md
+  A43). `.claude/settings.local.json`, `.upool.toml` and the `.gitignore` line are all it writes.
+  Run again after upgrading, it takes out the block and skill an earlier upool wrote: the block by
+  its markers, deleting a file the block alone filled, and a `SKILL.md` only when upool wrote it,
+  with its directory if nothing else is in it. It never writes into a file git tracks: a block or
+  skill there stays, and `init` warns, naming the file, for you to take it out in a commit. A
+  `CLAUDE.md` or `AGENTS.md` whose upool markers do not pair is left as it is, with a warning,
+  where `init` used to refuse. `upool deinit` removes the block and skill under the same rules,
+  never from a tracked file, and still refuses a file whose markers do not pair. `init --json`
+  drops `claude_md_block`, `agents_md_block` and `skills` for `retired`.
+
+- upool's session-start hook now exports `UNITY_PROJECT_PATH` for the session's slot on a
+  `claude -p --resume` launched from the main checkout too, as on every other start (#245;
+  docs/contracts.md A47). Claude Code reports such a resume's `cwd` as the main checkout, but a
+  capture showed it takes the session back into its slot. The hook finds the slot by the session's
+  `session_id`, as it already did to record the resumed CLI process as the lease's holder (#244).
+  The resumed session also keeps the export its first start made, which had been its only one.
+
 ### Fixed
 
 - refresh closes an Editor that is not ready with `unity close <slot> --force`: the re-warm's
   after A37's 300 s, and the seed refresh's (#224; docs/contracts.md A40). Plain `unity close`
   cannot reach a headless Editor in the middle of a cold import, so it left the Editor running and
   the slot warming. `upool close` and `release`, which save first, still close gracefully.
+
+- upool's instructions now reach every start of a session in a slot, wherever Claude Code reports
+  its `cwd` (#244; docs/contracts.md A46). Before, only a start whose `cwd` was the slot itself got
+  them. A subagent with `isolation: worktree`, one started after the session ran `cd`, and the
+  compaction after that `cd` got none. The startup confirm now records the session's `session_id`
+  on the lease, and later starts, and every subagent's, find the slot by it. A start whose
+  `session_id` names no lease falls back to the slot that contains its `cwd`. `state.json` is now
+  at `schema_version` 2, which an earlier upool refuses with a message to upgrade. A version-1 file
+  is migrated on its next write.
+
+- A Library refresh no longer leaves the checkout looking open (#243; docs/contracts.md A45). Every
+  stale-seed refresh closed its headless Editor with `unity close --force`. That left
+  `Library/EditorInstance.json` and `Temp/UnityLockfile` behind, so no clone could seed from the
+  checkout and the next `upool init` refused it. upool now:
+  - closes an Editor that is ready without `--force`;
+  - after a forced close, once the Editor is gone and `unity status` lists none, removes the files
+    it left;
+  - counts an instance file only when the process it names is running and is a Unity Editor, so a
+    file an Editor that crashed or was force-quit left no longer blocks `init`, a clone or `prune`.
+    A `Library/ProtocolInstance.json` alone no longer refuses `init`.
+
+- A seed refresh no longer leaves its Editor running when a plain close cannot close it yet (#252;
+  docs/contracts.md A48). In the M4 gate's third run, a headless Editor of the main checkout,
+  closed as soon as it was ready, timed out the close and kept running: no clone could seed from
+  the checkout. The refresh now sends the close again 2 s after each failure, and closes the
+  Editor with `--force` once two minutes have passed, clearing the instance files that leaves.
+
+- upool no longer clones from a checkout whose Editor is still starting (#255; docs/contracts.md
+  A49). It knew such an Editor only by its `Library/EditorInstance.json`, which comes several
+  seconds after the launch: in the M4 gate's fourth run, a `take` in that window cloned the main
+  checkout while its Editor was loading it. A checkout now counts as open too while a running Unity
+  Editor has it as its `-projectpath` or holds its `Temp/UnityLockfile` open, as one does from its
+  first second. Seeds, `prune` and `init` all judge a checkout this way.
 
 ## [0.3.0] - 2026-10-22
 

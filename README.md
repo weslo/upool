@@ -2,18 +2,10 @@
 
 [![ci](https://github.com/weslo/upool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weslo/upool/actions/workflows/ci.yml?query=branch%3Amain)
 
-**Status: pre-alpha.** v0.3.0, the pool core, its Claude Code integration and Editor governance,
-is on [GitHub Releases](https://github.com/weslo/upool/releases); Homebrew comes with M4. The
-[roadmap](#-roadmap) shows where the build stands.
-
-To try v0.3.0 now, download the archive for your Mac with `gh` or `curl`; a browser quarantines the
-download, and the binary is not signed. Put the `upool` in it on your `PATH`, then follow the
-Quickstart from `upool init` on:
-
-```bash
-gh release download v0.3.0 -R weslo/upool -p 'upool_0.3.0_darwin_arm64.tar.gz'   # or darwin_amd64
-tar -xzf upool_0.3.0_darwin_arm64.tar.gz upool
-```
+**Status: pre-alpha.** v0.4.0, the pool core, its Claude Code integration, Editor governance and
+the pool's hygiene, is on Homebrew, as the Quickstart installs it, and on
+[GitHub Releases](https://github.com/weslo/upool/releases). The [roadmap](#-roadmap) shows where the
+build stands.
 
 upool keeps a small pool of pre-warmed Unity workspaces for each project and hands one to every
 coding-agent session, so the agent's Unity Editor opens in seconds instead of re-importing the
@@ -64,9 +56,9 @@ which it names for you to change in a commit.
 ## 🧭 Roadmap
 
 After the bootstrap and a planning pass, the build runs in five milestones, M0 to M4, in the order
-[docs/design.md](docs/design.md#build-in-four-phases-with-the-clone-recipe-first) sets. Each
-milestone ends with a manual gate run on a real Mac, and its version is tagged only once that gate
-passes.
+[docs/design.md](docs/design.md#build-in-four-phases-with-the-clone-recipe-first) sets, and M5 takes
+the work moved out of M4. Each milestone ends with a manual gate run on a real Mac, and its version
+is tagged only once that gate passes.
 
 | Status | Milestone | What it delivers | Release |
 |---|---|---|---|
@@ -76,7 +68,8 @@ passes.
 | ✅ Done | [M1 Pool core](https://github.com/weslo/upool/milestone/2) | `init`, `take`, `release`, `which`, `path`, `status` and `doctor`, usable from Terminal with no agent | v0.1.0 |
 | ✅ Done | [M2 Claude Code integration](https://github.com/weslo/upool/milestone/3) | `init`'s per-project hooks that hand each session a slot, the background top-up, the skill and `run` | v0.2.0 |
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
-| 🚧 In progress | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
+| ✅ Done | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
+| 🚧 In progress | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | — |
 
 ## 📚 Documentation
 
