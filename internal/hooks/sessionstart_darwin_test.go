@@ -182,7 +182,8 @@ func TestSessionStartAfterAClearKeepsItsOwnLease(t *testing.T) {
 		t.Fatalf("SessionStart: %v, want no error", err)
 	}
 	got := h.slot(t, name).Lease
-	if got == nil || got.LeaseID != "own" || got.SessionID == nil || *got.SessionID != req.SessionID {
+	if got == nil || got.LeaseID != "own" || got.SessionID == nil ||
+		*got.SessionID != req.SessionID {
 		t.Errorf("lease = %+v, want its own, with the new session_id %s", got, req.SessionID)
 	}
 	checkHolder(t, got, self)
@@ -217,8 +218,9 @@ func TestSessionStartAfterAClearInANewProcess(t *testing.T) {
 		takenUp bool
 	}{
 		{"the old process ended", func(*testing.T) (int, time.Time) {
-			// This process at a start time it did not start at reads as ended.
-			return os.Getpid(), clock
+			// A process other than the hook's parent, at a start time it did not start at,
+			// reads as ended.
+			return os.Getppid(), clock
 		}, true},
 		{"another process alive", func(t *testing.T) (int, time.Time) {
 			start, err := (proc.System{}).Start(os.Getppid())

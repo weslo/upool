@@ -28,9 +28,9 @@ type Reclaimer struct {
 	// Now stamps last_used on a slot reclaimed clean.
 	Now func() time.Time
 	// Held says whether the desktop app's record still names a slot, and how: the session and
-	// the worktree, as desktop.Worktree says them. A dead holder's lease on such a slot is kept: the app keeps a session's record through
-	// a quit or a crash and resumes the session into the slot, and refuses the path to any other
-	// (A50; #192). Nil holds none.
+	// the worktree, as desktop.Worktree says them. A dead holder's lease on such a slot is kept:
+	// the app keeps a session's record through a quit or a crash and resumes the session into the
+	// slot, and refuses the path to any other (A50; #192). Nil holds none.
 	Held func(Slot) (string, bool)
 }
 

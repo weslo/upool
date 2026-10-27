@@ -242,8 +242,8 @@ func TestUnconfirmedExpiriesQuarantineASlot(t *testing.T) {
 				}
 			}
 			got := load(t, home).Slots[0]
-			if want := map[bool]int{true: QuarantineAfter, false: 0}[count]; got.UnconfirmedExpiries !=
-				want || got.Quarantined() != count {
+			want := map[bool]int{true: QuarantineAfter, false: 0}[count]
+			if got.UnconfirmedExpiries != want || got.Quarantined() != count {
 				t.Errorf("slot-1 = %+v; want %d expiries counted, quarantined %t", got, want,
 					count)
 			}

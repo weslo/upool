@@ -86,9 +86,9 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 // session's own. Found by cwd alone, it is the session's to take up only when it is:
 //   - the create hook's unconfirmed lease, which a startup confirms;
 //   - one ppid already holds, as after a /clear in the same CLI process;
-//   - a session's lease, with a session_id, whose holder has ended, as after a desktop /clear, whose
-//     startup comes with a new session_id, if that starts a new process: no capture says whether
-//     it does (A50; manual-gates/M5.md).
+//   - a session's lease, with a session_id, whose holder has ended, as after a desktop /clear,
+//     whose startup comes with a new session_id, if that starts a new process: no capture says
+//     whether it does (A50; manual-gates/M5.md).
 //
 // Any other is another holder's: one no session holds, a Terminal take's or `upool run`'s, which a
 // dead-PID reclaim may have handed the slot to while the session could still be resumed into it,

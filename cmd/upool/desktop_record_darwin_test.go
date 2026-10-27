@@ -208,7 +208,8 @@ func TestRefreshClonesAroundASlotNoSessionIsHanded(t *testing.T) {
 			mustInit(t, e)
 			keep(t, e)
 			r := refresh(t, e)
-			if want := "cloned slot-2\nthe pool has 1 ready, as ready = 1 asks\n"; r.stdout != want {
+			want := "cloned slot-2\nthe pool has 1 ready, as ready = 1 asks\n"
+			if r.stdout != want {
 				t.Errorf("stdout = %q, want %q; stderr %q", r.stdout, want, r.stderr)
 			}
 			if got := strings.Join(slotNamesOf(t, e), " "); got != "slot-1=ready slot-2=ready" {
