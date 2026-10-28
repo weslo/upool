@@ -30,7 +30,7 @@ var initCommand = command{
 	usage: "init [--slots N] [--json]",
 	setup: func(fs *flag.FlagSet) handler {
 		slots := fs.Int("slots", 1, "how many slots to clone now, from 1 to max_slots; writes "+
-			"nothing to config: ready in .upool.toml keeps slots ready, and slots beyond ready "+
+			"nothing to config: ready in .upool keeps slots ready, and slots beyond ready "+
 			"become prune candidates once idle for shrink_after")
 		return func(inv *invocation) (any, []string, error) { return initRepo(inv, *slots) }
 	},
@@ -85,7 +85,7 @@ type initReport struct {
 	// GitignoreUpdated is true when init added .claude/worktrees/ to .gitignore, and false when
 	// git already ignored it.
 	GitignoreUpdated bool `json:"gitignore_updated"`
-	// RepoFileWritten is true when init wrote .upool.toml, and false when the file was there.
+	// RepoFileWritten is true when init wrote .upool, and false when the file was there.
 	RepoFileWritten bool `json:"repo_file_written"`
 	// Retired is what init took out of the project's agent files that an earlier upool wrote
 	// there: its block and its skill, which upool no longer writes (A43; #230).
@@ -101,7 +101,7 @@ type initReport struct {
 	Upool string    `json:"upool"`
 	Hooks installed `json:"hooks"`
 
-	// repoFile is what init wrote to .upool.toml, for the human form.
+	// repoFile is what init wrote to .upool, for the human form.
 	repoFile config.RepoFile
 }
 
@@ -148,10 +148,10 @@ func (r initReport) Human() string {
 	lines = append(lines, fmt.Sprintf("base is %s, %s", r.Base, describeBase(r.BaseSource)))
 	if r.RepoFileWritten {
 		f := r.repoFile
-		lines = append(lines, fmt.Sprintf("wrote .upool.toml: ready = %d, max_slots = %d, "+
+		lines = append(lines, fmt.Sprintf("wrote .upool: ready = %d, max_slots = %d, "+
 			"base = %q", f.Ready, f.MaxSlots, f.Base))
 	} else {
-		lines = append(lines, "kept the existing .upool.toml")
+		lines = append(lines, "kept the existing .upool")
 	}
 	lines = append(lines, installs...)
 	for i, s := range r.Slots {
@@ -186,7 +186,7 @@ func describeBase(source string) string {
 	case string(config.Env):
 		return "from " + config.EnvName("base")
 	case string(config.Repo):
-		return "from .upool.toml"
+		return "from .upool"
 	case string(config.User):
 		return "from ~/.config/upool/config.toml"
 	}
@@ -196,7 +196,7 @@ func describeBase(source string) string {
 // initRepo is init's handler, cloning n slots into a new pool. It checks the home directory, finds
 // upool on PATH, reads the project's .claude/settings.local.json and checks the repository before
 // it changes anything. Then it takes out of the project's agent files what an earlier upool wrote
-// there (retireAgentFiles); adds .claude/worktrees/ to .gitignore, writes .upool.toml, creates the
+// there (retireAgentFiles); adds .claude/worktrees/ to .gitignore, writes .upool, creates the
 // pool's state.json, clones the first slot into a pool that has none, adds the repository to
 // registry.json and, last, registers upool's hooks in .claude/settings.local.json (A26), so that a
 // run that fails part-way is finished by the next. On a registered repository it retires the agent

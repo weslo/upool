@@ -77,3 +77,24 @@ func TestDeinitUndoesInit(t *testing.T) {
 		t.Errorf("second deinit: exit %d, stdout %q; want nothing to remove", r.code, r.stdout)
 	}
 }
+
+// deinit removes the repo file, .upool, and leaves a .upool.toml from before #263 alone: that file
+// is not upool's any more.
+func TestDeinitRemovesDotUpoolAndLeavesAnOldRepoFile(t *testing.T) {
+	e := newInitEnv(t)
+	const old = "ready = 2\n"
+	e.WriteFile(".upool.toml", old)
+	mustInit(t, e)
+	if _, err := os.Lstat(e.Path(".upool")); err != nil {
+		t.Fatalf(".upool after init: %v, want init to have written it", err)
+	}
+	if r := runIn(t, e, e.Repo, "deinit", "--yes"); r.code != output.ExitOK {
+		t.Fatalf("deinit: exit = %d, want %d; stderr %q", r.code, output.ExitOK, r.stderr)
+	}
+	if _, err := os.Lstat(e.Path(".upool")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf(".upool: stat error = %v, want it removed", err)
+	}
+	if got := readFile(t, e, ".upool.toml"); got != old {
+		t.Errorf(".upool.toml = %q, want it left as it was: %q", got, old)
+	}
+}

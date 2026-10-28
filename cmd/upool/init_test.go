@@ -88,7 +88,7 @@ func readFile(t *testing.T, e *testenv.Env, name string) string {
 }
 
 // checkRefused fails the test unless r is a refusal whose message contains each of want, and init
-// wrote nothing: no ~/.upool, no .upool.toml, .gitignore as it was, and no block in CLAUDE.md.
+// wrote nothing: no ~/.upool, no .upool, .gitignore as it was, and no block in CLAUDE.md.
 func checkRefused(t *testing.T, e *testenv.Env, r result, gitignore string, want ...string) {
 	t.Helper()
 	if r.code != output.ExitFailure {
@@ -105,8 +105,8 @@ func checkRefused(t *testing.T, e *testenv.Env, r result, gitignore string, want
 	if _, err := os.Stat(filepath.Join(e.Home, ".upool")); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("~/.upool: stat error = %v, want it not to exist", err)
 	}
-	if got := readFile(t, e, ".upool.toml"); got != "" {
-		t.Errorf(".upool.toml = %q, want none", got)
+	if got := readFile(t, e, ".upool"); got != "" {
+		t.Errorf(".upool = %q, want none", got)
 	}
 	if got := readFile(t, e, ".gitignore"); got != gitignore {
 		t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
@@ -174,8 +174,8 @@ func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 				t.Errorf("exit %d, stdout %q, stderr %q; want 1, nothing, and %q…%q", r.code,
 					r.stdout, r.stderr, want, fix)
 			}
-			if got := readFile(t, e, ".upool.toml"); got != "" {
-				t.Errorf(".upool.toml = %q, want none", got)
+			if got := readFile(t, e, ".upool"); got != "" {
+				t.Errorf(".upool = %q, want none", got)
 			}
 			if got := readFile(t, e, ".gitignore"); got != gitignore {
 				t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)

@@ -384,6 +384,25 @@ func TestNoRepoReadsOnlyTheUserFile(t *testing.T) {
 	}
 }
 
+// The repo file is .upool, and a .upool.toml from before #263 is not read: none of its values
+// is taken, and its unknown key is no error.
+func TestRepoFileIsDotUpoolAndAnOldDotUpoolTomlIsNotRead(t *testing.T) {
+	repo, home := tempDir(t), tempDir(t)
+	if got, want := RepoPath(repo), filepath.Join(repo, ".upool"); got != want {
+		t.Errorf("RepoPath = %s, want %s", got, want)
+	}
+	const old = "ready = 2\nmax_slots = 5\nbase = \"release\"\nno_such_key = 1\n"
+	if err := os.WriteFile(filepath.Join(repo, ".upool.toml"), []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := load(t, Inputs{Repo: repo, Home: home})
+	if c.Ready != (Setting[int]{1, Default}) || c.MaxSlots != (Setting[int]{3, Default}) ||
+		c.Base.Set() {
+		t.Errorf("ready %+v, max_slots %+v, base %+v; want 1 and 3 by default and base unset",
+			c.Ready, c.MaxSlots, c.Base)
+	}
+}
+
 func TestUnknownKeyNamesFileAndKey(t *testing.T) {
 	for _, tt := range []struct {
 		name, doc, key string
@@ -574,7 +593,7 @@ func TestWriteRepoFileWritesTheRepoKeysInOrder(t *testing.T) {
 	}
 	want := repoFileHeader + "ready = 1\nmax_slots = 3\nbase = \"main\"\n"
 	if string(got) != want {
-		t.Errorf(".upool.toml = %q, want %q", got, want)
+		t.Errorf(".upool = %q, want %q", got, want)
 	}
 	// RepoFile must keep up with the keys the repo file takes.
 	var keys []string
@@ -596,7 +615,7 @@ func TestWriteRepoFileLeavesAnExistingFileAlone(t *testing.T) {
 		t.Errorf("WriteRepoFile over an existing file = %v, %v, want false, nil", written, err)
 	}
 	if got, err := os.ReadFile(RepoPath(repo)); err != nil || string(got) != existing {
-		t.Errorf(".upool.toml = %q, %v, want it unchanged: %q", got, err, existing)
+		t.Errorf(".upool = %q, %v, want it unchanged: %q", got, err, existing)
 	}
 }
 

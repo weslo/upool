@@ -160,14 +160,14 @@ func TestPooledPassesOverAMissingSlot(t *testing.T) {
 }
 
 // The branch opens no file under the repository, which the desktop app's helper cannot read
-// (docs/contracts.md (a)): with the slot's .git file and the repository's .upool.toml unreadable,
+// (docs/contracts.md (a)): with the slot's .git file and the repository's .upool unreadable,
 // the slot is handed out all the same.
 func TestPooledOpensNoFileInTheRepository(t *testing.T) {
 	h := newHarness(t, true)
 	h.readySlot(t, "slot-1", h.slotPath("slot-1"))
-	h.e.WriteFile(".upool.toml", "confirm_timeout = \"1s\"\n")
+	h.e.WriteFile(".upool", "confirm_timeout = \"1s\"\n")
 	for _, file := range []string{filepath.Join(h.slotPath("slot-1"), ".git"),
-		h.e.Path(".upool.toml")} {
+		h.e.Path(".upool")} {
 		if err := os.Chmod(file, 0); err != nil {
 			t.Fatal(err)
 		}
@@ -183,7 +183,7 @@ func TestPooledOpensNoFileInTheRepository(t *testing.T) {
 
 // An unconfirmed lease older than confirm_timeout ends first, the worktree lock an earlier upool
 // took for it released, and its slot goes to the new session, which stderr says (transition 7; #75). confirm_timeout comes
-// from the user file: a project's .upool.toml is under the repository.
+// from the user file: a project's .upool is under the repository.
 func TestPooledEndsAnExpiredLeaseFirst(t *testing.T) {
 	h := newHarness(t, true)
 	h.readySlot(t, "slot-1", h.slotPath("slot-1"))
@@ -194,7 +194,7 @@ func TestPooledEndsAnExpiredLeaseFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.e.Git("worktree", "lock", "--reason", "upool lease "+old.Lease.LeaseID, h.slotPath("slot-1"))
-	h.e.WriteFile(".upool.toml", "confirm_timeout = \"5m\"\n")
+	h.e.WriteFile(".upool", "confirm_timeout = \"5m\"\n")
 	user := filepath.Join(h.e.Home, ".config", "upool", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(user), 0o755); err != nil {
 		t.Fatal(err)

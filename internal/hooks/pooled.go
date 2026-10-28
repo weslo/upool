@@ -49,7 +49,7 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 	if checkout == "" {
 		checkout = repo.Path
 	}
-	// The repository's .upool.toml is a file under it, so confirm_timeout comes from the user
+	// The repository's .upool is a file under it, so confirm_timeout comes from the user
 	// file, the environment or the default (docs/contracts.md (e), `~/.upool/registry.json`).
 	cfg, err := config.Load(config.Inputs{Getenv: env.Getenv, Home: env.Home})
 	if err != nil {
