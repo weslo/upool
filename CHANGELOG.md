@@ -7,6 +7,17 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The repository's settings file is now `.upool`, renamed from `.upool.toml` (#263). Its keys
+  (`ready`, `max_slots` and `base`), its TOML format, its place in the precedence and its "unknown
+  keys are errors" rule are as before. upool no longer reads `.upool.toml`, and neither moves nor
+  removes one: `upool deinit` leaves it, and `upool init` in a repository it has not registered
+  writes `.upool` beside it. A pool registered already keeps its base but takes `ready` and
+  `max_slots` from the user config or the defaults until its `.upool.toml` is renamed to `.upool`
+  (`git mv .upool.toml .upool`), since `upool init` writes no settings file in a registered
+  repository.
+
 ## [0.5.0] - 2026-10-27
 
 ### Fixed

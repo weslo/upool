@@ -272,7 +272,7 @@ Pool:
 |---|---|---|---|---|
 | `schema_version` | integer | `3`, since slots gained `unconfirmed_expiries`; a `2` is read with it 0, and a `1` also without the lease's `session_id` | every writer | A7; A46; A50 |
 | `repo` | string, absolute path | the main checkout | `init` | D-commands |
-| `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool.toml` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool.toml` | D-commands; D-lifecycle; A17 |
+| `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
 | `agent_worktrees` | array of agent worktree | subagent worktrees made by the hook | hook (subagent branch), `prune` | D-route |
 | `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`: its PID and that process's start time, so a reused PID is not mistaken for it | `refresh`, which the session-start hook spawns after a confirmed startup: records itself as it starts, unless a live job is recorded, and clears itself as it ends (#79) | D-build; D-env; A7 |
@@ -338,7 +338,7 @@ source of truth: lookups go by path, and the derivation matters only so that `in
 existing pool again after the registry is lost. It is not the `${repo_key}` of
 [testdata/README.md](../testdata/README.md), which is Claude Code's project key for the same path.
 
-The hook reads this file instead of `.upool.toml` because `head` on a file under `~/Documents` failed
+The hook reads this file instead of `.upool` because `head` on a file under `~/Documents` failed
 from the disclaimed helper (D-commands; S§2 TB).
 
 ### `~/.upool/editors.json` (the Editor ledger)

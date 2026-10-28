@@ -1,5 +1,5 @@
 // Package config resolves upool's settings. Each one comes from the first of five layers that sets
-// it: a command-line flag, a UPOOL_* environment variable, the repository's committed .upool.toml,
+// it: a command-line flag, a UPOOL_* environment variable, the repository's committed .upool,
 // the user's ~/.config/upool/config.toml, then the default (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the configuration paragraph). Unknown keys are errors, as in
 // warmtree, so a misspelt key fails rather than silently leaving a default in place.
@@ -33,14 +33,14 @@ type Source string
 
 const (
 	// Unset means nothing set the setting and it has no default: base until init writes it into
-	// .upool.toml (A17), and max_editors, which internal/ledger then derives from the RAM settings
+	// .upool (A17), and max_editors, which internal/ledger then derives from the RAM settings
 	// (A9).
 	Unset Source = "unset"
 	// Default means no layer set the setting, so it has its default.
 	Default Source = "default"
 	// User means the user file, UserPath, set it.
 	User Source = "user"
-	// Repo means the repository's .upool.toml, RepoPath, set it.
+	// Repo means the repository's .upool, RepoPath, set it.
 	Repo Source = "repo"
 	// Env means the environment variable EnvName(key) set it.
 	Env Source = "env"
@@ -69,7 +69,7 @@ type Config struct {
 	MaxSlots Setting[int]
 	// Base is the git ref slots are cloned at and reset to (docs/contracts.md (e) State schemas,
 	// `base`). It has no default here: when nothing sets it, init resolves origin's default branch,
-	// else the current branch, and writes that into .upool.toml (A17).
+	// else the current branch, and writes that into .upool (A17).
 	Base Setting[string]
 	// MaxColdImports caps the cold imports running at once; default 1.
 	MaxColdImports Setting[int]
@@ -115,7 +115,7 @@ type Inputs struct {
 	// Getenv looks up an environment variable, as run's getenv does, so a variable set to ""
 	// counts as unset. Nil means an empty environment.
 	Getenv func(string) string
-	// Repo is the absolute path of the main checkout whose .upool.toml is read, or "" for none.
+	// Repo is the absolute path of the main checkout whose .upool is read, or "" for none.
 	Repo string
 	// Home is the absolute path of the home directory, under which the user file is read.
 	Home string
@@ -132,9 +132,10 @@ func UserPath(home string) string {
 	return filepath.Join(home, ".config", "upool", "config.toml")
 }
 
-// RepoPath returns the repo file of the main checkout repo: repo/.upool.toml.
+// RepoPath returns the repo file of the main checkout repo: repo/.upool, TOML without the
+// extension. It was .upool.toml until #263, and nothing reads a .upool.toml left in a repository.
 func RepoPath(repo string) string {
-	return filepath.Join(repo, ".upool.toml")
+	return filepath.Join(repo, ".upool")
 }
 
 // EnvName returns the environment variable that sets key: UPOOL_ and the key in capitals, such as
@@ -225,7 +226,7 @@ type RepoFile struct {
 const repoFileHeader = "# upool's settings for this repository, written by upool init: " +
 	"https://github.com/weslo/upool\n"
 
-// WriteRepoFile writes f to the main checkout repo's .upool.toml, RepoPath(repo), unless that file
+// WriteRepoFile writes f to the main checkout repo's .upool, RepoPath(repo), unless that file
 // already exists, and reports whether it wrote it. An existing file is left as it is, whatever it
 // holds. A write that fails part-way removes the file, so the next run writes it whole.
 func WriteRepoFile(repo string, f RepoFile) (written bool, err error) {

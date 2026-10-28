@@ -148,7 +148,7 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	key := repoKey(t, e)
 	want := "added .claude/worktrees/ to .gitignore\n" +
 		"base is main, the current branch: origin has no default branch\n" +
-		"wrote .upool.toml: ready = 1, max_slots = 3, base = \"main\"\n" +
+		"wrote .upool: ready = 1, max_slots = 3, base = \"main\"\n" +
 		"cloned slot-1 into " + slotPath(e) + "\n" +
 		"registered " + e.Repo + " as pool " + key + "\n" +
 		"the hooks run " + pathUpool(e) + "\n" +
@@ -164,6 +164,9 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	}
 	// Exits 0 only if git ignores the path.
 	e.Git("check-ignore", "-q", ".claude/worktrees/slot-1")
+	if _, err := os.Lstat(e.Path(".upool.toml")); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf(".upool.toml: stat error = %v, want none written: the repo file is .upool", err)
+	}
 	c, err := config.Load(config.Inputs{Getenv: e.Getenv, Repo: e.Repo, Home: e.Home})
 	if err != nil {
 		t.Fatal(err)
@@ -171,15 +174,15 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	if c.Ready != (config.Setting[int]{Value: 1, Source: config.Repo}) ||
 		c.MaxSlots != (config.Setting[int]{Value: 3, Source: config.Repo}) ||
 		c.Base != (config.Setting[string]{Value: "main", Source: config.Repo}) {
-		t.Errorf("settings from .upool.toml: ready %+v, max_slots %+v, base %+v; want 1, 3 and "+
-			"main, each from the repo file", c.Ready, c.MaxSlots, c.Base)
+		t.Errorf("settings from .upool: ready %+v, max_slots %+v, base %+v; want 1, 3 and "+
+			"main, each from .upool", c.Ready, c.MaxSlots, c.Base)
 	}
 	reg, ok, err := registry.Lookup(e.Home, e.Repo)
 	if err != nil || !ok || reg.Key != key {
 		t.Errorf("registry.Lookup = %+v, %v, %v, want key %s", reg, ok, err, key)
 	}
 	checkPool(t, e, "main")
-	// init's own .gitignore line and .upool.toml leave the main checkout dirty, so the slot
+	// init's own .gitignore line and .upool leave the main checkout dirty, so the slot
 	// records that and does not keep them ((g) step 7).
 	p, err := pool.Load(e.Home, key)
 	if err != nil {
@@ -188,9 +191,9 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 	if !p.Slots[0].SeedDirty {
 		t.Error("seed_dirty = false, want true: init's own edits leave the main checkout dirty")
 	}
-	if _, err := os.Stat(filepath.Join(slotPath(e), ".upool.toml")); !errors.Is(err,
+	if _, err := os.Stat(filepath.Join(slotPath(e), ".upool")); !errors.Is(err,
 		fs.ErrNotExist) {
-		t.Errorf("slot-1/.upool.toml: stat error = %v, want it reverted with the rest", err)
+		t.Errorf("slot-1/.upool: stat error = %v, want it reverted with the rest", err)
 	}
 	if _, err := os.Stat(filepath.Join(slotPath(e), "CLAUDE.md")); err != nil {
 		t.Errorf("slot-1/CLAUDE.md: %v, want the gitignored agent files carried", err)
@@ -198,12 +201,12 @@ func TestInitRegistersRepoAndIgnoresWorktrees(t *testing.T) {
 }
 
 // projectFiles is what repoFiles reads in e's repository, without what init writes there itself:
-// .gitignore, .upool.toml, the hooks' settings and the slots.
+// .gitignore, .upool, the hooks' settings and the slots.
 func projectFiles(t *testing.T, e *testenv.Env) map[string]string {
 	t.Helper()
 	files := repoFiles(t, e.Repo)
 	for rel := range files {
-		if rel == ".gitignore" || rel == ".upool.toml" || rel == projectSettings ||
+		if rel == ".gitignore" || rel == ".upool" || rel == projectSettings ||
 			strings.HasPrefix(rel, ".claude/worktrees/") {
 			delete(files, rel)
 		}
@@ -498,7 +501,7 @@ func TestInitFromASubdirectoryRegistersTheRoot(t *testing.T) {
 func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	e := newInitEnv(t)
 	mustInit(t, e)
-	gitignore, repoFile := readFile(t, e, ".gitignore"), readFile(t, e, ".upool.toml")
+	gitignore, repoFile := readFile(t, e, ".gitignore"), readFile(t, e, ".upool")
 	claude := readFile(t, e, "CLAUDE.md")
 	r := mustInit(t, e)
 	want := e.Repo + " is already registered as pool " + repoKey(t, e) + "\n" +
@@ -509,8 +512,8 @@ func TestInitTwiceReportsAlreadyRegistered(t *testing.T) {
 	if got := readFile(t, e, ".gitignore"); got != gitignore {
 		t.Errorf(".gitignore = %q, want it unchanged: %q", got, gitignore)
 	}
-	if got := readFile(t, e, ".upool.toml"); got != repoFile {
-		t.Errorf(".upool.toml = %q, want it unchanged: %q", got, repoFile)
+	if got := readFile(t, e, ".upool"); got != repoFile {
+		t.Errorf(".upool = %q, want it unchanged: %q", got, repoFile)
 	}
 	if got := readFile(t, e, "CLAUDE.md"); got != claude {
 		t.Errorf("CLAUDE.md = %q, want it unchanged: %q", got, claude)
@@ -570,8 +573,8 @@ func TestInitDefaultsBaseToOriginHead(t *testing.T) {
 			if !strings.Contains(r.stdout, tt.line+"\n") {
 				t.Errorf("stdout = %q, want the line %q", r.stdout, tt.line)
 			}
-			if !strings.Contains(readFile(t, e, ".upool.toml"), "base = \""+tt.base+"\"\n") {
-				t.Errorf(".upool.toml = %q, want base = %q", readFile(t, e, ".upool.toml"), tt.base)
+			if !strings.Contains(readFile(t, e, ".upool"), "base = \""+tt.base+"\"\n") {
+				t.Errorf(".upool = %q, want base = %q", readFile(t, e, ".upool"), tt.base)
 			}
 			checkPool(t, e, tt.base)
 		})
@@ -592,8 +595,8 @@ func TestInitTakesAConfiguredBase(t *testing.T) {
 			writeUserConfig(t, e, "base = \"release\"\n")
 		}, "base is release, from ~/.config/upool/config.toml"},
 		{"repo file", func(_ *testing.T, e *testenv.Env) {
-			e.WriteFile(".upool.toml", "base = \"release\"\n")
-		}, "base is release, from .upool.toml"},
+			e.WriteFile(".upool", "base = \"release\"\n")
+		}, "base is release, from .upool"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -621,26 +624,48 @@ func writeUserConfig(t *testing.T, e *testenv.Env, doc string) {
 	}
 }
 
-// The values in effect go into a new .upool.toml, wherever they were set; an existing one is kept.
+// The values in effect go into a new .upool, wherever they were set; an existing one is kept.
 func TestInitWritesTheValuesInEffectOnlyToANewRepoFile(t *testing.T) {
 	e := newInitEnv(t)
 	e.Setenv(config.EnvName("max_slots"), "5")
 	writeUserConfig(t, e, "ready = 2\n")
 	mustInit(t, e)
 	want := "ready = 2\nmax_slots = 5\nbase = \"main\"\n"
-	if got := readFile(t, e, ".upool.toml"); !strings.HasSuffix(got, "\n"+want) {
-		t.Errorf(".upool.toml = %q, want it to end with %q", got, want)
+	if got := readFile(t, e, ".upool"); !strings.HasSuffix(got, "\n"+want) {
+		t.Errorf(".upool = %q, want it to end with %q", got, want)
 	}
 
 	e = newInitEnv(t)
 	const existing = "ready = 2\n"
-	e.WriteFile(".upool.toml", existing)
+	e.WriteFile(".upool", existing)
 	r := mustInit(t, e)
-	if !strings.Contains(r.stdout, "kept the existing .upool.toml\n") {
-		t.Errorf("stdout = %q, want it to say the existing .upool.toml was kept", r.stdout)
+	if !strings.Contains(r.stdout, "kept the existing .upool\n") {
+		t.Errorf("stdout = %q, want it to say the existing .upool was kept", r.stdout)
 	}
-	if got := readFile(t, e, ".upool.toml"); got != existing {
-		t.Errorf(".upool.toml = %q, want it unchanged: %q", got, existing)
+	if got := readFile(t, e, ".upool"); got != existing {
+		t.Errorf(".upool = %q, want it unchanged: %q", got, existing)
+	}
+	checkPool(t, e, "main")
+}
+
+// A .upool.toml from before #263 is neither read nor moved: init takes none of its values, writes
+// .upool from what is in effect without it, and leaves it as it was.
+func TestInitNeitherReadsNorMovesAnOldRepoFile(t *testing.T) {
+	e := newInitEnv(t)
+	e.Git("branch", "release")
+	const old = "ready = 2\nmax_slots = 5\nbase = \"release\"\n"
+	e.WriteFile(".upool.toml", old)
+	r := mustInit(t, e)
+	for _, line := range []string{
+		"base is main, the current branch: origin has no default branch",
+		"wrote .upool: ready = 1, max_slots = 3, base = \"main\"",
+	} {
+		if !strings.Contains(r.stdout, line+"\n") {
+			t.Errorf("stdout = %q, want the line %q", r.stdout, line)
+		}
+	}
+	if got := readFile(t, e, ".upool.toml"); got != old {
+		t.Errorf(".upool.toml = %q, want it unchanged: %q", got, old)
 	}
 	checkPool(t, e, "main")
 }
@@ -749,7 +774,7 @@ func TestInitKeepsTheStateOfAPoolWhoseRegistryWasLost(t *testing.T) {
 }
 
 // init --slots 2 clones slot-1 from the main checkout and slot-2 seeded from slot-1, both ready
-// and owned by nothing, and writes nothing about it to .upool.toml (A21).
+// and owned by nothing, and writes nothing about it to .upool (A21).
 func TestInitSlotsClonesTwoReadySlots(t *testing.T) {
 	e := newInitEnv(t)
 	r := mustInit(t, e, "--slots", "2", "--json")
@@ -784,8 +809,8 @@ func TestInitSlotsClonesTwoReadySlots(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(slot2, "Library", "ScriptAssemblies")); err != nil {
 		t.Errorf("slot-2 has no warm Library: %v", err)
 	}
-	if got := readFile(t, e, ".upool.toml"); !strings.Contains(got, "ready = 1\n") {
-		t.Errorf(".upool.toml = %q, want ready left at 1", got)
+	if got := readFile(t, e, ".upool"); !strings.Contains(got, "ready = 1\n") {
+		t.Errorf(".upool = %q, want ready left at 1", got)
 	}
 
 	q := newInitEnv(t)

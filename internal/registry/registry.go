@@ -2,7 +2,7 @@
 // canonical path of its main checkout, and the <repo-key> naming its ~/.upool/pools/<repo-key>/
 // directory (docs/contracts.md (e) State schemas, `~/.upool/registry.json`).
 //
-// The create hook routes on this file, not on .upool.toml, because from the desktop app's
+// The create hook routes on this file, not on .upool, because from the desktop app's
 // disclaimed helper it cannot read files under ~/Documents (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `init` row). The file is the source of truth: lookups go
 // by path, and the key's derivation matters only so that `init` finds an existing pool again after
