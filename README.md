@@ -60,6 +60,11 @@ After the bootstrap and a planning pass, the build runs in five milestones, M0 t
 the work moved out of M4. Each milestone ends with a manual gate run on a real Mac, and its version
 is tagged only once that gate passes.
 
+Windows is next. Its milestone starts with a spike on a Windows machine
+([#261](https://github.com/weslo/upool/issues/261)), and the rest is planned from what the spike
+measures. [#262](https://github.com/weslo/upool/issues/262) tracks it through to a release on
+winget, whose gate runs on Windows.
+
 | Status | Milestone | What it delivers | Release |
 |---|---|---|---|
 | ✅ Done | Bootstrap ([#1](https://github.com/weslo/upool/pull/1), [#7](https://github.com/weslo/upool/pull/7)) | The repository: design documents, spike captures, CI and the release pipeline | — |
@@ -70,6 +75,7 @@ is tagged only once that gate passes.
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ✅ Done | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
 | ✅ Done | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | v0.5.0 |
+| 🔜 Next | [🪟 Windows Compatibility](https://github.com/weslo/upool/milestone/7) | upool on Windows, installed from winget, starting with a spike that measures what the design rests on there ([#261](https://github.com/weslo/upool/issues/261)) | — |
 
 ## 📚 Documentation
 
