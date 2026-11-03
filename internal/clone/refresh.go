@@ -149,46 +149,18 @@ func (r *SeedRefresher) Refresh(ctx context.Context, seed string, pending bool) 
 	return warnings, errors.Join(ready, err)
 }
 
-// The retries of a ready Editor's plain close: a headless Editor of a main checkout left a plain
-// close running for its first half minute or so of being ready, and quit at a close sent later
-// (#252). The next close goes closeRetryInterval after a failed one, and none after
-// closeRetryTimeout from the first, the bound unity's closeTimeout sets on one close.
-const (
-	closeRetryTimeout  = 2 * time.Minute
-	closeRetryInterval = 2 * time.Second
-)
-
 // shut closes the refresh's Editor, pid, in seed, and reports whether it did so with --force. One
 // that is not ready, force, is closed with --force at once (A40). One that is ready is closed
-// plainly. When that close fails, an Editor whose process has gone needs no other close. While
-// the close leaves the Editor running (unity.LeftRunning), it is sent again closeRetryInterval
-// after each failure. The Editor is closed with --force once closeRetryTimeout has passed since
-// the first close, or when the plain close failed any other way (A48; #252).
+// plainly, the close sent again while it leaves the Editor running and the Editor closed with
+// --force once unity.CloseRetryTimeout has passed since the first close, or when the plain close
+// failed any other way (unity.ShutRetrying; A48; #252).
 func (r *SeedRefresher) shut(ctx context.Context, seed string, pid int,
 	force bool) (unity.Closed, bool, []string, error) {
-	var warnings []string
 	if !force {
-		deadline := r.Now().Add(closeRetryTimeout)
-		for {
-			closed, more, err := r.Unity.Shut(ctx, seed, false)
-			warnings = append(warnings, more...)
-			if err == nil {
-				return closed, false, warnings, nil
-			}
-			if _, perr := r.Proc.Start(pid); errors.Is(perr, proc.ErrNoProcess) {
-				return unity.Closed{PID: pid}, false, warnings, nil
-			} else if perr != nil {
-				return unity.Closed{}, false, warnings, fmt.Errorf("checking the Editor of %s, "+
-					"process %d: %w", seed, pid, perr)
-			}
-			if !unity.LeftRunning(err) || !r.Now().Before(deadline) {
-				break
-			}
-			time.Sleep(closeRetryInterval)
-		}
+		return r.Unity.ShutRetrying(ctx, r.Proc, seed, pid, r.Now)
 	}
 	closed, more, err := r.Unity.Shut(ctx, seed, true)
-	return closed, true, append(warnings, more...), err
+	return closed, true, more, err
 }
 
 // ClearLeftovers removes the instance files an Editor upool closed with --force left in the

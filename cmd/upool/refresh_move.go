@@ -125,7 +125,9 @@ func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
 //  3. It re-warms the slot as `upool open --headless` and `upool close` do: admitted to the ledger,
 //     as a cold import when reimport_pending is set and waiting its turn under max_cold_imports,
 //     opened, `status --until-ready` for A37's cold-import timeout whatever the charge, then
-//     save_all and close (A40).
+//     save_all and close (A40). A plain close that leaves the Editor running is sent again, and
+//     the Editor is closed with --force once unity.CloseRetryTimeout has passed since the first
+//     (A48; #273).
 //  4. It returns the slot to ready, once clean ((f) transition 18).
 //
 // Steps 2 and 3 are refresh's move and rewarm steps, naming s, each timed if it completes; the
@@ -136,9 +138,10 @@ func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
 // still running when the wait ran out is closed without save_all, which it has no work for, the
 // slot's reimport_pending is set, so that its next open is charged as the cold import the re-warm
 // did not finish, and the moved slot goes back to ready (A40). A slot left dirty, or whose Editor
-// could not be closed, stays warming, a warning saying so: once this refresh has exited and no
-// Editor is live in it, the next take, status or doctor checks it again ((f) transition 22). It
-// reports whether it moved the slot and returned it to ready.
+// could not be closed even with --force, stays warming, a warning saying so: once this refresh
+// has exited and no Editor is live in it, the next take, status or doctor checks it again, and a
+// later refresh closes an Editor left live in it (closeLeftovers; (f) transition 22). It reports
+// whether it moved the slot and returned it to ready.
 func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	held, err := m.hold(ctx, s)
 	if err != nil || !held {
@@ -181,13 +184,13 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	if err != nil {
 		return m.unwarmed(ctx, s, err)
 	}
-	_, warnings, err = closeSlotEditor(ctx, m.untimed(), m.rp, s)
+	_, warnings, err = closeSlotEditor(ctx, m.untimed(), m.rp, s, true)
 	for _, w := range warnings {
 		m.warn(w)
 	}
 	if err != nil {
 		m.warn(fmt.Sprintf("re-warmed %s but could not close its Editor, so it stays warming "+
-			"until the Editor is gone: %v", s.Name, err))
+			"until the Editor is gone or a later refresh closes it: %v", s.Name, err))
 		return movedSlot{}, false, nil
 	}
 	moved.Rewarmed, moved.RewarmSeconds = true, m.inv.now().Sub(begin).Seconds()

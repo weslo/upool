@@ -278,7 +278,7 @@ hooks, which do their own take and confirm in-process, time nothing.
 | `take` | `clone`, for each slot it clones ((f) transition 1), naming it: from choosing the seed, refreshing it if it is stale, to the new slot ((g) steps 0 to 8); then `handout`, the checkout of the branch in the leased slot (A18). Reading the pool, the reclaim and waiting for a ready slot are in the total alone |
 | `take --confirm` | `reset`, the deferred reset, only for a lease that owes one (A23); then `confirm`, the write to `state.json`. It mirrors nothing into the slot (A44), so it has no mirror step |
 | `release` | `save_all` and `close`, only for an Editor upool opened in the slot, as `close`'s own; `verify` (A34); `status`, define-order noise reverted and the slot judged clean or dirty; `reset`, only for a clean slot; then `mirror` (A44) |
-| `refresh` | `reset` for each `needs-reset` slot it resets ((f) transition 20); `mirror` (A44); `clone` for each slot the top-up clones; `move` and `rewarm` for each slot it moves to base, the re-warm from its Editor's open to its close ((f) transitions 3 and 18; A40). Each step but `mirror` names its slot |
+| `refresh` | `reset` for each `needs-reset` slot it resets ((f) transition 20); `close` for each Editor an earlier re-warm left live in a `warming` slot whose owner died, which it closes before the top-up ((f) transition 22; A40 as amended by #273); `mirror` (A44); `clone` for each slot the top-up clones; `move` and `rewarm` for each slot it moves to base, the re-warm from its Editor's open to its close ((f) transitions 3 and 18; A40). Each step but `mirror` names its slot |
 | `open` | `admit`, the ledger's admission, waiting for a running cold import to end if it must (A38); then `ready`, from `unity open` until `unity status --until-ready` reports the Editor ready (A37) |
 | `close` | `save_all`; then `close`, from `unity close` until the Editor's process is gone and the ledger and the scene list are updated (A8) |
 
@@ -465,7 +465,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 19 | `needs-reset` | `leased` | `upool take <name>` from Terminal, an explicit `take` by a subagent, `upool run`, when no slot is `ready`; the reset runs, then `take` checks out the branch `<name>` as in transition 5, before the path is printed, and the lease starts confirmed | A5; A6; A18 |
 | 20 | `needs-reset` | `ready` | `upool refresh`, before it clones anything: checkout base detached, `git clean -fd` | A5 |
 | 21 | `creating` | removed | the owner PID is dead: `doctor --fix`, or the next `take` or `refresh`, removes the slot's worktree registration if `git worktree add` got that far (`git worktree remove --force`), then its directory and its entry | A4 |
-| 22 | `warming` | `ready` or `parked` | the owner PID is dead and the ledger shows no live Editor in the slot: the slot is checked again; clean → `ready`, and a later `refresh` moves it to base; dirty → `parked` | A4 |
+| 22 | `warming` | `ready` or `parked` | the owner PID is dead and the ledger shows no live Editor in the slot: the slot is checked again; clean → `ready`, and a later `refresh` moves it to base; dirty → `parked`. A live Editor upool opened headless there, which a re-warm's failed close left, is closed by the next `refresh` first (A40 as amended by #273) | A4 |
 | 23 | `ready` | `warming` | a clone chooses the slot as its seed ((g) step 0) and holds it while step 4 copies it | A19 |
 
 `upool run <name> -- <cmd>` is transition 5 or 19, then 11 or 12, around the command (D-commands).
@@ -1055,6 +1055,14 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   and the slot stays `warming`, until refresh has exited and the Editor is gone ((f) transition
   22) (maintainer decision, 2026-10-22; A20; A37; A39).
 
+  **Amended** ([#273](https://github.com/weslo/upool/issues/273)). A ready re-warm Editor is
+  closed as A48 has it: the plain close is sent again while it leaves the Editor running, and the
+  Editor is closed with `--force` two minutes from the first close. An Editor a re-warm still left
+  live in a `warming` slot, as one did on the first benchmark run when the close went within
+  seconds of ready and found no graceful-close channel, is closed the same way by the next
+  `refresh`, which then checks the slot again as transition 22 has it (maintainer decision,
+  2026-11-03).
+
   **Amended** ([#224](https://github.com/weslo/upool/issues/224)). The M4 gate's check 2
   (2026-10-23, CLI 1.0.0-beta.13, Editor 6000.4.11f1) closed a headless Editor 30 s into a cold
   import. Plain `unity close <slot>` cannot reach such an Editor: it exits 6 with
@@ -1279,7 +1287,10 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   - **Gone meanwhile:** an Editor whose process has gone by the time a plain close fails needs no
     other close, whatever the failure.
   - **Not ready:** an Editor that never became ready keeps A40's `--force` at once.
-  - **Re-warm:** a slot's re-warm closes the same way but has not failed, so it is left as it is.
+  - **Re-warm:** a slot's re-warm closes the same way, retried and then forced
+    ([#273](https://github.com/weslo/upool/issues/273); A40 as amended). Before #273 it was left
+    as it was, and a close the Editor could not yet be reached for left the slot `warming` with
+    the Editor live, which blocked every take.
 
 - **49. An Editor that has not yet written its instance file**
   ([#255](https://github.com/weslo/upool/issues/255)). upool knew an Editor it had not opened only

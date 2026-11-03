@@ -7,6 +7,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A re-warm's close no longer leaves the slot `warming` with its Editor live (#273). A plain
+  `unity close` that leaves the ready re-warm Editor running, as one sent within seconds of ready
+  did on the first benchmark run with `PROJECTS_CLOSE_UNREACHABLE`, is sent again every 2 s while
+  the Editor lives, and the Editor is closed with `--force` two minutes from the first close, as
+  the seed refresh already did (docs/contracts.md A48; A40 as amended). `upool refresh` also
+  closes, before its top-up, the Editor an earlier re-warm left live in a `warming` slot whose
+  owner died, when it is one upool opened headless, and then checks the slot again ((f)
+  transition 22): it reports each such slot on stdout and under `recovered` in `--json`, and times
+  the close as a `close` step naming the slot ((d), the `refresh` row). An Editor upool did not
+  open is a warning, and the slot stays `warming`.
+
 ## [0.6.0] - 2026-11-03
 
 ### Added

@@ -169,6 +169,48 @@ func LeftRunning(err error) bool {
 	return code == codeCloseTimeout || code == codeCloseUnreachable
 }
 
+// The retries of a ready Editor's plain close (A48): a headless Editor of a main checkout left a
+// plain close running for its first half minute or so of being ready, and quit at a close sent
+// later (#252), and a re-warm Editor closed within seconds of ready had no graceful-close channel
+// yet (#273). The next close goes CloseRetryInterval after a failed one, and none after
+// CloseRetryTimeout from the first, the bound closeTimeout sets on one close.
+const (
+	CloseRetryTimeout  = 2 * time.Minute
+	CloseRetryInterval = 2 * time.Second
+)
+
+// ShutRetrying closes the ready Editor of project, process pid, as A48 has it: a plain Shut, sent
+// again CloseRetryInterval after each failure that leaves the Editor running (LeftRunning) while
+// its process lives, and a Shut with --force once CloseRetryTimeout has passed since the first
+// close, by now, or when a plain close failed any other way. It returns what closed the Editor,
+// whether that was the forced close, and the CLI's warnings. An Editor whose process has gone by
+// the time a plain close fails needs no other close: the result names pid, closed by no call
+// (#252; #273).
+func (c Client) ShutRetrying(ctx context.Context, procs proc.Checker, project string, pid int,
+	now func() time.Time) (Closed, bool, []string, error) {
+	var warnings []string
+	deadline := now().Add(CloseRetryTimeout)
+	for {
+		closed, more, err := c.Shut(ctx, project, false)
+		warnings = append(warnings, more...)
+		if err == nil {
+			return closed, false, warnings, nil
+		}
+		if _, perr := procs.Start(pid); errors.Is(perr, proc.ErrNoProcess) {
+			return Closed{PID: pid}, false, warnings, nil
+		} else if perr != nil {
+			return Closed{}, false, warnings, fmt.Errorf("checking the Editor of %s, process %d: %w",
+				project, pid, perr)
+		}
+		if !LeftRunning(err) || !now().Before(deadline) {
+			break
+		}
+		time.Sleep(CloseRetryInterval)
+	}
+	closed, more, err := c.Shut(ctx, project, true)
+	return closed, true, append(warnings, more...), err
+}
+
 // Closed is what `unity close` reported.
 type Closed struct {
 	// PID is the Editor's process.
