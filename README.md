@@ -32,7 +32,9 @@ which it names for you to change in a commit.
 - Start a Claude Code session with a worktree in a project you ran `upool init` in; it opens in a
   ready slot under the project's `.claude/worktrees/` within a couple of seconds, and the pool is
   topped up in the background. With every slot taken, it waits up to 20 seconds for one, then fails
-  to start, saying to run `upool refresh`.
+  to start, saying to run `upool refresh`. The top-up, and each `take`, `release`, `refresh`,
+  `open` and `close` you run, logs how long each of its steps took in
+  `~/.upool/pools/<repo-key>/timings.jsonl`; the commands also say so on stderr.
 - The slot is a full copy of your checkout, Library and agent files included, so Unity opens it in
   well under a minute instead of re-importing everything. Gitignored files you want kept current,
   such as local notes, go in a `.worktreeinclude`, as for Claude Code's own worktrees: upool

@@ -46,6 +46,30 @@ func testEnv(t *testing.T) map[string]string {
 type result struct {
 	code           int
 	stdout, stderr string
+	// timings is the line of timings an operation printed on stderr, which stderr leaves out, so
+	// that a test of anything else need not spell out how long each step took (#266); it is ""
+	// when there was none.
+	timings string
+}
+
+// timingsPrefix starts the line of timings an operation prints on stderr (output.Timings).
+const timingsPrefix = "upool: timings: "
+
+// newResult is the result of a dispatcher that returned code and printed stdout and errOut: its
+// stderr is errOut without the first line of timings, which is its timings instead. A second line
+// of timings stays in stderr, where a test sees it.
+func newResult(code int, stdout, errOut string) result {
+	r := result{code: code, stdout: stdout}
+	var kept []string
+	for _, line := range strings.SplitAfter(errOut, "\n") {
+		if r.timings == "" && strings.HasPrefix(line, timingsPrefix) {
+			r.timings = strings.TrimSuffix(line, "\n")
+			continue
+		}
+		kept = append(kept, line)
+	}
+	r.stderr = strings.Join(kept, "")
+	return r
 }
 
 // dispatch runs args through a dispatcher with the given tables, env and stdin, as run does with
@@ -74,7 +98,7 @@ func dispatch(t *testing.T, commands map[string]command, hooks map[string]hook,
 		executable: os.Executable,
 	}
 	code := d.run(args)
-	return result{code, out.String(), errOut.String()}
+	return newResult(code, out.String(), errOut.String())
 }
 
 // mustJSON is v as JSON, with map keys sorted, for comparing decoded documents.

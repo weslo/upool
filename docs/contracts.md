@@ -246,6 +246,42 @@ defines exactly these:
 The hook subcommands follow the app's contract rather than this table: `worktree-remove` always
 exits 0, and `worktree-create` exits non-zero only to abort the session (D-route).
 
+### upool's own envelope
+
+upool's `--json` envelope is the Unity CLI's, above, with one field of its own, `timings`, which
+only the operations that move a slot or an Editor report: how long each of their steps took
+([#266](https://github.com/weslo/upool/issues/266)). `internal/output` defines it. A command that
+times nothing has no `timings` field. Without `--json` the same timings print as one line on stderr,
+after the warnings and before the error, so that `take`'s stdout stays the path alone (D-commands):
+
+```text
+upool: timings: take slot-3: clone slot-3 25912 ms, handout 41 ms; total 25962 ms
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `timings.operation` | string | `take`, `take --confirm`, `release`, `refresh`, `open` or `close` |
+| `timings.slot` | string, omitted when none | the slot the operation acted on, once it found one; `refresh`, which acts on the pool, names a slot in each of its steps instead |
+| `timings.steps` | array of step | the steps the operation completed, in the order they ran; a step that failed is not one, though its time is in the total |
+| `timings.steps[].name` | string | the step, from the table below |
+| `timings.steps[].slot` | string, omitted when none | the slot the step acted on, when it is not the operation's: the slot a `take` cloned, and each slot of `refresh`'s |
+| `timings.steps[].ms` | integer | how long the step took, in milliseconds |
+| `timings.total_ms` | integer | the whole operation in milliseconds, its steps and everything between them |
+
+An operation reports its timings once it has found its pool, whether it then succeeds or fails, and
+logs them in its pool's timings log ((e)). A command line refused before then, such as one run
+outside any pool, reports none. No flag turns them off. `upool run`'s take and release, and the
+hooks, which do their own take and confirm in-process, time nothing.
+
+| Operation | Steps, in the order they run |
+|---|---|
+| `take` | `clone`, for each slot it clones ((f) transition 1), naming it: from choosing the seed, refreshing it if it is stale, to the new slot ((g) steps 0 to 8); then `handout`, the checkout of the branch in the leased slot (A18). Reading the pool, the reclaim and waiting for a ready slot are in the total alone |
+| `take --confirm` | `reset`, the deferred reset, only for a lease that owes one (A23); then `confirm`, the write to `state.json`. It mirrors nothing into the slot (A44), so it has no mirror step |
+| `release` | `save_all` and `close`, only for an Editor upool opened in the slot, as `close`'s own; `verify` (A34); `status`, define-order noise reverted and the slot judged clean or dirty; `reset`, only for a clean slot; then `mirror` (A44) |
+| `refresh` | `reset` for each `needs-reset` slot it resets ((f) transition 20); `mirror` (A44); `clone` for each slot the top-up clones; `move` and `rewarm` for each slot it moves to base, the re-warm from its Editor's open to its close ((f) transitions 3 and 18; A40). Each step but `mirror` names its slot |
+| `open` | `admit`, the ledger's admission, waiting for a running cold import to end if it must (A38); then `ready`, from `unity open` until `unity status --until-ready` reports the Editor ready (A37) |
+| `close` | `save_all`; then `close`, from `unity close` until the Editor's process is gone and the ledger and the scene list are updated (A8) |
+
 ## (e) State schemas
 
 All three files live under `~/.upool/`, never under a TCC-protected folder, because the create hook
@@ -355,6 +391,30 @@ from the disclaimed helper (D-commands; S§2 TB).
 | `editors[].charge_gb` | number | 2.5 when long-lived, 4.5 while a cold import runs | `open`, `refresh` | D-editors |
 
 The helper charge (2 GB once any Editor is up) is computed from the list, not stored (D-editors).
+
+### `~/.upool/pools/<repo-key>/timings.jsonl` (the timings log)
+
+Not a state file: one JSON object per line, appended as each operation that reports timings ends,
+whether it succeeded or failed ((d), "upool's own envelope";
+[#266](https://github.com/weslo/upool/issues/266)). It sits beside the pool's `state.json`, never in
+a slot, which is reset and cloned. Nothing reads it back to rewrite it, so it is appended without
+`~/.upool/lock`, each line in one write to the file opened for appending, as `refresh.log` is, and
+it has no `schema_version`. The operation creates the file but never the pool's directory: once
+`upool deinit` has removed that, with the log in it, an operation still running logs nothing and
+says so in a warning, as it does for any failure to log.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `time` | timestamp | when the operation started |
+| `operation` | string | as `timings.operation` |
+| `slot` | string, omitted when none | as `timings.slot` |
+| `ok` | bool | whether the operation succeeded |
+| `steps` | array of step | as `timings.steps`, each with `name`, `slot` when it names one, and `ms` |
+| `total_ms` | integer | as `timings.total_ms` |
+
+```json
+{"time":"2026-11-02T08:30:00Z","operation":"take","slot":"slot-3","ok":true,"steps":[{"name":"clone","slot":"slot-3","ms":25912},{"name":"handout","ms":41}],"total_ms":25962}
+```
 
 ## (f) Slot lifecycle
 

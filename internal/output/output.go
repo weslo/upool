@@ -19,13 +19,15 @@ const (
 	ExitNoTarget = 6
 )
 
-// Envelope is the document a command prints with --json, in the Unity CLI's shape.
+// Envelope is the document a command prints with --json, in the Unity CLI's shape, with one field
+// of upool's own: Timings, which only the operations that move a slot or an Editor report (#266).
 type Envelope struct {
 	Success  bool     `json:"success"`
 	Command  string   `json:"command"`
 	Data     any      `json:"data"`
 	Errors   []Error  `json:"errors"`
 	Warnings []string `json:"warnings"`
+	Timings  *Timings `json:"timings,omitempty"`
 }
 
 // Error is one entry of Envelope.Errors.

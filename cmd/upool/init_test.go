@@ -71,7 +71,7 @@ func runAt(t *testing.T, e *testenv.Env, dir string, now func() time.Time,
 		executable: os.Executable,
 	}
 	code := d.run(args)
-	return result{code, out.String(), errOut.String()}
+	return newResult(code, out.String(), errOut.String())
 }
 
 // readFile returns name, relative to e's repository, or "" if it does not exist.

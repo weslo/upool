@@ -215,9 +215,9 @@ func Update(ctx context.Context, home, repoKey string, fn func(*Pool) error) err
 }
 
 // Delete removes ~/.upool/pools/<repoKey>/ under home, state.json and everything beside it such as
-// the kept scene lists and refresh.log, under the lock, once fn has passed the pool as state.json
-// holds it there (the zero Pool when it is missing). When fn returns an error, Delete returns it
-// as it is and removes nothing (`upool deinit`, #191).
+// the kept scene lists, refresh.log and timings.jsonl, under the lock, once fn has passed the pool
+// as state.json holds it there (the zero Pool when it is missing). When fn returns an error,
+// Delete returns it as it is and removes nothing (`upool deinit`, #191).
 func Delete(ctx context.Context, home, repoKey string, fn func(Pool) error) error {
 	file, shown, err := stateFile(repoKey)
 	if err != nil {

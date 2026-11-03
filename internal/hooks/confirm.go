@@ -30,8 +30,9 @@ type Confirmed struct {
 // session's later starts find the slot wherever their cwd is (A46). A confirmed lease is confirmed
 // again. It copies no file into the slot: Claude Code
 // has read CLAUDE.md before SessionStart runs, so the files a project's .worktreeinclude names are
-// mirrored into free slots before a handout instead (A44; internal/mirror). The warnings are for
-// stderr.
+// mirrored into free slots before a handout instead (A44; internal/mirror). env.Timer times its
+// steps, the deferred reset, when the slot owes one, and the confirm itself (#266). The warnings
+// are for stderr.
 func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, []string, error) {
 	ref, err := confirmTarget(env.Home, path)
 	if err != nil {
@@ -41,10 +42,18 @@ func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, [
 	if repo == "" {
 		repo = ref.repo.Path
 	}
+	env.Timer.Pool(env.Home, ref.repo.Key)
+	env.Timer.Slot(s.Name)
 	var warnings []string
 	reset, reimport := false, false
 	if s.Lease.ResetPending {
-		changed, note, err := deferredReset(ctx, env, s, ref.pool.Base)
+		var changed bool
+		var note string
+		err := env.Timer.Step("reset", "", func() error {
+			var err error
+			changed, note, err = deferredReset(ctx, env, s, ref.pool.Base)
+			return err
+		})
 		if err != nil {
 			return Confirmed{}, nil, err
 		}
@@ -61,7 +70,24 @@ func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, [
 	if err != nil {
 		return Confirmed{}, nil, err
 	}
-	err = pool.Update(ctx, env.Home, ref.repo.Key, func(p *pool.Pool) error {
+	err = env.Timer.Step("confirm", "", func() error {
+		return confirmLease(ctx, env, ref.repo.Key, s, holderPID, holderStart, sessionID, reset,
+			reimport)
+	})
+	if err != nil {
+		return Confirmed{}, nil, err
+	}
+	return Confirmed{Path: s.Path, Slot: s.Name, LeaseID: s.Lease.LeaseID, Repo: repo,
+		Reset: reset}, warnings, nil
+}
+
+// confirmLease writes the confirm of the lease on s, in the pool key, to state.json under the
+// lock: the lease confirmed with the holder and the session's own ID, the slot's run of
+// unconfirmed expiries ended, and the deferred reset, when Confirm ran it, recorded. The lease must
+// still be the one Confirm read.
+func confirmLease(ctx context.Context, env Env, key string, s pool.Slot, holderPID *int,
+	holderStart *time.Time, sessionID string, reset, reimport bool) error {
+	return pool.Update(ctx, env.Home, key, func(p *pool.Pool) error {
 		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
 		if i < 0 {
 			return fmt.Errorf("%s left state.json meanwhile", s.Name)
@@ -94,11 +120,6 @@ func Confirm(ctx context.Context, env Env, path, sessionID string) (Confirmed, [
 		}
 		return nil
 	})
-	if err != nil {
-		return Confirmed{}, nil, err
-	}
-	return Confirmed{Path: s.Path, Slot: s.Name, LeaseID: s.Lease.LeaseID, Repo: repo,
-		Reset: reset}, warnings, nil
 }
 
 // confirmTarget finds the slot whose path is path's canonical key in the registered pools, since

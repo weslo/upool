@@ -18,6 +18,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 	"github.com/weslo/upool/internal/unity"
 )
 
@@ -36,6 +37,7 @@ var releaseCommand = command{
 		ifLeaseID := fs.String("if-lease-id", "", "release only if the slot's lease has this ID")
 		force := fs.Bool("force", false, "release even a slot whose holder is alive")
 		return func(inv *invocation) (any, []string, error) {
+			inv.timer = timing.Start(inv.now, "release")
 			return release(inv, *ifLeaseID, *force)
 		}
 	},
@@ -83,7 +85,8 @@ func (r releaseReport) Human() string {
 // verifies the slot (verifySlot), reverts define-order noise, and then resets a clean slot to base
 // or parks a dirty one. Either way it unlocks a worktree an
 // earlier upool locked (pool.Unlock) and clears the lease, writing state.json last and only if the
-// lease is still the one it read.
+// lease is still the one it read. Its steps are the Editor's save_all and close, the verify, the
+// status, the reset and the mirror (#266).
 func release(inv *invocation, ifLeaseID string, force bool) (any, []string, error) {
 	if len(inv.args) > 1 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args[1:],
@@ -99,6 +102,8 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	if repo == "" {
 		repo = rp.repo.Path
 	}
+	inv.timer.Pool(inv.home, rp.repo.Key)
+	inv.timer.Slot(s.Name)
 	if err := checkReleasable(s, ifLeaseID, force, proc.System{}); err != nil {
 		return nil, nil, err
 	}
@@ -107,11 +112,19 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	if err != nil {
 		return nil, warnings, err
 	}
-	warnings = append(warnings, verifySlot(ctx, inv, s)...)
-	if _, err := pool.RevertNoise(ctx, g, s.Path); err != nil {
-		return nil, nil, err
-	}
-	dirty, err := pool.Dirty(ctx, g, s.Path)
+	_ = inv.timer.Step("verify", "", func() error { // verifySlot fails nothing (A34)
+		warnings = append(warnings, verifySlot(ctx, inv, s)...)
+		return nil
+	})
+	var dirty []string
+	err = inv.timer.Step("status", "", func() error {
+		if _, err := pool.RevertNoise(ctx, g, s.Path); err != nil {
+			return err
+		}
+		var err error
+		dirty, err = pool.Dirty(ctx, g, s.Path)
+		return err
+	})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -119,8 +132,14 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 	reimport := false
 	if clean {
 		keys := clone.KeyCheck{Env: inv.environ()}
-		changed, note, err := keys.Around(ctx, s.Path, func() error {
-			return pool.ResetToBase(ctx, g, s.Path, rp.pool.Base)
+		var changed bool
+		var note string
+		err := inv.timer.Step("reset", "", func() error {
+			var err error
+			changed, note, err = keys.Around(ctx, s.Path, func() error {
+				return pool.ResetToBase(ctx, g, s.Path, rp.pool.Base)
+			})
+			return err
 		})
 		if err != nil {
 			return nil, nil, err
@@ -144,9 +163,13 @@ func release(inv *invocation, ifLeaseID string, force bool) (any, []string, erro
 		base: rp.pool.Base}
 	// The slot is released whatever the mirror does, so its failures are warnings.
 	warn := func(w string) { warnings = append(warnings, w) }
-	if r.Mirrored, err = mirrorFree(ctx, inv, g, repo, rp.repo.Key, warn); err != nil {
-		warn(fmt.Sprintf("did not mirror %s's files into the free slots: %v", mirror.File, err))
-	}
+	_ = inv.timer.Step("mirror", "", func() error {
+		if r.Mirrored, err = mirrorFree(ctx, inv, g, repo, rp.repo.Key, warn); err != nil {
+			warn(fmt.Sprintf("did not mirror %s's files into the free slots: %v", mirror.File,
+				err))
+		}
+		return nil
+	})
 	if !clean {
 		r.Dirty = dirty
 		for _, d := range dirty {

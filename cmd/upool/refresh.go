@@ -16,6 +16,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 )
 
 // refreshUsage is refresh's usage line, which its handler also names when it refuses arguments.
@@ -32,13 +33,17 @@ const refreshUsage = "refresh [--fetch] [--json]"
 // Editor, so that the next open imports nothing ((f) transitions 3 and 18; docs/design.md, "Slot
 // lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`";
 // #97). While it runs it is the pool's refresh_job, which status announces; a refresh that finds
-// another live one leaves the work to it and exits 0 ((e)).
+// another live one leaves the work to it and exits 0 ((e)). Its steps are each reset, the mirror,
+// each clone, and each move to base and re-warm, every one but the mirror naming its slot (#266).
 var refreshCommand = command{
 	usage: refreshUsage,
 	setup: func(fs *flag.FlagSet) handler {
 		fetch := fs.Bool("fetch", false, "fetch the base branch from origin first, and move "+
 			"the ready slots to origin/<base>")
-		return func(inv *invocation) (any, []string, error) { return refreshPool(inv, *fetch) }
+		return func(inv *invocation) (any, []string, error) {
+			inv.timer = timing.Start(inv.now, "refresh")
+			return refreshPool(inv, *fetch)
+		}
 	},
 }
 
@@ -141,6 +146,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 	if repo == "" {
 		repo = rp.repo.Path
 	}
+	inv.timer.Pool(inv.home, key)
 	cfg, err := config.Load(config.Inputs{Getenv: inv.getenv, Repo: repo, Home: inv.home})
 	if err != nil {
 		return nil, nil, err
@@ -165,6 +171,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 		if s.State != pool.StateNeedsReset || s.Lease != nil {
 			continue
 		}
+		begin := inv.now()
 		reset, why, notes, err := clone.ResetNeedsReset(ctx, g, keys, inv.home, key, s.Name)
 		if err != nil {
 			return nil, warnings, err
@@ -174,11 +181,17 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 			warn(fmt.Sprintf("did not reset %s: %s", s.Name, why))
 			continue
 		}
+		inv.timer.Since("reset", s.Name, begin)
 		r.Reset = append(r.Reset, s.Name)
 	}
 	// The free slots get the main checkout's .worktreeinclude files before anything slower, so
 	// that the next handout has them; a slot cloned below copies them from its seed (A44).
-	mirrored, err := mirrorFree(ctx, inv, g, repo, key, warn)
+	var mirrored []mirroredSlot
+	err = inv.timer.Step("mirror", "", func() error {
+		var err error
+		mirrored, err = mirrorFree(ctx, inv, g, repo, key, warn)
+		return err
+	})
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -206,6 +219,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 				r.Stopped = fmt.Sprintf("the pool has %d slots, its max_slots", len(p.Slots))
 				return nil
 			}
+			begin := inv.now()
 			seed, why, err := seeder.Choose(ctx)
 			if errors.Is(err, clone.ErrNoSeed) {
 				r.Stopped = "no seed qualifies: " + strings.Join(why, "; ")
@@ -224,6 +238,7 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 			if err != nil {
 				return err
 			}
+			inv.timer.Since("clone", s.Name, begin)
 			r.Cloned = append(r.Cloned, s.Name)
 		}
 	}

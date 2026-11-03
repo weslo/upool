@@ -126,7 +126,7 @@ func runProcs(t *testing.T, e *testenv.Env, dir string, procs proc.Checker, now 
 		procs:      procs,
 	}
 	code := d.run(args)
-	return result{code, out.String(), errOut.String()}
+	return newResult(code, out.String(), errOut.String())
 }
 
 // warmPool is a harness pool whose slot-1 has a Library, so that an open of it is warm.
