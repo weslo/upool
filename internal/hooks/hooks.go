@@ -26,6 +26,7 @@ import (
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 )
 
 // The hook_event_name values of the events upool handles (docs/contracts.md (a) and (b)).
@@ -130,6 +131,9 @@ type Env struct {
 	// and returns once it has started; the session-start hook calls it after each handout it
 	// confirms (#79). Nil starts nothing.
 	StartRefresh func(checkout, key string) error
+	// Timer times Confirm's steps for `upool take --confirm`, which reports them (#266); nil, as
+	// for the hooks, times nothing.
+	Timer *timing.Timer
 }
 
 // worktreesDir is Claude Code's managed worktree directory, relative to a repository.

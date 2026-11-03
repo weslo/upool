@@ -21,6 +21,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 )
 
 // doctorUsage is doctor's usage line, which its handler also names when it refuses arguments.
@@ -167,7 +168,7 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
 	}
-	r.Checks = append(r.Checks, stateVolumeCheck(inv.home),
+	r.Checks = append(r.Checks, stateVolumeCheck(inv.home, rp.repo.Key),
 		leaseCheck(rp.pool.Slots, inv.now(), cfg.AgentTTL.Value))
 	r.Checks = append(r.Checks, hookChecks(inv.home, repo)...)
 	r.Checks = append(r.Checks, versionChecks(ctx, inv)...)
@@ -546,8 +547,9 @@ func worktreeKeys(ctx context.Context, g git.Client, repo string) (map[string]bo
 // stateVolumeCheck warns when ~/.upool, which holds every state file and the one lock over them,
 // is in a cloud-synced folder or, on macOS, on a network volume, where flock is advisory
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the state placement
-// paragraph).
-func stateVolumeCheck(home string) doctorCheck {
+// paragraph). A pass also names the timings log of the pool key there (#266).
+func stateVolumeCheck(home, key string) doctorCheck {
+	logged := fmt.Sprintf("; step timings are logged in ~/.upool/pools/%s/%s", key, timing.LogFile)
 	dir := filepath.Join(home, ".upool")
 	key, err := paths.Key(dir)
 	if err != nil {
@@ -572,7 +574,8 @@ func stateVolumeCheck(home string) doctorCheck {
 	switch {
 	case errors.Is(err, errors.ErrUnsupported):
 		return doctorCheck{checkStateVolume, checkPass,
-			"~/.upool is outside cloud-synced folders; network volumes are detected on macOS"}
+			"~/.upool is outside cloud-synced folders; network volumes are detected on macOS" +
+				logged}
 	case err != nil:
 		return failedCheck(checkStateVolume, err)
 	case network:
@@ -580,7 +583,8 @@ func stateVolumeCheck(home string) doctorCheck {
 			"volume (%s): flock is advisory there", fsType)}
 	}
 	return doctorCheck{checkStateVolume, checkPass,
-		fmt.Sprintf("~/.upool is on a local %s volume, outside cloud-synced folders", fsType)}
+		fmt.Sprintf("~/.upool is on a local %s volume, outside cloud-synced folders", fsType) +
+			logged}
 }
 
 // leaseCheck warns about each lease with no holder PID that is older than agent_ttl: a bare

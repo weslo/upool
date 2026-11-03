@@ -19,6 +19,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 	"github.com/weslo/upool/internal/unity"
 )
 
@@ -31,7 +32,7 @@ const takeUsage = "take <name> [--base REF] [--lane script|scene] [--holder ID] 
 // <name> out in it, and prints only the slot's path (docs/design.md, "One binary, a dozen
 // commands, one JSON file per pool", the `take` row; docs/contracts.md (f) transitions 1 and 5;
 // A18; A19). `take --confirm <path>` instead confirms the create hook's lease on the slot at path
-// (confirm.go).
+// (confirm.go). Each times its steps (#266).
 var takeCommand = command{
 	usage: takeUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -46,6 +47,7 @@ var takeCommand = command{
 			"this path and run its deferred reset; with no branch name")
 		return func(inv *invocation) (any, []string, error) {
 			if *confirmPath != "" {
+				inv.timer = timing.Start(inv.now, "take --confirm")
 				return confirm(inv, *confirmPath, *base != "" || *holder != "" ||
 					*timeout != 0 || *noCreate || *lane != pool.LaneScript)
 			}
@@ -53,6 +55,7 @@ var takeCommand = command{
 				return nil, nil, fmt.Errorf("take needs one branch name; usage: upool %s",
 					takeUsage)
 			}
+			inv.timer = timing.Start(inv.now, "take")
 			r, err := takeSlot(inv, inv.args[0], takeOptions{base: *base, lane: *lane,
 				holder: *holder, timeout: *timeout, noCreate: *noCreate})
 			if err != nil {
@@ -100,7 +103,8 @@ const retryInterval = time.Second
 // takeSlot leases a slot of the pool containing the working directory with the branch name
 // checked out, for take and `upool run`. It checks the branch before it leases anything, leases a
 // ready slot under ~/.upool/lock, waiting for one up to the timeout, and then, with the lock
-// dropped, checks the branch out. If that fails, the lease is undone.
+// dropped, checks the branch out. If that fails, the lease is undone. Its steps are each clone it
+// makes and the handout, the checkout of the branch (#266).
 func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error) {
 	if opts.timeout < 0 {
 		return takeReport{}, fmt.Errorf("--timeout %d is negative; usage: upool %s",
@@ -137,6 +141,7 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 	if repo == "" {
 		repo = rp.repo.Path
 	}
+	inv.timer.Pool(inv.home, key)
 	g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
 
 	if err := checkBranchFree(ctx, g, repo, name); err != nil {
@@ -172,7 +177,11 @@ func takeSlot(inv *invocation, name string, opts takeOptions) (takeReport, error
 	if err != nil {
 		return takeReport{}, err
 	}
-	if err := l.prepare(ctx, s, name, opts.base); err != nil {
+	inv.timer.Slot(s.Name)
+	err = inv.timer.Step("handout", "", func() error {
+		return l.prepare(ctx, s, name, opts.base)
+	})
+	if err != nil {
 		return takeReport{}, errors.Join(err, l.undo(ctx, s, leaseID))
 	}
 	return takeReport{Path: s.Path, Slot: s.Name, Branch: name, LeaseID: leaseID, Repo: repo},
@@ -341,7 +350,8 @@ func (l leaser) waitForSlot(ctx context.Context, inv *invocation,
 // the pool is below max_slots, and --no-create was not given. It chooses the seed (A19), clones
 // with the lock released during the copy, saying so on stderr, and reports whether it cloned. With
 // no seed qualifying, or the pool at max_slots, it says why on stderr once, in told, and take waits
-// or fails as for a full pool.
+// or fails as for a full pool. A clone is one of take's steps, from the seed's choice to the new
+// slot, which it names (#266).
 func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string,
 	told map[string]bool) (bool, error) {
 	say := func(line string) {
@@ -362,6 +372,7 @@ func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string
 		say(fmt.Sprintf("not cloning a slot: the pool has %d, its max_slots", l.cloner.maxSlots))
 		return false, nil
 	}
+	begin := inv.now()
 	seed, why, err := l.cloner.seeder.Choose(ctx)
 	if errors.Is(err, clone.ErrNoSeed) {
 		say("not cloning a slot: no seed qualifies: " + strings.Join(why, "; "))
@@ -381,6 +392,7 @@ func (l leaser) cloneSlot(ctx context.Context, inv *invocation, skipped []string
 	if err != nil {
 		return false, err
 	}
+	inv.timer.Since("clone", s.Name, begin)
 	say("cloned " + s.Name)
 	return true, nil
 }

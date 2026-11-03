@@ -15,6 +15,7 @@ import (
 	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/proc"
+	"github.com/weslo/upool/internal/timing"
 )
 
 // invocation is what a handler gets: one call's arguments and parsed flags, and the process
@@ -68,6 +69,11 @@ type invocation struct {
 	// a command that watches a process it did not start, such as the Editor `upool open`
 	// launches, inject their own.
 	procs proc.Checker
+	// timer times the steps of the operation the handler runs, which the dispatcher reports and
+	// logs once the handler returns (#266). The handlers of the operations that move a slot or an
+	// Editor start it; it is nil for every other command, and the work an operation shares with
+	// one, such as `upool run`'s take and release, times nothing.
+	timer *timing.Timer
 }
 
 // checker is inv.procs, or proc.System when it is nil.
@@ -154,7 +160,9 @@ func (d *dispatcher) run(args []string) int {
 }
 
 // command runs one command: it parses the command's flags wherever they sit among its arguments,
-// calls its handler, and prints the result with output.Render, as an envelope under --json.
+// calls its handler, and prints the result with output.Render, as an envelope under --json. The
+// timings of an operation the handler timed go into the result, and as one line into its pool's
+// timings log, whether or not it succeeded; a failure to log them is a warning (#266).
 func (d *dispatcher) command(name string, cmd command, args []string) int {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard) // a bad flag is reported below, in the envelope under --json
@@ -172,11 +180,16 @@ func (d *dispatcher) command(name string, cmd command, args []string) int {
 	inv := d.invocation(positional, fs)
 	inv.dash = dash
 	data, warnings, err := handle(inv)
+	timings, logErr := inv.timer.Finish(err == nil)
+	if logErr != nil {
+		warnings = append(warnings, "did not log the timings: "+logErr.Error())
+	}
 	return output.Render(d.stdout, d.stderr, *asJSON, output.Result{
 		Command:  name,
 		Data:     data,
 		Warnings: warnings,
 		Err:      err,
+		Timings:  timings,
 	})
 }
 

@@ -278,3 +278,56 @@ func TestDataThatCannotBeEncodedFails(t *testing.T) {
 		}
 	}
 }
+
+// An operation's timings print on stderr after the warnings and before the error, one line, and
+// go into the envelope under --json; a command that times nothing has no timings field.
+func TestRenderTimings(t *testing.T) {
+	timings := &Timings{Operation: "take", Slot: "slot-1", Steps: []Step{
+		{Name: "clone", Slot: "slot-3", MS: 25912}, {Name: "handout", MS: 41}}, TotalMS: 25960}
+	r := Result{Command: "take", Warnings: []string{"w"}, Err: Fail(CodeCommandFailed, "e"),
+		Timings: timings}
+	_, stdout, stderr := render(false, r)
+	want := "upool: warning: w\n" +
+		"upool: timings: take slot-1: clone slot-3 25912 ms, handout 41 ms; total 25960 ms\n" +
+		"upool: e\n"
+	if stdout != "" || stderr != want {
+		t.Errorf("stdout %q, stderr %q; want nothing and\n%s", stdout, stderr, want)
+	}
+
+	_, stdout, stderr = render(true, r)
+	var env struct {
+		Timings *Timings `json:"timings"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" || env.Timings == nil || env.Timings.Human() != timings.Human() {
+		t.Errorf("--json: stderr %q, timings %+v; want nothing and %+v", stderr, env.Timings,
+			timings)
+	}
+
+	_, stdout, _ = render(true, success())
+	if strings.Contains(stdout, "timings") {
+		t.Errorf("--json without timings = %s, want no timings field", stdout)
+	}
+}
+
+// Timings with no steps say only the total, and an operation with no slot names none.
+func TestTimingsHuman(t *testing.T) {
+	tests := []struct {
+		t    Timings
+		want string
+	}{
+		{Timings{Operation: "refresh", Steps: []Step{}}, "timings: refresh: total 0 ms"},
+		{Timings{Operation: "refresh", Steps: []Step{{Name: "reset", Slot: "slot-2", MS: 12},
+			{Name: "mirror", MS: 3}}, TotalMS: 20},
+			"timings: refresh: reset slot-2 12 ms, mirror 3 ms; total 20 ms"},
+		{Timings{Operation: "take --confirm", Slot: "slot-1", Steps: []Step{{Name: "confirm",
+			MS: 2}}, TotalMS: 5}, "timings: take --confirm slot-1: confirm 2 ms; total 5 ms"},
+	}
+	for _, tt := range tests {
+		if got := tt.t.Human(); got != tt.want {
+			t.Errorf("Human() = %q, want %q", got, tt.want)
+		}
+	}
+}

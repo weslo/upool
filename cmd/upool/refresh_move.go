@@ -128,6 +128,9 @@ func (m mover) moveReady(ctx context.Context, r *refreshReport) (int, error) {
 //     save_all and close (A40).
 //  4. It returns the slot to ready, once clean ((f) transition 18).
 //
+// Steps 2 and 3 are refresh's move and rewarm steps, naming s, each timed if it completes; the
+// re-warm's open and close time no steps of their own (#266).
+//
 // A slot that is no longer ready when step 1 looks is skipped. A failed checkout is a warning, and
 // the slot goes back to ready where it was, not moved. A failed re-warm is a warning: an Editor
 // still running when the wait ran out is closed without save_all, which it has no work for, the
@@ -144,8 +147,14 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	_, _ = fmt.Fprintf(m.inv.stderr, "upool: moving %s to %s (%s) and re-warming it\n", s.Name,
 		m.base, shortCommit(m.commit)) // progress only
 
-	changed, note, err := m.keys.Around(ctx, s.Path, func() error {
-		return m.g.CheckoutDetach(ctx, s.Path, m.commit)
+	var changed bool
+	var note string
+	err = m.inv.timer.Step("move", s.Name, func() error {
+		var err error
+		changed, note, err = m.keys.Around(ctx, s.Path, func() error {
+			return m.g.CheckoutDetach(ctx, s.Path, m.commit)
+		})
+		return err
 	})
 	if note != "" {
 		m.warn(note)
@@ -165,14 +174,14 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 
 	moved := movedSlot{Slot: s.Name}
 	begin := m.inv.now()
-	_, warnings, err := openSlotEditor(ctx, m.inv, m.rp, s, modeHeadless, true)
+	_, warnings, err := openSlotEditor(ctx, m.untimed(), m.rp, s, modeHeadless, true)
 	for _, w := range warnings {
 		m.warn(w)
 	}
 	if err != nil {
 		return m.unwarmed(ctx, s, err)
 	}
-	_, warnings, err = closeSlotEditor(ctx, m.inv, m.rp, s)
+	_, warnings, err = closeSlotEditor(ctx, m.untimed(), m.rp, s)
 	for _, w := range warnings {
 		m.warn(w)
 	}
@@ -182,7 +191,16 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 		return movedSlot{}, false, nil
 	}
 	moved.Rewarmed, moved.RewarmSeconds = true, m.inv.now().Sub(begin).Seconds()
+	m.inv.timer.Since("rewarm", s.Name, begin)
 	return m.finish(ctx, s, moved)
+}
+
+// untimed is the invocation the re-warm opens and closes an Editor with: refresh's own, with no
+// timer, so that the re-warm is one step of refresh's rather than an open's and a close's.
+func (m mover) untimed() *invocation {
+	inv := *m.inv
+	inv.timer = nil
+	return &inv
 }
 
 // unwarmed deals with the slot s, moved to base, whose re-warm failed with err (A40): it sets the
@@ -196,7 +214,7 @@ func (m mover) unwarmed(ctx context.Context, s pool.Slot, err error) (movedSlot,
 	}
 	var notReady *unity.NotReadyError
 	if errors.As(err, &notReady) {
-		_, warnings, closeErr := shutSlotEditor(ctx, m.inv, m.rp, s, true)
+		_, warnings, closeErr := shutSlotEditor(ctx, m.untimed(), m.rp, s, true)
 		for _, w := range warnings {
 			m.warn(w)
 		}

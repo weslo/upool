@@ -16,6 +16,7 @@ import (
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/proc"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/timing"
 	"github.com/weslo/upool/internal/unity"
 )
 
@@ -33,7 +34,7 @@ const (
 // ledger, opens the slot's Editor and waits until the Editor is ready or has exited
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `open` row;
 // "Editors: budget by RAM, serialize cold imports as a courtesy, target by variable and by
-// path"). The Editor is headless unless --gui (A36).
+// path"). The Editor is headless unless --gui (A36). It times its steps (#266).
 var openCommand = command{
 	usage: openUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -76,11 +77,14 @@ func (r openReport) Human() string {
 
 // openEditor is open's handler: it opens the Editor of the slot containing the working directory.
 func openEditor(inv *invocation, mode string) (any, []string, error) {
+	inv.timer = timing.Start(inv.now, "open")
 	ctx := context.Background()
 	rp, s, err := slotHere(ctx, inv, "open")
 	if err != nil {
 		return nil, nil, err
 	}
+	inv.timer.Pool(inv.home, rp.repo.Key)
+	inv.timer.Slot(s.Name)
 	r, warnings, err := openSlotEditor(ctx, inv, rp, s, mode, false)
 	if err != nil {
 		return nil, warnings, err
@@ -108,6 +112,9 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 // (docs/design.md, "Slot lifecycle: seed only from a Library current at HEAD, refresh on handout,
 // reset without `-x`"; A8). A failure after admission withdraws the entry, so that the ledger
 // charges nothing for an Editor that never became ready, and drops the kept scene list.
+//
+// Its steps are the admission, step 1, and ready, from `unity open` to `unity status
+// --until-ready` reporting the Editor ready, steps 2 and 3 (#266).
 func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s pool.Slot,
 	mode string, rewarm bool) (openReport, []string, error) {
 	repo := rp.pool.Repo
@@ -129,8 +136,13 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 	if cold || rewarm {
 		timeout = unity.ColdReadyTimeout
 	}
-	e, err := admitEditor(ctx, inv, procs, budget, ledger.Editor{Project: s.Path, PID: inv.pid,
-		Mode: mode, OpenedByUpool: true, ColdImport: cold})
+	var e ledger.Editor
+	err = inv.timer.Step("admit", "", func() error {
+		var err error
+		e, err = admitEditor(ctx, inv, procs, budget, ledger.Editor{Project: s.Path,
+			PID: inv.pid, Mode: mode, OpenedByUpool: true, ColdImport: cold})
+		return err
+	})
 	if err != nil {
 		return openReport{}, nil, err
 	}
@@ -152,6 +164,7 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 	}
 
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
+	launched := inv.now()
 	pid, warnings, err := client.Launch(ctx, s.Path, mode == modeHeadless)
 	if err == nil {
 		err = ledger.Launched(ctx, inv.home, s.Path, inv.pid, pid)
@@ -167,6 +180,7 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 		}
 		return fail(pid, err)
 	}
+	inv.timer.Since("ready", "", launched)
 
 	r := openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode, ColdImport: cold,
 		ChargeGB: e.ChargeGB}

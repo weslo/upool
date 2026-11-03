@@ -23,6 +23,9 @@ type Result struct {
 	Warnings []string
 	// Err is nil if the command succeeded; otherwise the envelope's one errors[] entry.
 	Err error
+	// Timings are the envelope's timings and, without --json, print on stderr; nil for a command
+	// that times nothing (#266).
+	Timings *Timings
 }
 
 // Render prints r and returns the exit code upool ends with: ExitOK if r.Err is nil, and otherwise
@@ -30,8 +33,8 @@ type Result struct {
 //
 // With asJSON, stdout gets the Envelope alone, indented two spaces as the Unity CLI's replies are
 // (testdata/captures/unity/), and stderr nothing. Otherwise stdout gets the data's human form,
-// and stderr each warning and then the error, one line each after "upool: ". Data that is not
-// Human prints as its indented JSON, and nil data prints nothing.
+// and stderr each warning, then the timings and then the error, one line each after "upool: ".
+// Data that is not Human prints as its indented JSON, and nil data prints nothing.
 //
 // A failure to encode or write the output is reported on stderr and, if r.Err is nil, makes the
 // exit code ExitFailure.
@@ -53,6 +56,7 @@ func Render(stdout, stderr io.Writer, asJSON bool, r Result) int {
 			Data:     r.Data,
 			Errors:   errs,
 			Warnings: r.Warnings,
+			Timings:  r.Timings,
 		}
 		b, err := json.MarshalIndent(env, "", "  ")
 		if err != nil {
@@ -77,6 +81,9 @@ func Render(stdout, stderr io.Writer, asJSON bool, r Result) int {
 	if !asJSON {
 		for _, w := range r.Warnings {
 			say(stderr, "warning: "+w)
+		}
+		if r.Timings != nil {
+			say(stderr, r.Timings.Human())
 		}
 		if r.Err != nil {
 			say(stderr, errs[0].Message)

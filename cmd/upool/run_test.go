@@ -66,7 +66,7 @@ func runUpool(t *testing.T, p harnessPool, dir string, out io.Writer, src *signa
 		stopNotify: src.stop,
 	}
 	code := d.run(args)
-	return result{code: code, stdout: "", stderr: errOut.String()}
+	return newResult(code, "", errOut.String())
 }
 
 // runSh runs `upool run <branch> -- /bin/sh -c script` in p's main checkout, and returns what it

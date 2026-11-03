@@ -7,6 +7,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `take`, `take --confirm`, `release`, `refresh`, `open` and `close` report how long each of their
+  steps took, in milliseconds, with the operation's total (#266; docs/contracts.md (d), "upool's
+  own envelope"). Under `--json` the envelope has a `timings` object; without it one line on
+  stderr says the same, such as `upool: timings: take slot-3: clone slot-3 25912 ms, handout 41
+  ms; total 25962 ms`, so `take`'s stdout is still the path alone. Each operation, failed or not,
+  also appends one JSON line with when it started, its slot, whether it succeeded and its steps to
+  `~/.upool/pools/<repo-key>/timings.jsonl`, beside the pool's state ((e), the timings log), which
+  `doctor`'s `state-volume` check names. The timings are always on. The background top-up, being
+  `upool refresh`, logs there too; the hooks' own take and confirm, and `upool run`, time nothing.
+
 ### Changed
 
 - The repository's settings file is now `.upool`, renamed from `.upool.toml` (#263). Its keys

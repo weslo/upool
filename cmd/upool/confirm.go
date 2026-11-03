@@ -24,14 +24,16 @@ func (r confirmReport) Human() string { return r.Path }
 // confirm is `upool take --confirm <path>`, which SessionStart runs for the session's slot
 // (docs/design.md, "Environment, confirmation and release"; docs/contracts.md (b); (f) transition
 // 6): internal/hooks' Confirm, the one the session-start hook runs in-process, with this process's
-// parent, the session's CLI, as the lease's holder (A6). otherFlags is whether a flag of take's
-// other form was given, which --confirm refuses.
+// parent, the session's CLI, as the lease's holder (A6), timing its steps with inv.timer (#266).
+// otherFlags is whether a flag of take's other form was given, which --confirm refuses.
 func confirm(inv *invocation, path string, otherFlags bool) (any, []string, error) {
 	if len(inv.args) > 0 || otherFlags {
 		return nil, nil, fmt.Errorf("take --confirm takes a path alone; usage: upool %s",
 			takeUsage)
 	}
-	c, warnings, err := hooks.Confirm(context.Background(), hooksEnv(inv), path, "")
+	env := hooksEnv(inv)
+	env.Timer = inv.timer
+	c, warnings, err := hooks.Confirm(context.Background(), env, path, "")
 	if err != nil {
 		return nil, warnings, err
 	}

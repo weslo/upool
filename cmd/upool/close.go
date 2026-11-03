@@ -14,6 +14,7 @@ import (
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/timing"
 	"github.com/weslo/upool/internal/unity"
 )
 
@@ -24,7 +25,8 @@ const closeUsage = "close [--json]"
 // Editor with save_all, and only then closes the Editor with `unity close <slot>`, which on its
 // own exits without saving (docs/design.md, "Editors: budget by RAM, serialize cold imports as a
 // courtesy, target by variable and by path": "release is always `save_all` then `close`"; the
-// `open` and `close` row of "One binary, a dozen commands, one JSON file per pool").
+// `open` and `close` row of "One binary, a dozen commands, one JSON file per pool"). It times the
+// two as its steps (#266).
 var closeCommand = command{
 	usage: closeUsage,
 	setup: func(*flag.FlagSet) handler {
@@ -67,11 +69,14 @@ func (r closeReport) Human() string {
 //  4. When that Editor was one `upool open --headless` opened, it puts back the scene list open
 //     kept, which the headless Editor emptied as it closed, and deletes the copy (A8).
 func closeEditor(inv *invocation) (any, []string, error) {
+	inv.timer = timing.Start(inv.now, "close")
 	ctx := context.Background()
 	rp, s, err := slotHere(ctx, inv, "close")
 	if err != nil {
 		return nil, nil, err
 	}
+	inv.timer.Pool(inv.home, rp.repo.Key)
+	inv.timer.Slot(s.Name)
 	r, warnings, err := closeSlotEditor(ctx, inv, rp, s)
 	if err != nil {
 		return nil, warnings, err
@@ -80,11 +85,13 @@ func closeEditor(inv *invocation) (any, []string, error) {
 }
 
 // closeSlotEditor is close's work on slot s of the pool rp, which release also does for an Editor
-// upool opened: it returns what it did and the CLI's warnings.
+// upool opened: it returns what it did and the CLI's warnings. It times closeEditor's step 1 as
+// save_all and steps 2 to 4 as close (#266).
 func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	s pool.Slot) (closeReport, []string, error) {
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
-	if err := client.SaveAll(ctx, s.Path); err != nil {
+	err := inv.timer.Step("save_all", "", func() error { return client.SaveAll(ctx, s.Path) })
+	if err != nil {
 		code := output.CodeCommandFailed
 		var f *output.Failure
 		if errors.As(err, &f) {
@@ -93,7 +100,14 @@ func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 		return closeReport{}, nil, output.Fail(code, "not closing the Editor of %s, since "+
 			"saving its scenes failed: %v", s.Path, err)
 	}
-	return shutSlotEditor(ctx, inv, rp, s, false)
+	var r closeReport
+	var warnings []string
+	err = inv.timer.Step("close", "", func() error {
+		var err error
+		r, warnings, err = shutSlotEditor(ctx, inv, rp, s, false)
+		return err
+	})
+	return r, warnings, err
 }
 
 // shutSlotEditor is closeSlotEditor's work after the save, steps 2 to 4: `unity close <slot>`, the
