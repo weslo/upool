@@ -1,6 +1,8 @@
 package assets
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -37,17 +39,40 @@ func TestClaudeMDBlockSaysHowToWorkInASlot(t *testing.T) {
 // The skill opens with the frontmatter Claude Code and other agents read, its name matching its
 // directory and its description on one line, and ends in a newline.
 func TestSkillHasFrontmatter(t *testing.T) {
-	front, body, ok := strings.Cut(strings.TrimPrefix(Skill, "---\n"), "\n---\n")
-	if !strings.HasPrefix(Skill, "---\n") || !ok {
-		t.Fatalf("SKILL.md does not open with frontmatter between --- lines")
+	checkSkillFrontmatter(t, "skill/upool/SKILL.md", Skill, "upool")
+}
+
+// The benchmark skill opens with the same frontmatter (#267; docs/benchmarking.md). It is not
+// embedded: a project installs it from skills/ with `npx skills add weslo/upool`, which looks
+// there and not under assets/, so this test reads it from the repository.
+func TestBenchmarkSkillHasFrontmatter(t *testing.T) {
+	path := filepath.Join("..", "skills", "upool-benchmark", "SKILL.md")
+	skill, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkSkillFrontmatter(t, path, string(skill), "upool-benchmark")
+}
+
+// checkSkillFrontmatter checks that skill, the SKILL.md at path, is in a directory named name,
+// opens with frontmatter between --- lines that names it name with a description on one line,
+// has a body, and ends in a newline.
+func checkSkillFrontmatter(t *testing.T, path, skill, name string) {
+	t.Helper()
+	if dir := filepath.Base(filepath.Dir(path)); dir != name {
+		t.Errorf("%s is in directory %q, want %q", path, dir, name)
+	}
+	front, body, ok := strings.Cut(strings.TrimPrefix(skill, "---\n"), "\n---\n")
+	if !strings.HasPrefix(skill, "---\n") || !ok {
+		t.Fatalf("%s does not open with frontmatter between --- lines", path)
 	}
 	lines := strings.Split(front, "\n")
-	if len(lines) != 2 || lines[0] != "name: upool" ||
+	if len(lines) != 2 || lines[0] != "name: "+name ||
 		!strings.HasPrefix(lines[1], "description: ") || len(lines[1]) < len("description: ")+20 {
-		t.Errorf("frontmatter = %q, want name: upool and a description", front)
+		t.Errorf("%s frontmatter = %q, want name: %s and a description", path, front, name)
 	}
-	if strings.TrimSpace(body) == "" || !strings.HasSuffix(Skill, "\n") {
-		t.Error("SKILL.md has no body, or does not end in a newline")
+	if strings.TrimSpace(body) == "" || !strings.HasSuffix(skill, "\n") {
+		t.Errorf("%s has no body, or does not end in a newline", path)
 	}
 }
 

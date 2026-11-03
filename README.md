@@ -84,6 +84,9 @@ winget, whose gate runs on Windows.
 - [docs/design.md](docs/design.md): what upool is, why, and the build order.
 - [docs/contracts.md](docs/contracts.md): the Claude Code and Unity CLI behaviour upool depends on.
 - [docs/spike-report.md](docs/spike-report.md): the measurements behind both.
+- [docs/benchmarking.md](docs/benchmarking.md): how upool is benchmarked on a project's own body of
+  work, and the record each run adds. The `upool-benchmark` skill runs it; install it in the
+  project with `npx skills add weslo/upool --skill upool-benchmark`.
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to build, test and send changes, and the coding standards.
 - [AGENTS.md](AGENTS.md): what a coding agent working on this repository must know.
 

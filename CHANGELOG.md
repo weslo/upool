@@ -18,6 +18,16 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.upool/pools/<repo-key>/timings.jsonl`, beside the pool's state ((e), the timings log), which
   `doctor`'s `state-volume` check names. The timings are always on. The background top-up, being
   `upool refresh`, logs there too; the hooks' own take and confirm, and `upool run`, time nothing.
+- A benchmarking process (#267). The `upool-benchmark` skill, at
+  `skills/upool-benchmark/SKILL.md`, says how to benchmark a body of work by running its sessions
+  on upool slots: what to describe, by shape and never by name; what to measure from outside the
+  sessions, with upool's own numbers read from the timings log; how to run the sessions and what
+  each one's brief says; and the scrub before a record leaves the project. A project installs it
+  with `npx skills add weslo/upool --skill upool-benchmark`; `upool init` does not write it, and
+  the binary does not embed it. `docs/benchmarking.md` says what a benchmark is for and holds the
+  run record's template, and each run's record lands under `docs/benchmarks/` by pull request,
+  naming no project, machine or person. README.md links the document and names the skill. upool's
+  commands and output are unchanged.
 
 ### Changed
 
