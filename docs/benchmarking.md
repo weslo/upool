@@ -91,6 +91,8 @@ a second peer and which host a server; in what order their changes land>
 Budget: `editor_ram_budget_gb` <n>, `max_editors` <n>. Refused: <which opens, naming the limit, or
 none>. Queued: <which opens waited behind a cold import, and for how long, or none>.
 
+Each cell is the Editor's resident size with its children's, one level down, summed, in GB.
+
 | Editor | All ready | Midway | Before the end |
 |---|---|---|---|
 | | | | |

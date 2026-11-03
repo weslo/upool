@@ -29,7 +29,12 @@ needs a second peer; changes land in start order" is the whole description.
 
 Measure from your own shell in the main checkout, with `UNITY_PROJECT_PATH` unset. upool's own
 step timings come from the pool's timings log, `~/.upool/pools/<repo-key>/timings.jsonl`, and
-the `upool: timings:` line each command prints on stderr; the sessions measure nothing.
+the `upool: timings:` line each command prints on stderr; the sessions measure nothing. A session
+the desktop app starts with a worktree gets its slot from upool's `worktree-create` hook and gives
+it back through `worktree-remove`, and the hooks time nothing, so the log has no `take` or
+`release` line for it. What it has for such a run: the top-up's `refresh` lines, with a `clone`
+step for each slot it cloned, and an `open` or `close` line for each Editor a session opened or
+closed with `upool open` and `upool close`.
 
 - **Time from `take` to the Editor reporting ready, per slot.** Note the clock when you start
   each session, and poll `unity status --format json` until an instance whose `project` is the
@@ -47,8 +52,15 @@ the `upool: timings:` line each command prints on stderr; the sessions measure n
   every Editor is up. Skip a first call that times out: the first call to a fresh Editor may, and
   still run.
 - **Memory per Editor, and whether the RAM budget refused or queued any.** Sample each Editor's
-  resident size by the `pid` that `unity status --format json` lists, `ps -o rss= -p <pid>`, in
-  kilobytes, at three moments: when every Editor is ready, midway, and before the sessions end.
+  resident size, with its children's, at three moments: when every Editor is ready, midway, and
+  before the sessions end. An Editor spawns asset import workers, shader compilers and the Bee
+  backend as child processes, which `editor_ram_gb` has to cover, so sum the Editor, by the `pid`
+  that `unity status --format json` lists, and its children one level down, in kilobytes:
+
+  ```bash
+  { echo <pid>; pgrep -P <pid>; } | xargs -n1 ps -o rss= -p | awk '{s+=$1} END {print s}'
+  ```
+
   The budget's decisions are in the log and on the sessions' stderr: an `open` line with `ok`
   false and no `admit` step was refused, and its session saw `refuses another Editor` naming the
   limit; one whose `admit` step took seconds waited behind a cold import, and its session saw
@@ -57,7 +69,10 @@ the `upool: timings:` line each command prints on stderr; the sessions measure n
 - **How a conflict on a shared file went through the confirm step.** For each file two sessions
   edit: what each session did when it reached the file (edited it through its Editor, was refused
   by the lane guard, or took a slot in the scene lane), and, when the later change was confirmed
-  to land, whether git or Unity reported a conflict, who resolved it and how long that took.
+  to land, whether git or Unity reported a conflict, who resolved it and how long that took. The
+  lane guard sees `Edit` and `Write` only: a scene, prefab or asset saved through the Editor, from
+  `unity command`, is a shell command's write, which it does not see. A record says so for that
+  case, as what happened, not as the guard passing it.
 - **Whether the sessions' second peers ran at the same time.** For each session that needs a
   second peer: whether the peer was up while the session's own Editor and the other sessions'
   were, from the `unity status` samples, or what refused or delayed it.
@@ -93,7 +108,8 @@ log=~/.upool/pools/"$key"/timings.jsonl; wc -l < "$log"
 5. Before the sessions end, take the third memory sample. Then let them land their changes in
    the plan's order, and note how each landing went.
 6. When every session is done, run `upool status`, and read the run's lines from the log: every
-   `take`, `open`, `close`, `release` and `refresh`, with its steps and total.
+   `refresh`, `open` and `close`, with its steps and total, and a `take` or `release` only where
+   you ran one yourself; the hooks' take and release log nothing.
 
 **Each session's brief says:** that its slot is the one it started in, which `upool which`
 prints, with nothing to take; to open its Editor with `upool open`, so that the budget counts it
