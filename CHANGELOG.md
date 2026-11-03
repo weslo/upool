@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-03
+
 ### Added
 
 - `take`, `take --confirm`, `release`, `refresh`, `open` and `close` report how long each of their
@@ -25,12 +27,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   line for a session the desktop app's hook gave a slot, an Editor's memory counted with its
   children's, and the lane guard named as blind to an Editor's own saves (#270); how to run the
   sessions and what each one's brief says; and the scrub before a record leaves the project. A
-  project installs it
-  with `npx skills add weslo/upool --skill upool-benchmark`; `upool init` does not write it, and
-  the binary does not embed it. `docs/benchmarking.md` says what a benchmark is for and holds the
-  run record's template, and each run's record lands under `docs/benchmarks/` by pull request,
-  naming no project, machine or person. README.md links the document and names the skill. upool's
-  commands and output are unchanged.
+  project installs it with `npx skills add weslo/upool --skill upool-benchmark`; `upool init`
+  does not write it, and the binary does not embed it. `docs/benchmarking.md` says what a
+  benchmark is for and holds the run record's template, and each run's record lands under
+  `docs/benchmarks/` by pull request, naming no project, machine or person. README.md links the
+  document and names the skill. upool's commands and output are unchanged.
 
 ### Changed
 

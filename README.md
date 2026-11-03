@@ -2,10 +2,10 @@
 
 [![ci](https://github.com/weslo/upool/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/weslo/upool/actions/workflows/ci.yml?query=branch%3Amain)
 
-**Status: pre-alpha.** v0.5.0, the pool core, its Claude Code integration, Editor governance and
-the pool's hygiene, is on Homebrew, as the Quickstart installs it, and on
-[GitHub Releases](https://github.com/weslo/upool/releases). The [roadmap](#-roadmap) shows where the
-build stands.
+**Status: pre-alpha.** v0.6.0, the pool core, its Claude Code integration, Editor governance,
+the pool's hygiene and the step timings its benchmarking reads, is on Homebrew, as the Quickstart
+installs it, and on [GitHub Releases](https://github.com/weslo/upool/releases). The
+[roadmap](#-roadmap) shows where the build stands.
 
 upool keeps a small pool of pre-warmed Unity workspaces for each project and hands one to every
 coding-agent session, so the agent's Unity Editor opens in seconds instead of re-importing the
@@ -77,6 +77,7 @@ winget, whose gate runs on Windows.
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ✅ Done | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
 | ✅ Done | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | v0.5.0 |
+| 🚧 In progress | [Early Benchmarking](https://github.com/weslo/upool/milestone/8) | Step timings for every slot and Editor operation, and the `upool-benchmark` skill with the run record ([#266](https://github.com/weslo/upool/issues/266), [#267](https://github.com/weslo/upool/issues/267)); the first run's record is still to come | v0.6.0 |
 | 🔜 Next | [🪟 Windows Compatibility](https://github.com/weslo/upool/milestone/7) | upool on Windows, installed from winget, starting with a spike that measures what the design rests on there ([#261](https://github.com/weslo/upool/issues/261)) | — |
 
 ## 📚 Documentation
