@@ -7,6 +7,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-03
+
 ### Fixed
 
 - A re-warm's close no longer leaves the slot `warming` with its Editor live (#273). A plain
