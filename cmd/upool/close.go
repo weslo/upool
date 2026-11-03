@@ -77,7 +77,7 @@ func closeEditor(inv *invocation) (any, []string, error) {
 	}
 	inv.timer.Pool(inv.home, rp.repo.Key)
 	inv.timer.Slot(s.Name)
-	r, warnings, err := closeSlotEditor(ctx, inv, rp, s)
+	r, warnings, err := closeSlotEditor(ctx, inv, rp, s, false)
 	if err != nil {
 		return nil, warnings, err
 	}
@@ -85,10 +85,12 @@ func closeEditor(inv *invocation) (any, []string, error) {
 }
 
 // closeSlotEditor is close's work on slot s of the pool rp, which release also does for an Editor
-// upool opened: it returns what it did and the CLI's warnings. It times closeEditor's step 1 as
-// save_all and steps 2 to 4 as close (#266).
+// upool opened, and refresh for the Editor of a re-warm: it returns what it did and the CLI's
+// warnings. It times closeEditor's step 1 as save_all and steps 2 to 4 as close (#266). With
+// retry, a plain close that leaves the Editor running is sent again and then forced, as A48 has
+// it for an Editor upool opened headless and that holds no work: the re-warm's (#273).
 func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
-	s pool.Slot) (closeReport, []string, error) {
+	s pool.Slot, retry bool) (closeReport, []string, error) {
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
 	err := inv.timer.Step("save_all", "", func() error { return client.SaveAll(ctx, s.Path) })
 	if err != nil {
@@ -104,7 +106,11 @@ func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	var warnings []string
 	err = inv.timer.Step("close", "", func() error {
 		var err error
-		r, warnings, err = shutSlotEditor(ctx, inv, rp, s, false)
+		if retry {
+			r, warnings, err = shutSlotEditorRetrying(ctx, inv, rp, s)
+		} else {
+			r, warnings, err = shutSlotEditor(ctx, inv, rp, s, false)
+		}
 		return err
 	})
 	return r, warnings, err
@@ -122,19 +128,52 @@ func shutSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	if err != nil {
 		return closeReport{}, warnings, err
 	}
+	r, more, err := shutDone(ctx, inv, client, rp, s, closed, force)
+	return r, append(warnings, more...), err
+}
 
-	procs := inv.checker()
-	pids, headless, err := editorPIDs(inv.home, s.Path, closed.PID)
+// shutSlotEditorRetrying is shutSlotEditor for a ready Editor upool opened headless: the plain
+// close is sent again while it leaves the Editor running, and the Editor is closed with --force
+// once unity.CloseRetryTimeout has passed (unity.ShutRetrying; A48; #273). The process it watches
+// is the one the ledger records for the slot; with none recorded, the close is plain and sent
+// once.
+func shutSlotEditorRetrying(ctx context.Context, inv *invocation, rp registeredPool,
+	s pool.Slot) (closeReport, []string, error) {
+	pids, _, err := editorPIDs(inv.home, s.Path, 0)
+	if err != nil {
+		return closeReport{}, nil, err
+	}
+	if len(pids) == 0 {
+		return shutSlotEditor(ctx, inv, rp, s, false)
+	}
+	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
+	closed, forced, warnings, err := client.ShutRetrying(ctx, inv.checker(), s.Path, pids[0],
+		inv.now)
 	if err != nil {
 		return closeReport{}, warnings, err
 	}
+	r, more, err := shutDone(ctx, inv, client, rp, s, closed, forced)
+	return r, append(warnings, more...), err
+}
+
+// shutDone is shutSlotEditor's steps 3 and 4 once `unity close` has reported the Editor closed:
+// the wait for its processes to be gone, the ledger, the instance files a forced close left (A45),
+// and the scene list of a headless Editor upool opened (A8).
+func shutDone(ctx context.Context, inv *invocation, client unity.Client, rp registeredPool,
+	s pool.Slot, closed unity.Closed, forced bool) (closeReport, []string, error) {
+	procs := inv.checker()
+	pids, headless, err := editorPIDs(inv.home, s.Path, closed.PID)
+	if err != nil {
+		return closeReport{}, nil, err
+	}
 	if err := unity.WaitGone(procs, s.Path, pids, inv.now); err != nil {
-		return closeReport{}, warnings, err
+		return closeReport{}, nil, err
 	}
 	if _, err := ledger.Remove(ctx, inv.home, procs, s.Path); err != nil {
-		return closeReport{}, warnings, err
+		return closeReport{}, nil, err
 	}
-	if force {
+	var warnings []string
+	if forced {
 		warnings = append(warnings, clone.ClearLeftovers(ctx, client, s.Path, pids)...)
 	}
 	r := closeReport{Slot: s.Name, Path: s.Path, PID: closed.PID, Method: closed.Method}

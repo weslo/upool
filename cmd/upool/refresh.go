@@ -32,9 +32,12 @@ const refreshUsage = "refresh [--fetch] [--json]"
 // `origin/<base>` after a `git fetch` with --fetch, and re-warms its Library with a headless
 // Editor, so that the next open imports nothing ((f) transitions 3 and 18; docs/design.md, "Slot
 // lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`";
-// #97). While it runs it is the pool's refresh_job, which status announces; a refresh that finds
-// another live one leaves the work to it and exits 0 ((e)). Its steps are each reset, the mirror,
-// each clone, and each move to base and re-warm, every one but the mirror naming its slot (#266).
+// #97). Before the top-up it closes the Editor an earlier re-warm left live in a warming slot
+// whose owner died, and checks that slot again (closeLeftovers; (f) transition 22; #273). While
+// it runs it is the pool's refresh_job, which status announces; a refresh that finds another live
+// one leaves the work to it and exits 0 ((e)). Its steps are each reset, each close of a leftover
+// Editor, the mirror, each clone, and each move to base and re-warm, every one but the mirror
+// naming its slot (#266).
 var refreshCommand = command{
 	usage: refreshUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -55,11 +58,13 @@ type refreshReport struct {
 	// Running is the process ID of the refresh already running, which this one left the work to,
 	// or 0 when this one did it.
 	Running int `json:"running,omitempty"`
-	// Reset and Cloned are the slots this refresh reset to ready and cloned, by name, and Mirrored
-	// the free slots whose .worktreeinclude files it changed (A44).
-	Reset    []string       `json:"reset"`
-	Mirrored []mirroredSlot `json:"mirrored"`
-	Cloned   []string       `json:"cloned"`
+	// Reset and Cloned are the slots this refresh reset to ready and cloned, by name, Recovered
+	// the warming slots whose leftover Editor it closed and that it then returned to the pool
+	// (#273), and Mirrored the free slots whose .worktreeinclude files it changed (A44).
+	Reset     []string       `json:"reset"`
+	Recovered []leftoverSlot `json:"recovered"`
+	Mirrored  []mirroredSlot `json:"mirrored"`
+	Cloned    []string       `json:"cloned"`
 	// Stopped is why it cloned no more.
 	Stopped string `json:"stopped,omitempty"`
 	// Base is where the ready slots belong, the pool's base or, with --fetch, origin/<base>, and
@@ -89,6 +94,14 @@ func (r refreshReport) Human() string {
 	var lines []string
 	for _, s := range r.Reset {
 		lines = append(lines, "reset "+s)
+	}
+	for _, l := range r.Recovered {
+		then := "returned it to ready"
+		if l.State == pool.StateParked {
+			then = "parked it, since it is dirty"
+		}
+		lines = append(lines, fmt.Sprintf("closed the Editor a re-warm left in %s, process %d, "+
+			"and %s", l.Slot, l.PID, then))
 	}
 	for _, m := range r.Mirrored {
 		lines = append(lines, describeMirrored(m))
@@ -151,8 +164,8 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 	if err != nil {
 		return nil, nil, err
 	}
-	r := refreshReport{Repo: repo, Reset: []string{}, Mirrored: []mirroredSlot{},
-		Cloned: []string{}, Moved: []movedSlot{}}
+	r := refreshReport{Repo: repo, Reset: []string{}, Recovered: []leftoverSlot{},
+		Mirrored: []mirroredSlot{}, Cloned: []string{}, Moved: []movedSlot{}}
 	job, running, err := claimRefreshJob(ctx, inv, key)
 	if err != nil || running != 0 {
 		r.Running = running
@@ -184,6 +197,13 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 		inv.timer.Since("reset", s.Name, begin)
 		r.Reset = append(r.Reset, s.Name)
 	}
+	// An Editor an earlier re-warm left live in a warming slot whose owner died is closed before
+	// the top-up, which counts a warming slot as ready ((f) transition 22; #273).
+	recovered, err := closeLeftovers(ctx, inv, rp, g, warn)
+	if err != nil {
+		return nil, warnings, err
+	}
+	r.Recovered = append(r.Recovered, recovered...)
 	// The free slots get the main checkout's .worktreeinclude files before anything slower, so
 	// that the next handout has them; a slot cloned below copies them from its seed (A44).
 	var mirrored []mirroredSlot

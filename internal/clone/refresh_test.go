@@ -367,11 +367,11 @@ func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
 	}{
 		{"timed out", []fake.Reply{closeTimedOut, closeHeadless}, 2, func(repo string) [][]string {
 			return append(refreshCalls(repo, closedPlain), plain(repo))
-		}, closeRetryInterval},
+		}, unity.CloseRetryInterval},
 		{"unreachable", []fake.Reply{closeUnreachable, closeHeadless}, 2,
 			func(repo string) [][]string {
 				return append(refreshCalls(repo, closedPlain), plain(repo))
-			}, closeRetryInterval},
+			}, unity.CloseRetryInterval},
 		{"failed otherwise", []fake.Reply{otherFailure, closeForced, noInstances}, 2,
 			func(repo string) [][]string {
 				calls := refreshCalls(repo, closedPlain)
@@ -416,7 +416,7 @@ func TestSeedRefresherRetriesAReadyEditorsPlainClose(t *testing.T) {
 	}
 }
 
-// A ready Editor that plain closes leave running until closeRetryTimeout has passed since the
+// A ready Editor that plain closes leave running until unity.CloseRetryTimeout has passed since the
 // first is closed with --force, and the instance files that leaves are removed once `unity status`
 // lists no Editor in the seed (A45). The refresh succeeds, since its Editor was ready and so
 // brought the Library current, and the scene list is put back (A48; #252). The waits pass on
@@ -430,8 +430,8 @@ func TestSeedRefresherForcesAReadyEditorPlainClosesCannotClose(t *testing.T) {
 	e.WriteFile("Temp/UnityLockfile", "")
 	scenes := e.Path("Library/" + pool.SceneListFile)
 	e.WriteFile("Library/"+pool.SceneListFile, "sceneSetups: [Main]\n")
-	// A close every closeRetryInterval from the first to the one at closeRetryTimeout.
-	closes := int(closeRetryTimeout/closeRetryInterval) + 1
+	// A close every unity.CloseRetryInterval from the first to the one at unity.CloseRetryTimeout.
+	closes := int(unity.CloseRetryTimeout/unity.CloseRetryInterval) + 1
 	replies := []fake.Reply{openHeadless(e.Repo), statusReady}
 	want := refreshCalls(e.Repo, notClosed)
 	for range closes {
