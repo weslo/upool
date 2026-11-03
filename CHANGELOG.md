@@ -21,8 +21,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A benchmarking process (#267). The `upool-benchmark` skill, at
   `skills/upool-benchmark/SKILL.md`, says how to benchmark a body of work by running its sessions
   on upool slots: what to describe, by shape and never by name; what to measure from outside the
-  sessions, with upool's own numbers read from the timings log; how to run the sessions and what
-  each one's brief says; and the scrub before a record leaves the project. A project installs it
+  sessions, with upool's own numbers read from the timings log, which has no `take` or `release`
+  line for a session the desktop app's hook gave a slot, an Editor's memory counted with its
+  children's, and the lane guard named as blind to an Editor's own saves (#270); how to run the
+  sessions and what each one's brief says; and the scrub before a record leaves the project. A
+  project installs it
   with `npx skills add weslo/upool --skill upool-benchmark`; `upool init` does not write it, and
   the binary does not embed it. `docs/benchmarking.md` says what a benchmark is for and holds the
   run record's template, and each run's record lands under `docs/benchmarks/` by pull request,
