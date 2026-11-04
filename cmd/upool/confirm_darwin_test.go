@@ -3,13 +3,18 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -256,4 +261,144 @@ func TestConfirmRefusesWhatIsNotALeasedSlot(t *testing.T) {
 	if got := p.stateOf(t, "slot-1"); got.State != pool.StateReady || got.Lease != nil {
 		t.Errorf("slot-1 = %+v, want it ready and unleased", got)
 	}
+}
+
+// The acceptance test of #284: the startup that confirms a slot the create hook leased leaves it
+// detached at base, since a hook's handout stays detached (A18), and the context it prints tells
+// the session how to branch from the pool's base: after `git fetch origin`, from origin/<base>,
+// when the repository has it, and from the base itself when it has no origin (A17). It reads the
+// slot after the confirm, so a slot its last session left on a branch, handed out from
+// needs-reset, is told the same once the deferred reset has detached it. The commands the context
+// gives make the session's branch in the slot, and the checkout it forbids is one git refuses
+// there, naming the main checkout, which has the base checked out. Once the session is on its
+// branch, a compaction, which sends the instructions again, and a subagent's start tell it only
+// never to check out the base: a branch from base would leave the session's work behind.
+func TestConfirmLeavesTheSlotDetachedAndItsContextSaysHowToBranch(t *testing.T) {
+	for _, tt := range []struct {
+		name               string
+		onOrigin, lastWork bool
+	}{{"no origin", false, false}, {"origin", true, false}, {"needs-reset", false, true}} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := newHarnessPool(t)
+			if tt.onOrigin {
+				origin := tempDir(t)
+				p.Git("init", "-q", "--bare", "-b", testenv.Base, origin)
+				p.Git("remote", "add", "origin", origin)
+				p.Git("push", "-q", "origin", testenv.Base)
+			}
+			if tt.lastWork {
+				slot := p.slot("slot-1")
+				p.Git("-C", slot, "checkout", "-q", "-b", "old-work")
+				p.Git("-C", slot, "commit", "-q", "--allow-empty", "-m", "The last session's work")
+				p.update(t, func(pl *pool.Pool) {
+					pl.Slots[0].State = pool.StateNeedsReset
+					pl.Slots[1].State = pool.StateParked
+				})
+			}
+			p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
+			s := p.hookLease(t)
+			if tt.lastWork && !s.Lease.ResetPending {
+				t.Fatalf("the hook's take leased %+v, want reset_pending", s)
+			}
+			detached := assets.Branching{Base: testenv.Base, Detached: true, OnOrigin: tt.onOrigin}
+			out := runStartHook(t, p, "session-start", "session-start.json", s.Path, detached)
+			if got := p.stateOf(t, s.Name); got.State != pool.StateLeased ||
+				!got.Lease.Confirmed || got.Lease.ResetPending {
+				t.Errorf("%s = %+v, want it leased and confirmed, with no reset pending", s.Name,
+					got)
+			}
+			if got := p.Git("-C", s.Path, "branch", "--show-current"); got != "" {
+				t.Errorf("the slot's branch = %q, want none: the handout stays detached", got)
+			}
+
+			forbidden, branch := branchCommands(t, out)
+			if want := "git checkout " + testenv.Base; forbidden != want {
+				t.Errorf("the context forbids %q, want %q", forbidden, want)
+			}
+			res, err := git.Exec{}.Run(context.Background(), s.Path, p.Environ(),
+				strings.Fields(forbidden)[1:]...)
+			if err != nil || res.ExitCode == 0 || !strings.Contains(string(res.Stderr), p.Repo) {
+				t.Errorf("%s in the slot: exit %d, stderr %q, %v; want git's refusal naming %s",
+					forbidden, res.ExitCode, res.Stderr, err, p.Repo)
+			}
+			for _, c := range branch {
+				p.Git(append([]string{"-C", s.Path},
+					strings.Fields(strings.ReplaceAll(c, "<name>", "issue-284"))[1:]...)...)
+			}
+			if got := p.Git("-C", s.Path, "branch", "--show-current"); got != "issue-284" {
+				t.Errorf("after %q, the slot's branch = %q, want issue-284", branch, got)
+			}
+			if got := p.Git("-C", s.Path, "rev-parse", "HEAD"); got != p.BaseCommit {
+				t.Errorf("issue-284 is at %s, want base's commit %s", got, p.BaseCommit)
+			}
+
+			onBranch := assets.Branching{Base: testenv.Base}
+			runStartHook(t, p, "session-start", "session-start-compact.json", s.Path, onBranch)
+			runStartHook(t, p, "subagent-start", "cli-subagent-start.json", s.Path, onBranch)
+		})
+	}
+}
+
+// runStartHook runs `upool hook <event>` in p through the dispatcher on capture, its cwd dir, and
+// fails the test unless it exits 0, prints the context document that says what b says about
+// branching, and says nothing on stderr. It returns what the hook printed. The top-up a startup's
+// confirm starts is /usr/bin/true, which does nothing, so that no refresh outlives the test.
+func runStartHook(t *testing.T, p harnessPool, event, capture, dir string,
+	b assets.Branching) string {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	d := dispatcher{commands: commandTable, hooks: hookTable,
+		stdin:  strings.NewReader(slotStdin(t, p, capture, dir)),
+		stdout: &out, stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
+		now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid(),
+		executable: func() (string, error) { return "/usr/bin/true", nil }}
+	code := d.run([]string{"hook", event})
+	wantEvent := map[string]string{"session-start": hooks.EventSessionStart,
+		"subagent-start": hooks.EventSubagentStart}[event]
+	doc, err := hooks.ContextDocument(wantEvent, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != output.ExitOK || out.String() != doc+"\n" || errOut.Len() != 0 {
+		t.Fatalf("hook %s on %s: exit %d, stdout %q, stderr %q; want 0, the context for %+v "+
+			"and nothing", event, capture, code, out.String(), errOut.String(), b)
+	}
+	return out.String()
+}
+
+// branchCommands returns, from doc, the context document a session-start hook printed, the
+// command its instructions forbid in the slot and the ones they give to make the session's branch,
+// in order: each `git …` in backticks in the item that says the slot starts detached (#284).
+func branchCommands(t *testing.T, doc string) (forbidden string, branch []string) {
+	t.Helper()
+	var d struct {
+		Out struct {
+			Context string `json:"additionalContext"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal([]byte(doc), &d); err != nil {
+		t.Fatal(err)
+	}
+	var item string
+	for _, line := range strings.Split(d.Out.Context, "\n") {
+		if strings.HasPrefix(line, "- Your slot starts detached at ") {
+			item = line
+		}
+	}
+	spans := strings.Split(item, "`")
+	for i := 1; i < len(spans); i += 2 {
+		if !strings.HasPrefix(spans[i], "git ") {
+			continue
+		}
+		if forbidden == "" {
+			forbidden = spans[i]
+		} else {
+			branch = append(branch, spans[i])
+		}
+	}
+	if forbidden == "" || len(branch) == 0 {
+		t.Fatalf("the context has no item that forbids a command and gives a branch's: %q",
+			d.Out.Context)
+	}
+	return forbidden, branch
 }

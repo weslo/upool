@@ -75,6 +75,12 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.HeadReachable(context.Background(), "/work/slot")
 			return err
 		}, []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)"}},
+		{"HeadContainedIn", func(c Client) error {
+			_, err := c.HeadContainedIn(context.Background(), "/work/slot", "refs/heads/main",
+				"refs/remotes/origin/main")
+			return err
+		}, []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)",
+			"refs/heads/main", "refs/remotes/origin/main"}},
 		{"TopLevel", func(c Client) error {
 			_, err := c.TopLevel(context.Background(), "/work/slot")
 			return err
@@ -132,6 +138,10 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.BranchExists(context.Background(), "/work/slot", "feature/x")
 			return err
 		}, []string{"show-ref", "--verify", "--quiet", "refs/heads/feature/x"}},
+		{"RemoteBranchExists", func(c Client) error {
+			_, err := c.RemoteBranchExists(context.Background(), "/work/slot", "origin", "main")
+			return err
+		}, []string{"show-ref", "--verify", "--quiet", "refs/remotes/origin/main"}},
 		{"CheckoutBranch", func(c Client) error {
 			return c.CheckoutBranch(context.Background(), "/work/slot", "feature/x")
 		}, []string{"checkout", "-q", "feature/x"}},

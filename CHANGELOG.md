@@ -89,6 +89,19 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
   say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
   "Context for the session").
+- The instructions a slot's sessions and their subagents get at start say, in one line that names
+  the pool's base, that the main checkout has the base checked out, so `git checkout <base>` must
+  never run there (#284; docs/contracts.md (b), "Context for the session"). A session whose slot is
+  still detached as it was handed out is also told how to branch: the slot starts detached at the
+  base, the session makes its branch with `git fetch origin`, then `git switch -c <name>
+  origin/<base>`, or from `<base>` itself in a repository with no `origin/<base>`, and a commit
+  left on the detached HEAD parks the slot when the session ends. Once the session has made its
+  branch, or committed on the detached HEAD, later starts such as a compaction no longer say so,
+  and a subagent never hears it: a branch from base would leave the session's work behind. On the
+  first benchmark run each session made its branch itself, and an issue skill's `git checkout
+  main` could not run in a slot. The handout itself is unchanged: a slot is still handed out
+  detached, and confirming it checks out no branch (A18). Whether a session in the desktop app
+  gets the line and acts on it is docs/manual-gates/M7.md check 12, not yet run.
 - The RAM budget charges an Editor by its mode, so that a refusal means memory is short (#287;
   docs/contracts.md (h), A9 as amended). The first benchmark run measured three GUI Editors at
   work, with their children, at 19.0 GB together, against the 7.5 GB the single 2.5 GB charge gave
