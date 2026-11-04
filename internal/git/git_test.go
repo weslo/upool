@@ -75,6 +75,12 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.HeadReachable(context.Background(), "/work/slot")
 			return err
 		}, []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)"}},
+		{"HeadContainedIn", func(c Client) error {
+			_, err := c.HeadContainedIn(context.Background(), "/work/slot", "refs/heads/main",
+				"refs/remotes/origin/main")
+			return err
+		}, []string{"for-each-ref", "--contains", "HEAD", "--format=%(refname)",
+			"refs/heads/main", "refs/remotes/origin/main"}},
 		{"TopLevel", func(c Client) error {
 			_, err := c.TopLevel(context.Background(), "/work/slot")
 			return err

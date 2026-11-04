@@ -64,9 +64,11 @@ func (h harness) compactIn(t *testing.T, dir string) string {
 }
 
 // A session is told to make its branch from origin/<base> only while its slot is as it was handed
-// out, detached at a commit some ref holds (#284). Once it has made its branch, or committed on
-// the detached HEAD, a start that sends the instructions again, as compact and resume do, tells it
-// only never to check base out: a branch from base would leave its work behind.
+// out, detached at a commit base holds (#284). Once it has made its branch, or committed on the
+// detached HEAD, a start that sends the instructions again, as compact and resume do, tells it
+// only never to check base out: a branch from base would leave its work behind. So it does when
+// another ref holds that commit, as a `git branch` that does not switch, or a push of the
+// detached HEAD, which writes the remote-tracking branch too, leaves it.
 func TestSessionStartTellsOnlyADetachedSessionToBranchFromBase(t *testing.T) {
 	h, slot := originHarness(t)
 	inSlot := func(args ...string) { h.e.Git(append([]string{"-C", slot}, args...)...) }
@@ -86,6 +88,16 @@ func TestSessionStartTellsOnlyADetachedSessionToBranchFromBase(t *testing.T) {
 	inSlot("add", "-A")
 	inSlot("commit", "-qm", "work on the detached HEAD")
 	checkContextFor(t, h.compactIn(t, slot), EventSessionStart, notBranching)
+	inSlot("branch", "issue-285")
+	inSlot("update-ref", "refs/remotes/origin/issue-285", "HEAD")
+	checkContextFor(t, h.compactIn(t, slot), EventSessionStart, notBranching)
+
+	// Once origin's base holds the commit, as after a fetch of the merged work, or as when
+	// `refresh --fetch` moves a ready slot to origin/<base> past the local base, a branch from
+	// origin/<base> leaves nothing behind, and the session is told to make one.
+	inSlot("update-ref", "refs/remotes/origin/"+testenv.Base, "HEAD")
+	checkContextFor(t, h.compactIn(t, slot), EventSessionStart,
+		assets.Branching{Base: testenv.Base, Detached: true, OnOrigin: true})
 	if h.stderr.Len() != 0 {
 		t.Errorf("stderr = %q, want nothing", h.stderr.String())
 	}

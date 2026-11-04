@@ -37,10 +37,10 @@ type Branching struct {
 	// `base`; A17), which the main checkout has checked out.
 	Base string
 	// Detached is whether the reader is a session whose slot is as it was handed out: detached,
-	// at a commit some ref holds. Only such a session is told to make its branch from base. One
-	// that has made its branch, or committed on the detached HEAD, would leave its own work
-	// behind, and so would a subagent, whose worktree, the slot or one made at the slot's HEAD,
-	// is wherever the session has taken it.
+	// at a commit base holds. Only such a session is told to make its branch from base. One that
+	// has made its branch, or committed on the detached HEAD, would leave its own work behind,
+	// and so would a subagent, whose worktree, the slot or one made at the slot's HEAD, is
+	// wherever the session has taken it.
 	Detached bool
 	// OnOrigin is whether the repository has origin/<Base>, which a Detached session branches from
 	// after a fetch. A repository with no origin, which A17 allows, has none, and the session

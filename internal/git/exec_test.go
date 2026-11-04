@@ -164,6 +164,36 @@ func TestHeadReachableFalseForDetachedCommit(t *testing.T) {
 	}
 }
 
+// HeadContainedIn asks only about the refs it names: a worktree detached at main's commit is held
+// by main, a commit past it is not, though another branch, and a remote-tracking branch as a push
+// would write, hold it; a ref that does not exist is passed over, and naming none is an error.
+func TestHeadContainedInAsksOnlyAboutTheRefsItNames(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	slot := filepath.Join(filepath.Dir(repo), "slot-1")
+	must(t, c, repo, "worktree", "add", "-q", "--detach", slot)
+	ctx := context.Background()
+	base := []string{"refs/heads/main", "refs/remotes/origin/main"}
+	if ok, err := c.HeadContainedIn(ctx, slot, base...); err != nil || !ok {
+		t.Errorf("HeadContainedIn(%q) at main's commit = %v, %v; want true", base, ok, err)
+	}
+	writeFile(t, slot, "work.txt", "a session's work\n")
+	must(t, c, slot, "add", "work.txt")
+	must(t, c, slot, "commit", "-q", "-m", "work on a detached HEAD")
+	must(t, c, slot, "branch", "issue-284")
+	must(t, c, slot, "update-ref", "refs/remotes/origin/issue-284", "HEAD")
+	if ok, err := c.HeadContainedIn(ctx, slot, base...); err != nil || ok {
+		t.Errorf("HeadContainedIn(%q) past main = %v, %v; want false, though issue-284 and "+
+			"origin/issue-284 hold it", base, ok, err)
+	}
+	if ok, err := c.HeadContainedIn(ctx, slot, "refs/heads/issue-284"); err != nil || !ok {
+		t.Errorf("HeadContainedIn(refs/heads/issue-284) = %v, %v; want true", ok, err)
+	}
+	if _, err := c.HeadContainedIn(ctx, slot); err == nil {
+		t.Error("HeadContainedIn naming no ref = nil error, want one")
+	}
+}
+
 // The spike's remove hook found `?? spike-reuse.txt` in a slot it had to park
 // (testdata/captures/git/remove-status-untracked.txt). The test builds that state with real git.
 func TestStatusReportsCapturedUntrackedEntry(t *testing.T) {

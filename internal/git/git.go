@@ -267,6 +267,24 @@ func (c Client) HeadReachable(ctx context.Context, dir string) (bool, error) {
 	return len(bytes.TrimSpace(out)) > 0, nil
 }
 
+// HeadContainedIn reports whether one of refs, each a full ref name such as refs/heads/main,
+// contains the HEAD of the worktree at dir: `git for-each-ref --contains HEAD <refs>…` prints at
+// least one line. A ref that does not exist is passed over. It asks only about refs, not every
+// ref as HeadReachable does: the session context tells a session to branch from base only while
+// base holds its HEAD, so that a commit of its own, on whatever other ref, is never left behind
+// (docs/contracts.md (b), "Context for the session"; #284). With no refs it is an error, rather
+// than a walk of every ref.
+func (c Client) HeadContainedIn(ctx context.Context, dir string, refs ...string) (bool, error) {
+	if len(refs) == 0 {
+		return false, errors.New("asking which refs contain HEAD, but naming none")
+	}
+	out, err := c.run(ctx, dir, append(slices.Clone(headReachableArgs), refs...)...)
+	if err != nil {
+		return false, err
+	}
+	return len(bytes.TrimSpace(out)) > 0, nil
+}
+
 // topLevelArgs is the call that finds a worktree's top level.
 var topLevelArgs = []string{"rev-parse", "--show-toplevel"}
 

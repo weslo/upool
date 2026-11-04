@@ -31,19 +31,20 @@ func ContextDocument(event string, b assets.Branching) (string, error) {
 
 // sessionBranching returns what the instructions tell a session in ref's slot about branching
 // (#284). The session is told to make its branch from the pool's base only while its slot is as it
-// was handed out: detached, at a commit some ref holds, which a startup's confirm, run first, may
-// just have made it with the deferred reset (A5). A session that has made its branch, or committed
-// on the detached HEAD, would leave its own work behind, as a `compact` or `resume` start that
-// sends the instructions again would tell it to. Such a session is told only never to check base
-// out. A Detached session branches from origin/<base> when the repository has it. sessionBranching
-// asks git: in the slot, whether HEAD is detached and held by a ref, and in the main checkout,
-// which shares its refs with every slot, whether origin has the base. When git cannot say, it
-// warns on stderr and says less: nothing of making a branch when the slot's HEAD is unknown, and
-// the base alone, which a session can branch from in any repository, when origin is. A failed
-// check costs the session advice, never its instructions.
+// was handed out: detached, at a commit base holds, which a startup's confirm, run first, may just
+// have made it with the deferred reset (A5). A session that has made its branch, or committed on
+// the detached HEAD, would leave its own work behind, as a `compact` or `resume` start that sends
+// the instructions again would tell it to: so would one whose commit another ref holds, as a push
+// of the detached HEAD or a `git branch` that does not switch leaves it. Such a session is told
+// only never to check base out. A Detached session branches from origin/<base> when the repository
+// has it. sessionBranching asks git: in the slot, whether HEAD is detached and held by base, and in
+// the main checkout, which shares its refs with every slot, whether origin has the base. When git
+// cannot say, it warns on stderr and says less: nothing of making a branch when the slot's HEAD is
+// unknown, and the base alone, which a session can branch from in any repository, when origin is.
+// A failed check costs the session advice, never its instructions.
 func sessionBranching(ctx context.Context, env Env, ref slotRef) assets.Branching {
 	b := assets.Branching{Base: ref.pool.Base}
-	detached, err := handedOut(ctx, env.Git, ref.slot.Path)
+	detached, err := handedOut(ctx, env.Git, ref.slot.Path, b.Base)
 	if err != nil {
 		// stderr is for warnings only; stdout would reach the session's context.
 		_, _ = fmt.Fprintf(env.Stderr, "upool: warning: could not tell whether %s is detached, so "+
@@ -63,15 +64,17 @@ func sessionBranching(ctx context.Context, env Env, ref slotRef) assets.Branchin
 	return b
 }
 
-// handedOut reports whether the worktree at dir is as a slot is handed out: its HEAD detached,
-// at a commit some ref holds, so that no commit of a session's would be left behind
-// (docs/contracts.md (f), the definition of clean).
-func handedOut(ctx context.Context, g git.Client, dir string) (bool, error) {
+// handedOut reports whether the worktree at dir is as a slot is handed out: its HEAD detached, at
+// a commit base holds, as the local branch or as origin's, where `refresh --fetch` moves a ready
+// slot ((f) transition 3), so that no commit of a session's would be left behind by a branch from
+// base. It asks git about those two refs alone, not every ref: a session's own branch, or the
+// remote-tracking branch its push wrote, holds its own commits.
+func handedOut(ctx context.Context, g git.Client, dir, base string) (bool, error) {
 	_, onBranch, err := g.SymbolicRef(ctx, dir, "HEAD")
 	if err != nil || onBranch {
 		return false, err
 	}
-	return g.HeadReachable(ctx, dir)
+	return g.HeadContainedIn(ctx, dir, "refs/heads/"+base, "refs/remotes/origin/"+base)
 }
 
 // SubagentStart handles a SubagentStart request: for a subagent of a session in a slot, found by
