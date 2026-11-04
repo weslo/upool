@@ -17,6 +17,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   output is unchanged. Plain `status` shows its pool as `--all` does, every slot, `creating` and
   `warming` ones included, and the running refresh, and is now tested to, from the main checkout
   and from inside a slot.
+- `upool close --force` saves nothing and closes the slot's Editor with `unity close <slot>
+  --force`, then removes the instance files a forced close leaves, as A45 has it, and puts back a
+  headless Editor's scene list (#280; docs/contracts.md A48, as amended). It is the way out of an
+  Editor that will not close when nothing in it is unsaved, and it discards anything that is. It
+  says `closed slot-N's Editor without saving`, reports `"saved": false` under `--json`, and times
+  the close as its one step. Every close's `--json` now reports `saved`.
 
 ### Changed
 
@@ -53,6 +59,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
   passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
   once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
+- `upool close` can no longer be hung by a native Save panel (#280). On the first benchmark run,
+  `save_all` opened one for an open scene with no path, which a development build's restore had
+  left, and held the Editor until a person dismissed it. `close`, and `release` for an Editor upool
+  opened, now list the Editor's open scenes first, with `unity command eval`. When one has no path,
+  they skip save_all, which cannot be told to pass a scene over. They save each scene that has a
+  path and unsaved changes on its own instead, and a warning on stderr names each scene they did
+  not save. A listing that fails any other way than a timeout is a warning, and save_all saves
+  every scene as before. Each call that lists or saves is bounded at 20 s. A save that runs out,
+  or whose re-query meets the main-thread timeout again, fails the close. For a GUI Editor, the
+  message names a native panel as the likely cause: press Cancel in the slot's Editor and run the
+  command again, or `upool close --force` if nothing is unsaved. A headless Editor, which has no
+  window, gets the plain failure (docs/contracts.md (d); A48, as amended). The replies of the
+  listing, of the one-scene save and of a `save_all` a panel holds are not yet captured from a
+  real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
 
 ## [0.6.1] - 2026-11-03
 

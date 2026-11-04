@@ -25,23 +25,25 @@ func slot1Editor(p harnessPool, openedByUpool bool) ledger.Editor {
 		OpenedByUpool: openedByUpool, ChargeGB: 2.5}
 }
 
-// unityArgs are the arguments of u's calls, in order.
+// unityArgs are the arguments of u's calls, in order, each eval's as evalShape writes it.
 func unityArgs(u *fake.Unity) [][]string {
 	var args [][]string
 	for _, c := range u.Calls() {
-		args = append(args, c.Args)
+		args = append(args, evalShape(c.Args))
 	}
 	return args
 }
 
 // The acceptance test of #92, release: with the Editor upool opened in slot-1 running, release
-// saves and closes it first, then verifies the slot and resets it between the cache key
-// comparison's two calls. The fake's log is save_all, close, projects verify, then cache key twice
-// around the reset; the Editor's process is gone once the close returns, and the ledger is empty.
+// saves and closes it first, as close does, then verifies the slot and resets it between the
+// cache key comparison's two calls. The fake's log is the scene listing (#280), save_all, close,
+// projects verify, then cache key twice around the reset; the Editor's process is gone once the
+// close returns, and the ledger is empty.
 func TestReleaseClosesItsEditor(t *testing.T) {
 	p := takenPool(t)
-	u := p.installUnity(t, saveAllReply, closeReply, p.verifyReply("projects-verify-pass.json", 0),
-		fake.Reply{Capture: "cache-key.json"}, fake.Reply{Capture: "cache-key.json"})
+	u := p.installUnity(t, titledScenes, saveAllReply, closeReply,
+		p.verifyReply("projects-verify-pass.json", 0), fake.Reply{Capture: "cache-key.json"},
+		fake.Reply{Capture: "cache-key.json"})
 	writeLedger(t, p, slot1Editor(p, true))
 	// Running when release looks, gone once `unity close` has returned.
 	procs := &dyingStart{editorProcs: procsAlive(), pid: closedPID, starts: 1}
@@ -53,8 +55,7 @@ func TestReleaseClosesItsEditor(t *testing.T) {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr, want)
 	}
 	slot := p.slot("slot-1")
-	wantCalls := [][]string{{"command", "save_all", "--format", "json"},
-		{"close", slot, "--format", "json"},
+	wantCalls := [][]string{listingArgs, saveAllArgs, {"close", slot, "--format", "json"},
 		{"projects", "verify", slot, "--strict", "--format", "json"},
 		{"cache", "key", slot, "--format", "json"}, {"cache", "key", slot, "--format", "json"}}
 	if got := unityArgs(u); !slices.EqualFunc(got, wantCalls, slices.Equal) {
@@ -89,26 +90,44 @@ func TestReleaseRefusesAnEditorUpoolDidNotOpen(t *testing.T) {
 }
 
 // A save that fails stops release before anything else: the Editor is neither closed nor charged
-// off, the slot stays leased, and its work is not reset away.
+// off, the slot stays leased, and its work is not reset away. A save that timed out says what to
+// do, as close's does, with release as the command to run again (#280).
 func TestReleaseStopsWhenItsEditorCannotSave(t *testing.T) {
-	p := takenPool(t)
-	u := p.installUnity(t, fake.Reply{Capture: "command-eval-no-pipeline-instance.json",
-		Vars: spikeVars, Exit: 6})
-	e := slot1Editor(p, true)
-	writeLedger(t, p, e)
-	r := runProcs(t, p.Env, p.Repo, procsAlive(closedPID), func() time.Time { return clock },
-		"release", "feature-x")
-	if r.code != output.ExitFailure || !strings.Contains(r.stderr, "releasing slot-1: not "+
-		"closing the Editor of "+p.slot("slot-1")+", since saving its scenes failed") {
-		t.Errorf("exit %d, stderr %q; want 1 and the failed save", r.code, r.stderr)
+	for _, tt := range []struct {
+		name    string
+		replies []fake.Reply
+		says    string
+	}{
+		{"failed", []fake.Reply{titledScenes, {Capture: "command-eval-no-pipeline-instance.json",
+			Vars: spikeVars, Exit: 6}}, ", since saving its scenes failed"},
+		{"timed out", []fake.Reply{titledScenes, mainThreadTimeout, mainThreadTimeout},
+			", since saving its scenes timed out: a native panel open in the Editor"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := takenPool(t)
+			u := p.installUnity(t, tt.replies...)
+			e := slot1Editor(p, true)
+			writeLedger(t, p, e)
+			r := runProcs(t, p.Env, p.Repo, procsAlive(closedPID),
+				func() time.Time { return clock }, "release", "feature-x")
+			if r.code != output.ExitFailure || !strings.Contains(r.stderr, "releasing slot-1: "+
+				"not closing the Editor of "+p.slot("slot-1")+tt.says) {
+				t.Errorf("exit %d, stderr %q; want 1 and the failed save", r.code, r.stderr)
+			}
+			if tt.name == "timed out" && !strings.Contains(r.stderr,
+				"then run `upool release` again") {
+				t.Errorf("stderr %q, want it to say to run upool release again", r.stderr)
+			}
+			if got := unityArgs(u); len(got) != len(tt.replies) || slices.ContainsFunc(got,
+				func(a []string) bool { return a[0] != "command" }) {
+				t.Errorf("unity calls = %q, want the listing and the save alone", got)
+			}
+			if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased {
+				t.Errorf("slot-1 = %s, want it still leased", s.State)
+			}
+			checkEditors(t, p, e)
+		})
 	}
-	if got := unityArgs(u); len(got) != 1 || got[0][0] != "command" {
-		t.Errorf("unity calls = %q, want save_all alone", got)
-	}
-	if s := p.loadPool(t).Slots[0]; s.State != pool.StateLeased {
-		t.Errorf("slot-1 = %s, want it still leased", s.State)
-	}
-	checkEditors(t, p, e)
 }
 
 // An Editor whose process is gone is no Editor to close: release goes ahead as without one.
