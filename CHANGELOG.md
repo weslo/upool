@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).
+  On the first benchmark run, archiving three sessions through the desktop app's session tool
+  deleted each one's slot and sent upool no `WorktreeRemove`; with the three left `leased` at
+  `max_slots`, `take` could neither reclaim them nor clone, and `doctor --fix` and `prune` changed
+  nothing. Now `take`'s reclaim, `refresh` before its top-up, and `doctor --fix` drop such a slot
+  from `state.json` when the desktop app's record does not name it, pruning a registration git
+  still has, so that a clone can replace it within `max_slots` (docs/contracts.md (f) transition
+  24). `take` and `refresh` say `dropped slot-N from the pool, since its holder, process <pid>, is
+  gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
+  Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
+  A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+
 ## [0.6.1] - 2026-11-03
 
 ### Fixed
