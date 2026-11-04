@@ -101,7 +101,7 @@ by `session_id` (S§7 item 3; D-route).
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
 | The app's Archive button runs the remove hook for a dirty slot too. Archiving through the app's session tool does not: for a dirty worktree it logs `Archived session` and nothing more, runs no `WorktreeRemove` and keeps its record of the worktree, which refuses the path to later sessions ("already in use"), even after the session is deleted, until the session is resumed and archived clean (A28) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
-| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. On Claude Code 2.1.305 in the desktop app of late October 2026, archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
+| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. In the desktop app of late October 2026, running Claude Code 2.1.317 (its log's `[CCD] Initialized with version 2.1.317`, at 11:26 on 2026-11-03, before the archives; 2.1.305 was the machine's `claude` CLI, the version `doctor` checks), archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
@@ -1041,8 +1041,9 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   Amended by A50: the reclaim now leaves such a slot leased while the app's record names it, and
   `doctor` names its worktree and says how to free it.
 
-  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
-  2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
+  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and in the desktop app
+  running Claude Code 2.1.317 the session tool deleted the slots it archived (2.1.305 was the
+  machine's `claude` CLI, the version `doctor` checks), with nothing to say whether the remove
   hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
   `manual-gates/M7.md` check 7 archives a clean and a dirty slot each way on the current build;
   its result fills in (a), "Archive paths", and updates this answer.
