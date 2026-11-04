@@ -36,7 +36,7 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // from the main checkout reports that checkout as its cwd, but works in the slot (A47). The stdin
 // cwd is read and $PWD never is, since the hook's own working directory is the main checkout
 // ((b)). For a session in a slot it returns the context document that gives the session upool's
-// instructions (ContextDocument; A43), on every source, and even when the confirm fails, with that
+// instructions (slotContext; A43), on every source, and even when the confirm fails, with that
 // error. A session in no slot, the main checkout's own among them, is left alone and gets
 // nothing. The hook exits 0 whatever this returns, its error on stderr:
 // SessionStart has no abort role ((d)).
@@ -52,7 +52,7 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	doc, err := ContextDocument(EventSessionStart)
+	doc, err := slotContext(ctx, env, EventSessionStart, ref)
 	if err == nil {
 		env.Log.did(OutcomeContext, ref.slot.Name, "")
 	}

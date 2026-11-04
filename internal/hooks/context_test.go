@@ -5,6 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/weslo/upool/assets"
+	"github.com/weslo/upool/internal/pool"
+	"github.com/weslo/upool/internal/testenv"
 )
 
 // A subagent of a session in a slot gets upool's instructions as SubagentStart context, since it
@@ -32,6 +36,51 @@ func TestSubagentStartGivesASlotSessionsSubagentTheInstructions(t *testing.T) {
 		if got, err := SubagentStart(context.Background(), h.env, req); err != nil || got != "" {
 			t.Errorf("SubagentStart in %s = %q, %v; want nothing", cwd, got, err)
 		}
+	}
+}
+
+// Both start hooks name the pool's base on origin once the repository has origin/<base>, so that
+// the session branches from it after a fetch (#284). When git cannot say, the subagent still gets
+// its instructions, naming the base alone, with a warning on stderr and no error.
+func TestStartContextNamesTheBaseOnOriginWhenTheRepositoryHasIt(t *testing.T) {
+	h := startHarness(t, true, "session")
+	path := filepath.Join(h.e.Repo, ".claude", "worktrees", "slot-1")
+	h.readySlot(t, "slot-1", path)
+	h.e.Git("update-ref", "refs/remotes/origin/"+testenv.Base, "HEAD")
+	onOrigin := assets.Base{Name: testenv.Base, OnOrigin: true}
+	sub := h.capture(t, "cli-subagent-start.json")
+	sub.Cwd = path
+	got, err := SubagentStart(context.Background(), h.env, sub)
+	if err != nil {
+		t.Fatalf("SubagentStart: %v, want no error", err)
+	}
+	checkContextFor(t, got, EventSubagentStart, onOrigin)
+	start := h.capture(t, "session-start-compact.json")
+	start.Cwd = path
+	got, err = SessionStart(context.Background(), h.env, start)
+	if err != nil {
+		t.Fatalf("SessionStart: %v, want no error", err)
+	}
+	checkContextFor(t, got, EventSessionStart, onOrigin)
+	if h.stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing", h.stderr.String())
+	}
+
+	err = pool.Update(context.Background(), h.e.Home, h.key, func(p *pool.Pool) error {
+		p.Repo = t.TempDir()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = SubagentStart(context.Background(), h.env, sub)
+	if err != nil {
+		t.Fatalf("SubagentStart outside a repository: %v, want no error", err)
+	}
+	checkContext(t, got, EventSubagentStart)
+	want := "upool: warning: could not tell whether origin has " + testenv.Base
+	if !strings.HasPrefix(h.stderr.String(), want) {
+		t.Errorf("stderr = %q, want a warning starting %q", h.stderr.String(), want)
 	}
 }
 

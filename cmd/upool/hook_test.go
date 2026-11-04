@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
@@ -269,8 +270,9 @@ func slotStdin(t *testing.T, p harnessPool, file, dir string) string {
 
 // Through the dispatcher, `upool hook session-start` and `upool hook subagent-start` print, for a
 // session in a slot and its subagent, the one line of context that gives them upool's
-// instructions, and exit 0 (A43; #229). A startup whose confirm is refused still prints it, with
-// the refusal on stderr.
+// instructions, naming the pool's base, which the harness's repository, with no origin, has only
+// as a local branch, and exit 0 (A43; #229; #284). A startup whose confirm is refused still
+// prints it, with the refusal on stderr.
 func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
 	p := newHarnessPool(t)
 	p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
@@ -289,7 +291,7 @@ func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
 			stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
 			now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid()}
 		code := d.run([]string{"hook", tt.event})
-		doc, err := hooks.ContextDocument(tt.wantEvent)
+		doc, err := hooks.ContextDocument(tt.wantEvent, assets.Base{Name: testenv.Base})
 		if err != nil {
 			t.Fatal(err)
 		}

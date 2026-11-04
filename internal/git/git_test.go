@@ -132,6 +132,10 @@ func TestCallsSendOneCallWithTheirArguments(t *testing.T) {
 			_, err := c.BranchExists(context.Background(), "/work/slot", "feature/x")
 			return err
 		}, []string{"show-ref", "--verify", "--quiet", "refs/heads/feature/x"}},
+		{"RemoteBranchExists", func(c Client) error {
+			_, err := c.RemoteBranchExists(context.Background(), "/work/slot", "origin", "main")
+			return err
+		}, []string{"show-ref", "--verify", "--quiet", "refs/remotes/origin/main"}},
 		{"CheckoutBranch", func(c Client) error {
 			return c.CheckoutBranch(context.Background(), "/work/slot", "feature/x")
 		}, []string{"checkout", "-q", "feature/x"}},

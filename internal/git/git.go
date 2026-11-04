@@ -639,6 +639,17 @@ func (c Client) BranchExists(ctx context.Context, dir, name string) (bool, error
 	return ok, err
 }
 
+// RemoteBranchExists reports whether the repository holding dir has the remote-tracking branch
+// <remote>/<name>, from `git show-ref --verify --quiet refs/remotes/<remote>/<name>`: exit 0 when
+// it does, 1 when it does not. The session context tells a session to branch from origin/<base>
+// when the repository has it, and from base when it has no origin (docs/contracts.md (b),
+// "Context for the session"; A17).
+func (c Client) RemoteBranchExists(ctx context.Context, dir, remote, name string) (bool, error) {
+	_, ok, err := c.runStatus(ctx, dir, "show-ref", "--verify", "--quiet",
+		"refs/remotes/"+remote+"/"+name)
+	return ok, err
+}
+
 // CheckoutBranch checks the existing branch name out in the worktree at dir:
 // `git checkout -q <name>`. git refuses a branch checked out in another worktree.
 func (c Client) CheckoutBranch(ctx context.Context, dir, name string) error {

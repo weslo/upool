@@ -421,6 +421,22 @@ func TestSymbolicRefFollowsHEADAndOriginHEAD(t *testing.T) {
 	}
 }
 
+// RemoteBranchExists finds origin/main only as a remote-tracking branch, not as a local branch of
+// that name, and not in a repository with no origin.
+func TestRemoteBranchExistsFindsTheRemoteTrackingBranch(t *testing.T) {
+	c := realGit(t)
+	repo, _ := newRepo(t, c)
+	ctx := context.Background()
+	must(t, c, repo, "branch", "origin/main")
+	if ok, err := c.RemoteBranchExists(ctx, repo, "origin", "main"); err != nil || ok {
+		t.Errorf("RemoteBranchExists(origin, main) with no origin = %t, %v; want false", ok, err)
+	}
+	must(t, c, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+	if ok, err := c.RemoteBranchExists(ctx, repo, "origin", "main"); err != nil || !ok {
+		t.Errorf("RemoteBranchExists(origin, main) = %t, %v; want true", ok, err)
+	}
+}
+
 // DiffSides reads both versions through git, the whole file whatever the user's diff settings, and
 // CheckoutPath reverts the one file it names.
 func TestDiffSidesAndCheckoutPathOnAWorktree(t *testing.T) {
