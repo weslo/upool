@@ -28,6 +28,7 @@ import (
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
+	"github.com/weslo/upool/internal/tcc"
 	"github.com/weslo/upool/internal/timing"
 )
 
@@ -139,6 +140,13 @@ type Env struct {
 	// Log is the hook's run in its pool's hook log, in which a handler records what it did for the
 	// run's end line (StartLog; #278); nil, as for `upool take --confirm`, logs nothing.
 	Log *Log
+	// Consent is the unified log the create hook reads when its git call in the main checkout
+	// stalls, for macOS's prompt asking whether upool may access the Documents folder (#286); nil
+	// reads none, so that every stall fails.
+	Consent tcc.Log
+	// Self is upool's own binary with its symlinks resolved, the client that prompt asks about
+	// when the desktop app's helper runs the hook; empty counts a prompt about any client.
+	Self string
 }
 
 // worktreesDir is Claude Code's managed worktree directory, relative to a repository.
@@ -170,6 +178,37 @@ func WorktreeCreate(ctx context.Context, env Env, req Request) (string, error) {
 		return pooledWorktree(ctx, env, req, repo)
 	}
 	return passThroughWorktree(ctx, env, req)
+}
+
+// WorktreeCreateDryRun runs a WorktreeCreate request as far as the pooled branch's git call in the
+// main checkout, with its patience and its wait for macOS's Documents prompt, and stops there,
+// making no worktree and taking no slot (#286). `upool doctor` runs it through the desktop app's
+// helper, so that the prompt the first session would raise is raised while someone is there to
+// answer it. Outside a pool, its git call is in cwd.
+func WorktreeCreateDryRun(ctx context.Context, env Env, req Request) error {
+	if req.HookEventName != EventWorktreeCreate {
+		return fmt.Errorf("stdin is a %q request, not %s", req.HookEventName,
+			EventWorktreeCreate)
+	}
+	if !filepath.IsAbs(req.Cwd) {
+		return fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
+	}
+	checkout := req.Cwd
+	repo, pooled, err := registry.Containing(env.Home, req.Cwd)
+	if err != nil {
+		return err
+	}
+	if pooled {
+		p, err := pool.Load(env.Home, repo.Key)
+		if err != nil {
+			return err
+		}
+		if checkout = p.Repo; checkout == "" {
+			checkout = repo.Path
+		}
+	}
+	_, err = worktreeList(ctx, env, checkout)
+	return err
 }
 
 // checkName refuses a worktree name that is not one path element, before it becomes part of a

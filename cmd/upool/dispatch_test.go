@@ -540,6 +540,46 @@ func TestWorktreeCreateFailureExitsNonZero(t *testing.T) {
 	}
 }
 
+// `upool hook <event> --dry-run` runs the event's dry run in place of its handler, for the create
+// hook alone, which has one (#286); the flag is refused for any other event and beside any other
+// argument, as an extra argument is.
+func TestHookDryRunRunsOnlyTheCreateHooksDryRun(t *testing.T) {
+	create := hookTable["worktree-create"]
+	if create.dryRun == nil {
+		t.Fatal("the create hook has no dry run")
+	}
+	for event, h := range hookTable {
+		if event != "worktree-create" && h.dryRun != nil {
+			t.Errorf("%s has a dry run, want the create hook's alone", event)
+		}
+	}
+	hooks := map[string]hook{
+		"worktree-create": {handle: pathHook("/slot"), dryRun: pathHook(""),
+			failExit: create.failExit},
+		"session-start": {handle: pathHook("/doc"), failExit: output.ExitOK},
+	}
+	stdin := hookStdin(t, "desktop-session-create.json")
+	tests := []struct {
+		args         []string
+		code         int
+		stdout, line string
+	}{
+		{[]string{"worktree-create"}, output.ExitOK, "/slot\n", "cloning…"},
+		{[]string{"worktree-create", "--dry-run"}, output.ExitOK, "", "cloning…"},
+		{[]string{"worktree-create", "--dry-run", "extra"}, output.ExitFailure, "",
+			`upool: hook worktree-create: unexpected arguments ["--dry-run" "extra"]`},
+		{[]string{"session-start", "--dry-run"}, output.ExitOK, "",
+			`upool: hook session-start: unexpected arguments ["--dry-run"]`},
+	}
+	for _, tt := range tests {
+		r := dispatch(t, nil, hooks, testEnv(t), stdin, append([]string{"hook"}, tt.args...)...)
+		if r.code != tt.code || r.stdout != tt.stdout || r.stderr != tt.line+"\n" {
+			t.Errorf("%q: exit %d, stdout %q, stderr %q; want %d, %q and %q", tt.args, r.code,
+				r.stdout, r.stderr, tt.code, tt.stdout, tt.line)
+		}
+	}
+}
+
 func TestHookWithoutAKnownEventFails(t *testing.T) {
 	for _, args := range [][]string{{"hook"}, {"hook", "nope"}, {"hook", "--json"}} {
 		r := dispatch(t, nil, hookTable, testEnv(t), "", args...)

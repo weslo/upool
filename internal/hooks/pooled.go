@@ -111,9 +111,11 @@ func notRecorded(env Env, rec desktop.Record, present func(pool.Slot) bool,
 
 // presentSlots returns whether a slot is on disk, by a stat, and in the repository's
 // `git worktree list`, by canonical key: what the helper can check of a slot without reading a file
-// in it, such as the .git file take reads for the backlink.
+// in it, such as the .git file take reads for the backlink. The list is the branch's first git
+// call in the main checkout, which waits through macOS's Documents prompt and fails fast on any
+// other stall (worktreeList; #286).
 func presentSlots(ctx context.Context, env Env, checkout string) (func(pool.Slot) bool, error) {
-	wts, err := env.Git.WorktreeList(ctx, checkout)
+	wts, err := worktreeList(ctx, env, checkout)
 	if err != nil {
 		return nil, err
 	}

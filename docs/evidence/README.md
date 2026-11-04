@@ -25,6 +25,7 @@ look for.
 | `desktop-exec-probe-main.log` | none: #163 | contracts.md A24 | a create hook running a upool built under `~/Documents`: "Created hook-based worktree" and the session started (desktop app 3.1623.0) |
 | `desktop-dirty-archive-main.log` | none: #185 | contracts.md A28 | a slot path refused as "already in use" by a record the app kept; a dirty slot archived through the app's session tool (`Archived session` and nothing more), then resumed and archived clean; and a dirty slot archived with the Archive button (`LocalSessions.archive`, the cleanup and `Removed hook-based worktree`) (desktop app 3.1623.0) |
 | `desktop-archive-lock-main.log` | none: #181 | contracts.md A27 | the first M2 gate run: two desktop sessions handed slots by upool's project-scope create hook (`worktree=121296ms`, then `75ms`), then archived, each refused as "locked with `git worktree lock` (kept with its entry)" with no remove hook run (desktop app 3.1623.0) |
+| `desktop-consent-stall-main.log` | none: #286 | contracts.md (a), the "Process running the hook" row | the benchmark of 2026-11-03: a desktop session's create hook, Homebrew's upool 0.6.1, held by macOS's prompt asking whether upool may access the Documents folder (`testdata/captures/tcc/`). The app cancels the start after 300 s (`start has held the session's start lock for 300s without starting Claude Code`), and 600 s after the create began logs `WorktreeCreate hook failed: … no output` and `Claude Code didn't start within 5 minutes`; it then restarts into 4.16336.0; and once the prompt was answered, the next session's create makes `Created hook-based worktree` in slot-1 (desktop app 4.4212.0, then 4.16336.0, Claude Code 2.1.317) |
 | `desktop-session-end-main.log` | none: #192 | #192, step 1 | a throwaway pooled project's desktop sessions: two deleted while live, each running the remove hook (`LocalSessions.delete`, then the cleanup and `Removed hook-based worktree`); a quit (`Stopping 12 active session(s) on quit`) and a crash, neither running one; the quit sessions resumed; and a new session refused twice for the same slot, `already in use by worktree "pwd-03f0cb"` then `worktree_hook_failed`, 1 m 47 s apart (desktop app 3.6556.2) |
 | `desktop-archive-paths-main.log` | none: #278 | contracts.md (a), "Archive paths"; A28 | **pending**, from [manual-gates/M7.md](../manual-gates/M7.md) check 7, step 6, which names the versions and the date when it adds the file, as testdata/README.md does for a pending capture: a desktop session in a slot archived with the Archive button and through the app's session tool, each clean and dirty, its `main.log` lines and, below them, the `WorktreeCreate` and `WorktreeRemove` lines of upool's hook log (contracts.md (e), "The hook log") for the same sessions |
 
@@ -39,6 +40,18 @@ The probe behind [contracts.md](../contracts.md) A24
 |---|---|
 | `hook.txt` | the user-scope create hook, a script outside `~/Documents` that ran `bin/upool hook worktree-create` from a checkout under it; its log (exit 0), stdin, stdout and empty stderr; and its parent process, `Claude.app/Contents/MacOS/Claude` |
 | `helper.txt` | the same checkout, through `Claude.app/Contents/Helpers/disclaimer` from a shell: `head` on a file and `sh` on a script fail with `Operation not permitted`, and upool runs, directly and from `sh -c` |
+
+## consent-probe/
+
+The probe behind the TCC rows of [contracts.md](../contracts.md) (a), the "Process running the
+hook" row ([#286](https://github.com/weslo/upool/issues/286), 2026-11-03; desktop app 4.16336.0,
+macOS 15.7.3), recorded read-only by the agent on the maintainer's Mac with a upool macOS had
+already allowed the Documents folder, so that no prompt could come. The benchmark's own TCC lines
+are `testdata/captures/tcc/`.
+
+| File | What it shows |
+|---|---|
+| `startup.txt` | Homebrew's upool 0.6.1 run through `Claude.app/Contents/Helpers/disclaimer` from a directory under `~/Documents`: `upool --version` with no `$PWD` makes the same two TCC requests, an AllFiles preflight then the Documents folder, attributed to upool itself, that the benchmark's stalled hook made the second it began, though `--version` runs no upool code: Go's `os` package reads the working directory at init. With `$PWD` naming the directory, neither `--version` nor `upool which`, which resolves the directory's symlinks and asks `pathconf` about it, makes any |
 
 ## unity-projections/
 

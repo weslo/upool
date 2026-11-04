@@ -56,6 +56,25 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `~/.upool/editors.json`, records the time as each Editor's `ready_at`, at `schema_version` 2:
   an existing ledger is migrated on its next write, its Editors with no ready time, which status
   lists as before, and an earlier upool refuses the migrated file with a message to upgrade.
+- `upool doctor` has a `documents-access` check, which it runs last on macOS, and `upool init` runs
+  it as its last step (#286). It has the desktop app's helper,
+  `Claude.app/Contents/Helpers/disclaimer`, run the upool the project's create hook runs as
+  `upool hook worktree-create --dry-run`, with a desktop session's create request for the main
+  checkout, for at most 10 s: the dry run makes the pooled branch's git call and stops, taking no
+  slot and writing nothing to the hook log. So macOS's prompt asking whether upool may access the
+  Documents folder comes up while someone is at the keyboard, rather than under a session's start,
+  where it holds the hook in Go's start-up, before upool's own code runs. macOS records the answer
+  for upool's binary by its path, so once it is allowed the hook's start-up passes too; a Homebrew
+  upgrade puts upool at a new path, so run `upool doctor` after each one. The check passes once the
+  hook answers; warns while the prompt is open, saying to answer it and run `upool doctor` again;
+  fails when macOS denies upool the folder, naming System Settings → Privacy & Security → Files and
+  Folders, even when the answer came within the 10 s after the hook said it was waiting, or when
+  the hook fails otherwise; and warns, naming where it looked, when the helper is not there.
+  Reading the TCC log needs an admin account; from a standard one the check cannot tell a prompt
+  from a stall, and warns that macOS may be asking, saying to answer the prompt if it is showing
+  and run `upool doctor` again, and naming the other causes. `init` reports a pass as its last line
+  and anything else as a warning, and under `--json` as `documents_access`.
+  docs/manual-gates/M7.md check 11 raises the prompt on a real Mac.
 
 ### Changed
 
@@ -144,6 +163,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   meanwhile fails the open, as before ready. Refresh's re-warm does not wait. docs/contracts.md (d)
   says what is and is not recorded ("An Editor still settling after ready"), and
   docs/manual-gates/M7.md checks 8 and 9 capture the refusal and check open against a real Editor.
+- The create hook's pooled branch bounds its git call in the main checkout (#286;
+  docs/contracts.md (a), the "Process running the hook" row). The desktop app runs the hook
+  through its helper, so macOS asks about upool itself, by its resolved path, whether it may
+  access the Documents folder, and holds it until someone answers. The hook now gives
+  `git worktree list` 2 s; then it reads the unified log's TCC lines from the last hour for a
+  Documents prompt about its own binary with no answer. With one, it keeps waiting, for at most
+  4 min 55 s, the app's 300 s start bound less 5 s, writing `upool: waiting: macOS is asking
+  whether upool may access Documents; answer the prompt` on stderr every 5 s. With none, it ends
+  git and fails at once, naming the folder and the likely causes, so that the app's
+  `WorktreeCreate hook failed` line says why. Reading the log needs an admin account; from a
+  standard one the hook cannot tell, so it still ends git and fails at once, but says it could not
+  read the log, that macOS may be asking, to answer the prompt if it is showing and then run
+  `upool doctor`, and the other likely causes. A git that answers within 2 s is unaffected. A hook
+  the app starts with its working directory under `~/Documents` and no `$PWD` naming it is held
+  earlier, in Go's start-up, before any of this runs, as the first benchmark run's was, and can
+  neither wait through the prompt nor report it: `doctor` and `init` raising it are the fix there.
 
 ## [0.6.1] - 2026-11-03
 

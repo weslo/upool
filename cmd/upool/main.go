@@ -35,7 +35,8 @@ var commandTable = map[string]command{
 // hookTable is the events `upool hook <event>` handles, one per event that `upool init`
 // registers it for; failExit follows docs/contracts.md (d).
 var hookTable = map[string]hook{
-	"worktree-create": {handle: worktreeCreate, failExit: output.ExitFailure},
+	"worktree-create": {handle: worktreeCreate, dryRun: worktreeCreateDryRun,
+		failExit: output.ExitFailure},
 	"worktree-remove": {handle: worktreeRemove, failExit: output.ExitOK},
 	"session-start":   {handle: sessionStart, failExit: output.ExitOK},
 	"subagent-start":  {handle: subagentStart, failExit: output.ExitOK},
@@ -49,8 +50,9 @@ func main() {
 
 // run is upool with its process boundary passed in, so tests call it in-process. It returns the
 // exit code. The rest of the boundary, the clock, the working directory, the environment's full
-// list, the process IDs, the binary's path and the delivery of SIGINT and SIGTERM, it takes from
-// the process; a test of a command that reads them builds a dispatcher with its own.
+// list, the process IDs, the binary's path, the delivery of SIGINT and SIGTERM and where the
+// desktop app keeps its helper, it takes from the process; a test of a command that reads them
+// builds a dispatcher with its own.
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	d := dispatcher{
 		commands:   commandTable,
@@ -69,6 +71,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 			signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
 		},
 		stopNotify: func(c chan<- os.Signal) { signal.Stop(c) },
+		desktop:    desktopHelper{paths: desktopHelpers(getenv("HOME"))},
 	}
 	return d.run(args)
 }
