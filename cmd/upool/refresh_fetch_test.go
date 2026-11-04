@@ -131,10 +131,10 @@ func checkSlot1(t *testing.T, p harnessPool, commit string, pending bool) {
 
 // The acceptance test of #97. A ready slot one commit behind origin/main ends ready at origin/main,
 // with the fake's log showing, for it, the cache key compared across the checkout, then open with
-// `--args -batchmode`, `status --until-ready` for the cold-import timeout, which a re-warm always
-// waits (A40), save_all and close, each on slot-1. While it is
-// warming, a take run as the Editor starts skips it. A dead owner's clean warming slot returns to
-// ready at the next take, status or doctor, and a later refresh moves it to base.
+// `--args "-batchmode -automated"` (A33, as amended by #279), `status --until-ready` for the
+// cold-import timeout, which a re-warm always waits (A40), save_all and close, each on slot-1.
+// While it is warming, a take run as the Editor starts skips it. A dead owner's clean warming slot
+// returns to ready at the next take, status or doctor, and a later refresh moves it to base.
 func TestRefreshFetch(t *testing.T) {
 	t.Run("moved and re-warmed", func(t *testing.T) {
 		p, origin := fetchPool(t)
@@ -160,7 +160,7 @@ func TestRefreshFetch(t *testing.T) {
 		slot := p.slot("slot-1")
 		wantCalls := [][]string{{"cache", "key", slot, "--format", "json"},
 			{"cache", "key", slot, "--format", "json"},
-			{"open", slot, "--args", "-batchmode", "--format", "json"},
+			{"open", slot, "--args", "-batchmode -automated", "--format", "json"},
 			{"status", "--until-ready", "--timeout", "300", "--format", "json"},
 			{"command", "save_all", "--format", "json"},
 			{"close", slot, "--format", "json"}}
@@ -375,7 +375,7 @@ func TestRefreshRewarmFailures(t *testing.T) {
 			}
 			want := [][]string{{"cache", "key", slot, "--format", "json"},
 				{"cache", "key", slot, "--format", "json"},
-				{"open", slot, "--args", "-batchmode", "--format", "json"},
+				{"open", slot, "--args", "-batchmode -automated", "--format", "json"},
 				{"status", "--until-ready", "--timeout", "300", "--format", "json"}}
 			if tt.close != nil {
 				want = append(want, []string{"close", slot, "--force", "--format", "json"})

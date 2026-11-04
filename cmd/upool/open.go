@@ -34,13 +34,16 @@ const (
 // ledger, opens the slot's Editor and waits until the Editor is ready or has exited
 // (docs/design.md, "One binary, a dozen commands, one JSON file per pool", the `open` row;
 // "Editors: budget by RAM, serialize cold imports as a courtesy, target by variable and by
-// path"). The Editor is headless unless --gui (A36). It times its steps (#266).
+// path"). The Editor is headless unless --gui (A36), and in automation mode either way (A33, as
+// amended by #279); its help says what each mode is for, since the first benchmark's sessions
+// found the default by trial (#279). It times its steps (#266).
 var openCommand = command{
 	usage: openUsage,
 	setup: func(fs *flag.FlagSet) handler {
-		headless := fs.Bool("headless", false, "open the Editor in batch mode, with no window "+
-			"(the default)")
-		gui := fs.Bool("gui", false, "open the Editor with its window")
+		headless := fs.Bool("headless", false, "open the Editor in batch mode, with no window, "+
+			"for imports, builds and tests (the default)")
+		gui := fs.Bool("gui", false, "open the Editor with its window, for play mode and "+
+			"captures")
 		return func(inv *invocation) (any, []string, error) {
 			if len(inv.args) > 0 || *headless && *gui {
 				return nil, nil, fmt.Errorf("open takes no arguments and at most one of "+
@@ -101,8 +104,9 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 //  1. It admits the Editor to the ledger under upool's own PID, as a cold import when the slot has
 //     no Library/ or its reimport_pending is set (A20). A refusal by max_cold_imports waits; any
 //     other fails before anything is launched (A38).
-//  2. It runs `unity open <slot>`, with `--args -batchmode` for headless (A33), reads launchedPid
-//     from stdout's envelope (A12), and records it in place of its own.
+//  2. It runs `unity open <slot>` with `--args "-automated"`, `"-batchmode -automated"` for
+//     headless (A33, as amended by #279), reads launchedPid from stdout's envelope (A12), and
+//     records it in place of its own.
 //  3. It waits with `unity status --until-ready` while checking that the Editor is still running
 //     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout.
 //  4. Once the Editor is ready, it ends a cold import and clears reimport_pending (A39).

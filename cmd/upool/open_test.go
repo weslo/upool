@@ -165,17 +165,17 @@ var (
 )
 
 // checkOpenCalls fails the test unless u's calls are `unity open` on slot-1, with
-// `--args -batchmode` when headless, then, when status, `unity status --until-ready` with timeout,
-// each targeting slot-1.
+// `--args "-automated"`, or `--args "-batchmode -automated"` when headless (A33, as amended by
+// #279), then, when status, `unity status --until-ready` with timeout, each targeting slot-1.
 func checkOpenCalls(t *testing.T, p harnessPool, u *fake.Unity, headless, status bool,
 	timeout string) {
 	t.Helper()
 	slot := p.slot("slot-1")
-	want := [][]string{{"open", slot}}
+	editorArgs := "-automated"
 	if headless {
-		want[0] = append(want[0], "--args", "-batchmode")
+		editorArgs = "-batchmode -automated"
 	}
-	want[0] = append(want[0], "--format", "json")
+	want := [][]string{{"open", slot, "--args", editorArgs, "--format", "json"}}
 	if status {
 		want = append(want, []string{"status", "--until-ready", "--timeout", timeout, "--format",
 			"json"})
@@ -226,9 +226,9 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 }
 
-// --gui opens the Editor without -batchmode, and records it as gui. stdout is the bare envelope
-// and the warning is on stderr, as testdata/captures/unity/open-gui-streams.* recorded them
-// (A12).
+// --gui opens the Editor with -automated and without -batchmode (A33, as amended by #279), and
+// records it as gui. stdout is the bare envelope and the warning is on stderr, as
+// testdata/captures/unity/open-gui-streams.* recorded them (A12).
 func TestOpenGUI(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady)
@@ -242,6 +242,67 @@ func TestOpenGUI(t *testing.T) {
 	checkOpenCalls(t, p, u, false, true, "120")
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
 		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+}
+
+// The acceptance test of #279: every mode puts the Editor in automation mode, `unity open <slot>
+// --args <string>` with -automated as one of the string's words, and headless, the default, also
+// with -batchmode (A33, as amended; A36). The fake replays the captures of `unity open` without
+// -automated, open-headless and open-gui-streams, since no capture with it is recorded yet
+// (testdata/README.md, the pending open-automated-* rows).
+func TestOpenPassesAutomatedInEveryMode(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		capture string
+		pid     int
+		want    string
+	}{
+		{"default", nil, "open-headless.json", capturedPID, "-batchmode -automated"},
+		{"--headless", []string{"--headless"}, "open-headless.json", capturedPID,
+			"-batchmode -automated"},
+		{"--gui", []string{"--gui"}, "open-gui-streams.json", capturedGUIPID, "-automated"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := warmPool(t)
+			u := p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid), func() time.Time { return clock },
+				tt.args...)
+			if r.code != output.ExitOK {
+				t.Fatalf("exit %d, stderr %q; want 0", r.code, r.stderr)
+			}
+			calls := u.Calls()
+			if len(calls) == 0 {
+				t.Fatal("unity was not called")
+			}
+			got := calls[0].Args
+			i := slices.Index(got, "--args")
+			if got[0] != "open" || i < 0 || i+1 >= len(got) || got[i+1] != tt.want ||
+				!slices.Contains(strings.Fields(got[i+1]), "-automated") {
+				t.Errorf("unity open's arguments = %q, want --args %q, with -automated", got,
+					tt.want)
+			}
+		})
+	}
+}
+
+// open's help names the default mode and says what each mode is for, which the first benchmark's
+// sessions had to find by trial (#279).
+func TestOpenHelpNamesTheDefaultModeAndWhatEachIsFor(t *testing.T) {
+	p := warmPool(t)
+	r := runOpen(t, p, procsAlive(os.Getpid()), func() time.Time { return clock }, "--help")
+	for _, want := range []string{
+		"usage: upool open [--headless|--gui] [--json]",
+		"-headless\n    \topen the Editor in batch mode, with no window, for imports, builds " +
+			"and tests (the default)",
+		"-gui\n    \topen the Editor with its window, for play mode and captures",
+	} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("open --help printed %q, want it to say %q", r.stdout, want)
+		}
+	}
+	if r.code != output.ExitOK {
+		t.Errorf("exit %d, want 0", r.code)
+	}
 }
 
 // A slot with no Library, or with reimport_pending set, is opened as a cold import (A20), with
