@@ -75,8 +75,8 @@ func openAndClose(t *testing.T, p harnessPool, openPID int, between func(), args
 func TestHeadlessKeepsSceneList(t *testing.T) {
 	p := warmPool(t)
 	writeSceneList(t, p, sceneList)
-	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, saveAllReply,
-		fake.Reply{Capture: "close-headless.json", Vars: spikeVars})
+	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, titledScenes,
+		saveAllReply, fake.Reply{Capture: "close-headless.json", Vars: spikeVars})
 	openAndClose(t, p, capturedPID, func() {
 		if got := readOrNone(t, keptPath(p)); got != sceneList {
 			t.Errorf("kept during the session: %q, want the scene list", got)
@@ -100,8 +100,8 @@ func TestGUILeavesSceneListAlone(t *testing.T) {
 		[]byte("stale\n")); err != nil {
 		t.Fatal(err)
 	}
-	p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady, saveAllReply,
-		closeReply)
+	p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady, titledScenes,
+		saveAllReply, closeReply)
 	const changed = "sceneSetups:\n- path: Assets/Other.unity\n  isLoaded: 1\n"
 	openAndClose(t, p, capturedGUIPID, func() {
 		if got := readOrNone(t, keptPath(p)); got != "stale\n" {

@@ -184,7 +184,7 @@ func (m mover) move(ctx context.Context, s pool.Slot) (movedSlot, bool, error) {
 	if err != nil {
 		return m.unwarmed(ctx, s, err)
 	}
-	_, warnings, err = closeSlotEditor(ctx, m.untimed(), m.rp, s, true)
+	_, warnings, err = closeSlotEditor(ctx, m.untimed(), m.rp, s, true, "refresh")
 	for _, w := range warnings {
 		m.warn(w)
 	}
