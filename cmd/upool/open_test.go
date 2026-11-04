@@ -167,12 +167,13 @@ var (
 
 // The fake's replies to the settle probe, `unity command eval` of unity.SettleProbe (#282).
 // settledReply is the capture of that very call answering on a freshly ready Editor. No capture
-// records the refusal of an Editor still settling: the first benchmark record says only that it
-// was HTTP 503 "still settling" (docs/contracts.md (d), "An Editor still settling after ready").
-// So stillSettling stands in for it, until the pending command-eval-settling capture can
+// records the refusal of an Editor still settling: the first benchmark record says only that the
+// call "was refused as still settling", and #282 describes it as a 503 "still settling", which
+// nothing records (docs/contracts.md (d), "An Editor still settling after ready"). So
+// stillSettling stands in for it, until the pending command-eval-settling capture can
 // (testdata/README.md): the Pipeline server's recorded refusal of the same eval,
-// command-eval-main-thread-timeout.json, with its HTTP status and reason replaced by 503 and the
-// benchmark's words, a reply no CLI is recorded printing. Its exit is not recorded either.
+// command-eval-main-thread-timeout.json, with its HTTP status and reason replaced by #282's 503
+// and "still settling", a reply no CLI is recorded printing. Its exit is not recorded either.
 var (
 	settledReply = fake.Reply{Capture: "command-eval-first-call.json",
 		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}}
@@ -284,7 +285,7 @@ func refusedWith(refusal fake.Reply, exit int) fake.Reply {
 // The acceptance test of #282: a fake Editor that `unity status --until-ready` reports ready, then
 // that refuses the settle probe for two polls, then answers it. open prints a bare ready only after
 // the refusals stop, one poll interval after each, and its ready step includes the wait. The
-// refusal is stillSettling, the stand-in for the 503 no capture records, replayed with several
+// refusal is stillSettling, the stand-in for the refusal no capture records, replayed with several
 // exits since its exit is not recorded either, and the recorded main-thread timeout, which open
 // takes for the same thing: neither the refusal's text nor its exit may change the result. The
 // waits pass on testing/synctest's clock.

@@ -217,13 +217,15 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 | Fixtures write the directory a command ran in as `${cwd}`; the spike ran these from `/tmp`, which the CLI reports as `/private/tmp` | `testdata/README.md` |
 
 **An Editor still settling after ready.** On the first benchmark run, after a merge brought new
-assets into a slot, `unity status --until-ready` reported a GUI Editor ready while it was still
-importing them, and the session's next Unity call was refused with HTTP 503, "still settling", for
-a few seconds; it cleared on its own ([the run's record](https://github.com/weslo/upool/pull/276),
-Observations; [#282](https://github.com/weslo/upool/issues/282)). That refusal's envelope, code,
-message and exit are not captured, and neither is what `unity status` reports while an import
-runs: both captures are **pending** (`status-settling` and `command-eval-settling`,
-testdata/README.md). So `upool open` reads the Editor rather than the refusal. Once
+assets into a slot, `upool open --gui` reported the Editor ready while the merged assets were still
+importing, and the session's next Unity call "was refused as still settling for a few seconds"
+([the run's record](https://github.com/weslo/upool/pull/276), Observations). The record says no
+more of the refusal; [#282](https://github.com/weslo/upool/issues/282), written after the run with
+nothing captured behind it, describes it as a 503, "still settling", that cleared within seconds.
+Neither the 503 nor any other part of the refusal is recorded: its envelope, code, message and exit
+are not captured, and neither is what `unity status` reports while an import runs. Both captures
+are **pending** (`status-settling` and `command-eval-settling`, testdata/README.md). So
+`upool open` reads the Editor rather than the refusal. Once
 `status --until-ready` has reported it ready, open sends the read-only
 `unity command eval "return Application.unityVersion;"`, whose answer on a freshly ready Editor is
 `unity/command-eval-first-call.json`, and takes any failure of it for the Editor still settling,
@@ -231,8 +233,8 @@ whatever its code, message or exit, the main-thread timeout below included, whic
 main thread still busy. It sends the eval again a second after each failure, each bounded at 10 s,
 until one succeeds or one fails at the open's timeout from the launch (A37), when open reports
 `ready; importing, expect a short settle`; an Editor whose process is gone fails the open. The
-tests stand the 503 in with `unity/command-eval-main-thread-timeout.json`, its status and reason
-replaced, a reply no CLI is recorded printing.
+tests stand the refusal in with `unity/command-eval-main-thread-timeout.json`, its status and
+reason replaced by #282's 503 and "still settling", a reply no CLI is recorded printing.
 
 ### Codes upool must handle
 

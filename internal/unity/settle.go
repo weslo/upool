@@ -10,11 +10,12 @@ import (
 )
 
 // The settle after ready (#282). On the first benchmark run, after a merge brought new assets into
-// a slot, `unity status --until-ready` reported a GUI Editor ready while it was still importing
-// them, and the session's next Unity call was refused, HTTP 503 "still settling", for a few
-// seconds (docs/contracts.md (d), "An Editor still settling after ready"). Neither that refusal's
-// reply nor what `unity status` reports meanwhile is captured yet, so `upool open` asks the Editor
-// itself: once it is ready, a read-only eval that needs its main thread, which an import holds.
+// a slot, `upool open --gui` reported the Editor ready while they were still importing, and the
+// run's record says the session's next Unity call "was refused as still settling for a few
+// seconds"; #282 describes the refusal as a 503, which nothing records (docs/contracts.md (d), "An
+// Editor still settling after ready"). Neither that refusal's reply nor what `unity status`
+// reports meanwhile is captured yet, so `upool open` asks the Editor itself: once it is ready, a
+// read-only eval that needs its main thread, which an import holds.
 
 // SettleProbe is the C# WaitSettled evaluates: the read-only call that answered at once on a
 // freshly ready GUI Editor (testdata/captures/unity/command-eval-first-call.json), and whose first
@@ -36,7 +37,7 @@ const (
 // has reported ready, to settle: for `unity command eval` of SettleProbe to succeed. It probes
 // once at once, then every SettlePollInterval after a probe that failed, and returns true at the
 // first that succeeds, or false when one fails at or after deadline, by now. Every failed probe
-// counts as still settling, whatever its code, message or exit: the 503 refusal's reply is not
+// counts as still settling, whatever its code, message or exit: the settling refusal's reply is not
 // captured (docs/contracts.md (d)), so it cannot be told from the others, and the main-thread
 // timeout is the Editor's main thread still busy. The Editor's process is checked after each
 // failed probe, so an Editor that exits fails at once, as in WaitReady, rather than passing for
