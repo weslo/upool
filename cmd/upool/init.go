@@ -100,6 +100,11 @@ type initReport struct {
 	// and Hooks the project's .claude/settings.local.json, where init registers them (A26).
 	Upool string    `json:"upool"`
 	Hooks installed `json:"hooks"`
+	// DocumentsAccess is doctor's documents-access check, which init runs last, so that macOS
+	// asks whether upool may access the project's folder while the person who ran init is there
+	// to answer (#286); nil where there is no desktop app helper to look for, as off macOS. A
+	// result other than pass is a warning too.
+	DocumentsAccess *doctorCheck `json:"documents_access,omitempty"`
 
 	// repoFile is what init wrote to .upool, for the human form.
 	repoFile config.RepoFile
@@ -135,6 +140,9 @@ func (r initReport) Human() string {
 		installs = append(installs, "removed "+what+x.Path+", which upool no longer writes")
 	}
 	hooks := []string{"the hooks run " + r.Upool, describeChange(r.Hooks)}
+	if c := r.DocumentsAccess; c != nil && c.Result == checkPass {
+		hooks = append(hooks, c.Reason)
+	}
 	if r.AlreadyRegistered {
 		return strings.Join(append(append([]string{fmt.Sprintf(
 			"%s is already registered as pool %s", r.Repo, r.Key)}, installs...), hooks...), "\n")
@@ -198,10 +206,10 @@ func describeBase(source string) string {
 // it changes anything. Then it takes out of the project's agent files what an earlier upool wrote
 // there (retireAgentFiles); adds .claude/worktrees/ to .gitignore, writes .upool, creates the
 // pool's state.json, clones the first slot into a pool that has none, adds the repository to
-// registry.json and, last, registers upool's hooks in .claude/settings.local.json (A26), so that a
-// run that fails part-way is finished by the next. On a registered repository it retires the agent
+// registry.json and registers upool's hooks in .claude/settings.local.json (A26), so that a run
+// that fails part-way is finished by the next. On a registered repository it retires the agent
 // files and registers the hooks again, so that an upgraded upool refreshes them, and does nothing
-// else.
+// else. Either way its last step, on macOS, is doctor's documents-access check (checkDocuments).
 func initRepo(inv *invocation, n int) (any, []string, error) {
 	ctx := context.Background()
 	wd, err := inv.getwd()
@@ -243,7 +251,7 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 		if r.Hooks, err = hooks.apply(); err != nil {
 			return nil, warnings, err
 		}
-		return r, warnings, nil
+		return r, r.checkDocuments(ctx, inv, warnings), nil
 	}
 	if err := checkLibraryUntracked(ctx, g, repo); err != nil {
 		return nil, nil, err
@@ -306,7 +314,26 @@ func initRepo(inv *invocation, n int) (any, []string, error) {
 	if r.Hooks, err = hooks.apply(); err != nil {
 		return nil, warnings, err
 	}
-	return r, warnings, nil
+	return r, r.checkDocuments(ctx, inv, warnings), nil
+}
+
+// checkDocuments runs doctor's documents-access check on r's repository, with the upool r's hooks
+// run, as init's last step, once the hooks are registered: the first time the desktop app's helper
+// runs upool under ~/Documents, macOS asks whether it may, naming the binary by its resolved path,
+// so that it may ask again for a new version's, and init is when someone is at the keyboard to
+// answer (#286). It records the check in r and returns warnings with the check's reason added
+// unless it passed.
+func (r *initReport) checkDocuments(ctx context.Context, inv *invocation,
+	warnings []string) []string {
+	c, ok := documentsAccessCheck(ctx, inv, r.Repo, r.Upool)
+	if !ok {
+		return warnings
+	}
+	r.DocumentsAccess = &c
+	if c.Result != checkPass {
+		warnings = append(warnings, checkDocumentsAccess+": "+c.Reason)
+	}
+	return warnings
 }
 
 // checkProject refuses repo unless it is a Unity project at its root. A project in a subdirectory

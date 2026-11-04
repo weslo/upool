@@ -27,6 +27,14 @@ Upgrade with `brew upgrade upool`, then run `upool init` again in each project t
 also takes out the block and skill an earlier upool wrote there, except from a file git tracks,
 which it names for you to change in a commit.
 
+With the project under `~/Documents`, the first session the desktop app starts there may make
+macOS ask whether upool may access your Documents folder, since the app's helper runs upool's hook
+in its own name; a new upool binary, as after an upgrade, may be asked about again. So `upool init`
+raises that prompt itself, as its last step, for you to answer while you are at the keyboard, and
+`upool doctor` raises it again in its `documents-access` check, saying while it is open and passing
+once you allow it. A session that starts while the prompt is open waits on it, with nothing on the
+screen but the prompt, until the app gives up after five minutes, so answer it when `init` asks.
+
 ## 🏊 How a session gets a slot
 
 - Start a Claude Code session with a worktree in a project you ran `upool init` in; it opens in a

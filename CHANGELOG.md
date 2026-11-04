@@ -7,6 +7,37 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `upool doctor` has a `documents-access` check, which it runs last on macOS, and `upool init` runs
+  it as its last step (#286). It has the desktop app's helper,
+  `Claude.app/Contents/Helpers/disclaimer`, run the upool the project's create hook runs as
+  `upool hook worktree-create --dry-run`, with a desktop session's create request for the main
+  checkout, for at most 10 s: the dry run makes the pooled branch's git call and stops, taking no
+  slot. So macOS's prompt asking whether upool may access the Documents folder comes up while
+  someone is at the keyboard, rather than under a session's start. The check passes once the hook
+  answers; warns while the prompt is open, saying to answer it and run `upool doctor` again; fails
+  when macOS denies upool the folder, naming System Settings → Privacy & Security → Files and
+  Folders, or when the hook fails otherwise; and warns, naming where it looked, when the helper is
+  not there. `init` reports a pass as its last line and anything else as a warning, and under
+  `--json` as `documents_access`.
+
+### Fixed
+
+- The create hook's pooled branch bounds its git call in the main checkout (#286;
+  docs/contracts.md (a), the "Process running the hook" row). The desktop app runs the hook
+  through its helper, so macOS asks about upool itself, by its resolved path, whether it may
+  access the Documents folder, and holds it until someone answers. The hook now gives
+  `git worktree list` 2 s; then it reads the unified log's TCC lines from the last hour for a
+  Documents prompt about its own binary with no answer. With one, it keeps waiting, for at most
+  4 min 55 s, the app's 300 s start bound less 5 s, writing `upool: waiting: macOS is asking
+  whether upool may access Documents; answer the prompt` on stderr every 5 s. With none, it ends
+  git and fails at once, naming the folder and the likely causes, so that the app's
+  `WorktreeCreate hook failed` line says why. A git that answers within 2 s is unaffected. A hook
+  the app starts with its working directory under `~/Documents` is held earlier, in Go's start-up,
+  before any of this runs, as the first benchmark run's was; `init` and `doctor` raise the prompt
+  for that reason.
+
 ## [0.6.1] - 2026-11-03
 
 ### Fixed

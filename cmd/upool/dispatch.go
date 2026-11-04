@@ -74,6 +74,9 @@ type invocation struct {
 	// Editor start it; it is nil for every other command, and the work an operation shares with
 	// one, such as `upool run`'s take and release, times nothing.
 	timer *timing.Timer
+	// desktop is the desktop app's helper as the documents-access check of doctor and init reaches
+	// it (#286).
+	desktop desktopHelper
 }
 
 // checker is inv.procs, or proc.System when it is nil.
@@ -111,6 +114,10 @@ type hookDecider func(inv *invocation) (hooks.Decision, error)
 type hook struct {
 	handle hookHandler
 	decide hookDecider
+	// dryRun, for a hook that has one, is what `upool hook <event> --dry-run` runs in place of
+	// handle: the create hook's, which doctor's documents-access check sends through the desktop
+	// app's helper (#286). The hooks init registers never pass the flag.
+	dryRun hookHandler
 	// failExit is the exit code when handle fails. Claude Code's hook contract sets it, not
 	// upool's own exit codes: only worktree-create exits non-zero, which aborts the session, and
 	// worktree-remove always exits 0 (docs/contracts.md (d), "upool's own exit codes").
@@ -136,7 +143,13 @@ type dispatcher struct {
 	notify, stopNotify func(c chan<- os.Signal)
 	// procs is as in invocation.
 	procs proc.Checker
+	// desktop is as in invocation; with no paths, as in a test that does not set it, the
+	// documents-access check does not run.
+	desktop desktopHelper
 }
+
+// dryRunFlag is the flag of `upool hook <event> --dry-run`.
+const dryRunFlag = "--dry-run"
 
 // run dispatches args, the command line after the program name, and returns the exit code.
 func (d *dispatcher) run(args []string) int {
@@ -226,6 +239,10 @@ func (d *dispatcher) hook(args []string) int {
 		say(d.stderr, fmt.Sprintf("hook: unknown event %q; want one of %s", event, events))
 		return output.ExitFailure
 	}
+	handle := h.handle
+	if len(args) == 2 && args[1] == dryRunFlag && h.dryRun != nil {
+		handle, args = h.dryRun, args[:1]
+	}
 	if len(args) > 1 {
 		say(d.stderr, fmt.Sprintf("hook %s: unexpected arguments %q", event, args[1:]))
 		return h.failExit
@@ -233,7 +250,7 @@ func (d *dispatcher) hook(args []string) int {
 	if h.decide != nil {
 		return d.decision(event, h)
 	}
-	path, err := h.handle(d.invocation(nil, nil))
+	path, err := handle(d.invocation(nil, nil))
 	if err != nil {
 		say(d.stderr, fmt.Sprintf("hook %s: %v", event, err))
 		return h.failExit
@@ -293,6 +310,7 @@ func (d *dispatcher) invocation(args []string, fs *flag.FlagSet) *invocation {
 		ppid:       d.ppid,
 		executable: d.executable,
 		procs:      d.procs,
+		desktop:    d.desktop,
 	}
 }
 

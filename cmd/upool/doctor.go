@@ -38,7 +38,9 @@ const doctorUsage = "doctor [--fix] [--json]"
 // against the process table, reports the Unity licence, and reports the repository's VCS set-up
 // as `unity vcs doctor` sees it, which init leaves to the repository's owner (A35). With --fix it
 // also takes a dead Editor out of the ledger and, when no Editor has its slot open, deletes the
-// slot's Temp/ (#93). It exits 1 if any check fails.
+// slot's Temp/ (#93). Last, on macOS, it has the desktop app's helper run the create hook's dry
+// run, so that macOS asks whether upool may access Documents while someone is there to answer
+// (#286). It exits 1 if any check fails.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -175,6 +177,9 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 	r.Checks = append(r.Checks, editorChecks(ctx, inv, repo, rp.pool.Slots, fix)...)
 	r.Checks = append(r.Checks, licenceCheck(ctx, inv, repo))
 	r.Checks = append(r.Checks, vcsChecks(ctx, inv, repo)...)
+	if c, ok := documentsAccessCheck(ctx, inv, repo, createHookUpool(repo)); ok {
+		r.Checks = append(r.Checks, c)
+	}
 
 	var failed []string
 	for _, c := range r.Checks {
