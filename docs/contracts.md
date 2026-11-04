@@ -455,9 +455,12 @@ from the disclaimed helper (D-commands; S§2 TB).
 | `editors[].mode` | string, `headless` or `gui` | how `open` launched it | `open` | D-commands |
 | `editors[].opened_by_upool` | bool | `release` closes only Editors the tool opened | `open` | D-commands |
 | `editors[].cold_import` | bool | holds a cold-import slot (`max_cold_imports`) while true | `open`, `refresh` | D-editors |
-| `editors[].charge_gb` | number | 2.5 when long-lived, 4.5 while a cold import runs | `open`, `refresh` | D-editors |
+| `editors[].charge_gb` | number | by mode, as (h) charges it when the Editor is admitted: `editor_ram_gb_gui` or `editor_ram_gb_headless` when long-lived, and while a cold import runs 4.5, or that charge where it is larger | `open`, `refresh` | D-editors; (h); #287 |
 
 The helper charge (2 GB once any Editor is up) is computed from the list, not stored (D-editors).
+A charge is set when its Editor is admitted, so a charge setting changed later charges only the
+Editors opened after it. `upool status` lists each pool's Editors with their charges, under
+`editors` in `--json`, a key it leaves out for a pool the ledger charges nothing in (#287).
 
 ### `~/.upool/pools/<repo-key>/timings.jsonl` (the timings log)
 
@@ -640,32 +643,77 @@ recompiled on first open; the 21 relative symlinks under `.claude/skills` resolv
 
 ## (h) RAM budget
 
+Every setting below is a user setting: `~/.config/upool/config.toml` or a `UPOOL_*` variable sets
+it, and the repo file takes none (A30). Each default is a starting point the user overrides after
+measuring their own Editors.
+
 | Setting | Default | Source |
 |---|---|---|
-| `editor_ram_budget_gb` | physical RAM / 4 (16 at 64 GB) | D-commands; D-editors |
-| `editor_ram_gb` | 2.5, per long-lived Editor | D-commands; D-editors |
+| `editor_ram_budget_gb` | physical RAM / 3 (21.3 at 64 GB) | #287; the first benchmark run |
+| `editor_ram_gb_gui` | 6, per long-lived GUI Editor | #287; the first benchmark run |
+| `editor_ram_gb_headless` | 2.5, per long-lived headless Editor | D-editors; #287 |
+| `editor_ram_gb` | none: the old name of `editor_ram_gb_gui`, which a layer that sets it and not `editor_ram_gb_gui` sets; a layer that sets both takes `editor_ram_gb_gui` | #287 |
 | `helper_ram_gb` | 2, once any Editor is up | D-commands; D-editors |
-| cold-import charge | 4.5 GB, instead of `editor_ram_gb`, while the Editor's cold import runs; a constant, not a setting (A9) | D-editors; A9 |
+| cold-import charge | 4.5 GB, instead of the Editor's mode charge unless that is larger, while the Editor's cold import runs; a constant, not a setting (A9, as amended) | D-editors; A9 |
 | `max_cold_imports` | 1 | D-commands; D-editors |
-| `max_editors` | derived unless set; 3 at 64 GB | D-commands; D-editors |
+| `max_editors` | derived unless set; 6 at 64 GB | D-commands; D-editors; #287 |
 
 Charge against the budget:
 
 ```text
-charge = (helper_ram_gb if any Editor is in the ledger, else 0)
-       + editor_ram_gb × (long-lived Editors)
-       + 4.5 × (cold imports running)
-admit an open when the new charge ≤ editor_ram_budget_gb and cold imports ≤ max_cold_imports
+mode charge  = editor_ram_gb_gui for a gui Editor, editor_ram_gb_headless for a headless one
+Editor's charge = its mode charge, or max(4.5, its mode charge) while its cold import runs
+charge = (helper_ram_gb if any Editor is in the ledger, else 0) + Σ Editor's charge
+admit an open when the new charge ≤ editor_ram_budget_gb, the Editors ≤ max_editors
+  and the cold imports ≤ max_cold_imports
 
-max_editors (when unset) = floor((editor_ram_budget_gb − helper_ram_gb − 4.5 × max_cold_imports) / editor_ram_gb)
-                         = floor((16 − 2 − 4.5) / 2.5) = 3 at 64 GB
+smaller = min(editor_ram_gb_gui, editor_ram_gb_headless)
+max_editors (when unset) = floor((editor_ram_budget_gb − helper_ram_gb
+                                  − max_cold_imports × max(0, 4.5 − smaller)) / smaller)
+                         = floor((21.3 − 2 − 2) / 2.5) = 6 at 64 GB
 ```
 
-The `max_editors` formula is derived, not quoted[^4], and A9 keeps it. The gate is this ledger count, never `memory_pressure`, which read 92 to 93 % free under 12.5 GB of
-Editor RSS (D-editors; S§6). Measured basis: warm batch Editors 1.43 GB each; idle GUI Editors 1.8
-to 1.9 GB after 3 minutes; idle headless Editors 1.9 to 2.3 GB after 19.5 hours; a cold import peaks
-at 4.2 to 4.5 GB; two concurrent cold imports, 12.5 GB total and 10 % slower, both exited 0 (S§2 T5,
-T5.5; S§8 B.5, C.1).
+At 64 GB the defaults admit three GUI Editors (2 + 3 × 6 = 20 GB), or six headless ones (17 GB),
+or a mix such as two GUI Editors and two headless ones (19 GB). A refusal names the limit and the
+charge the Editor would have had, as does the wait behind a cold import (A38; #287).
+
+What each default is for, from the first benchmark run's "Memory per Editor"
+([#276](https://github.com/weslo/upool/pull/276); 64 GB M1 Max, three sessions, each Editor's
+resident size summed with its children's, one level down):
+
+- **`editor_ram_gb_gui` = 6** is a GUI Editor at work. A fresh one was 2.7 to 2.8 GB; after an hour
+  of play mode, builds and shader compilation each was 6.1 to 6.5 GB. Three cost 19.0 GB together
+  while the single charge gave them 7.5 GB, so the budget would have admitted Editors that did not
+  fit. The 0.1 to 0.5 GB each ran over 6 is inside the helper allowance, since the measure already
+  counts the children: three are charged 2 + 18 = 20 GB against 19.0 measured.
+- **`editor_ram_gb_headless` = 2.5** is the charge the design gave every Editor (D-editors), kept
+  for headless ones: a fresh headless Editor was 2.0 GB with its children, and idle headless
+  Editors grew to 1.9 to 2.3 GB over 19.5 hours (S§8 B.5). No headless Editor has been measured
+  under hours of work, so this is the default to check first (D-unverified).
+- **`editor_ram_budget_gb` = a third of physical RAM** is the share of the machine Editors may be
+  charged: at 64 GB, 21.3 GB, room for the three GUI Editors at work the run measured, with
+  nothing short of memory, and the helper allowance. The other two thirds are for macOS, the
+  desktop app and its sessions, and the players and builds they run beside their Editors. It was a
+  quarter while every Editor was charged 2.5 GB; at a quarter, 16 GB, the new charges admit two
+  GUI Editors, not three. Below about 20 GB of RAM the default admits no Editor, so a smaller
+  machine sets this after measuring.
+- **`max_editors`, derived,** is the most Editors the budget can hold: as many as fit at the
+  smaller charge beside the helper allowance, with room for each cold import `max_cold_imports`
+  allows to cost what it does over that charge. So, unset, it refuses no Editor that the budget,
+  which charges by mode, has room for beside the cold imports, and the budget decides between GUI
+  and headless. Set, it is a cap on the count whatever the charges.
+- **The cold-import charge** stays 4.5 GB, the spike's cold-importing Editor (S§2 T5), for a
+  headless Editor. A GUI Editor is charged its larger mode charge while it imports, so that its
+  charge never rises when the import ends, after the budget admitted it.
+
+The `max_editors` formula is derived, not quoted[^4]. The gate is this ledger count, never
+`memory_pressure`, which read 92 to 93 % free under 12.5 GB of Editor RSS (D-editors; S§6).
+Measured basis before the benchmark: warm batch Editors 1.43 GB each; idle GUI Editors 1.8 to 1.9
+GB after 3 minutes; idle headless Editors 1.9 to 2.3 GB after 19.5 hours; a cold import peaks at
+4.2 to 4.5 GB; two concurrent cold imports, 12.5 GB total and 10 % slower, both exited 0 (S§2 T5,
+T5.5; S§8 B.5, C.1). The defaults above replace D-commands' and D-editors'
+`editor_ram_budget_gb = RAM/4` and single `editor_ram_gb = 2.5`, which the benchmark measured as
+too low for GUI Editors at work (#287).
 
 Other defaults from the same paragraph: `ready = 1`, `max_slots = 3`, `shrink_after = 14d`,
 `agent_ttl = 24h`; `confirm_timeout = 60s` (D-commands; D-leases).
@@ -1037,6 +1085,14 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   `editor_ram_gb` (2.5 GB) after. The spike measured the cold-importing Editor's whole process at
   4.2 to 4.5 GB (S§2 T5), so charging both would count it twice. (h)'s formula stands: 3 Editors at
   64 GB (maintainer decision, 2026-10-21; (h)).
+
+  **Amended** ([#287](https://github.com/weslo/upool/issues/287)). An Editor is charged by its mode,
+  `editor_ram_gb_gui` or `editor_ram_gb_headless`, and while its cold import runs 4.5 GB instead,
+  still not on top of it, unless its mode charge is larger: a GUI Editor at 6 GB is charged 6 GB
+  while it imports, so that the end of the import never raises a charge the budget admitted. 4.5
+  stays a constant. (h)'s `max_editors` formula is now derived at the smaller of the two charges,
+  with room for each cold import's extra over it: 6 Editors at 64 GB, of which the budget admits
+  three GUI ones ((h)).
 
 - **29. The re-query after a first-call timeout**
   ([#28](https://github.com/weslo/upool/issues/28)). The first `eval` on a freshly opened GUI
@@ -1610,4 +1666,9 @@ None: every question raised so far is answered above.
 [^4]: The design gives the defaults and the result ("at 64 GB that admits three Editors with headroom
     for one cold import", D-editors) but not a formula; this is the closed form that reproduces it.
     The spike's figure is "3 at 64 GB is comfortable, 4 is plausible" (S§8 "What this changes
-    (updated)"), which the formula respects. A9 keeps it.
+    (updated)"), which the formula respects. A9 keeps it. #287 replaced that closed form,
+    floor((budget − helper − 4.5 × max_cold_imports) / editor_ram_gb), 3 at 64 GB, which reserved
+    a whole cold import's 4.5 GB beside the Editors though a cold import is one of them, and so
+    admitted no Editor at all below 36 GB of RAM. The new one reserves only a cold import's extra
+    over the smaller charge, and leaves the choice between modes to the budget; at 64 GB the
+    budget admits three GUI Editors, the design's three, and up to six headless ones.

@@ -51,6 +51,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
   say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
   "Context for the session").
+- The RAM budget charges an Editor by its mode, so that a refusal means memory is short (#287;
+  docs/contracts.md (h), A9 as amended). The first benchmark run measured three GUI Editors at
+  work, with their children, at 19.0 GB together, against the 7.5 GB the single 2.5 GB charge gave
+  them.
+  - Two user settings replace `editor_ram_gb`: `editor_ram_gb_gui`, default 6, and
+    `editor_ram_gb_headless`, default 2.5. A config that sets `editor_ram_gb` keeps it as the GUI
+    charge; where a layer sets both names, `editor_ram_gb_gui` wins.
+  - `editor_ram_budget_gb` defaults to a third of physical RAM, not a quarter: 21.3 GB at 64 GB,
+    which admits three GUI Editors (2 + 3 × 6 = 20 GB). At a quarter it would have admitted two.
+  - `max_editors`, unset, is derived at the smaller of the two charges, reserving only what a cold
+    import costs over it, so that it refuses no Editor the budget has room for: 6 at 64 GB, where
+    it was 3, and the budget decides between GUI and headless Editors. The old formula admitted no
+    Editor below 36 GB of RAM; the new defaults admit one from about 20 GB.
+  - A cold import is charged 4.5 GB, or its mode's charge where that is larger, so a GUI Editor's
+    charge no longer rises when its import ends.
+  - The refusal, and the wait behind a cold import, name the charge the Editor would have had,
+    such as `editor_ram_budget_gb refuses another Editor, a gui one charged 6.0 GB: the Editors
+    would be charged 14.0 GB, over its 10.0 GB`.
+  - `upool status` lists, after each pool's slots, each Editor the ledger charges in it with its
+    mode, process and charge, and `--json` has them under the pool's `editors`, a key left out
+    when there are none.
+  - Which opens are admitted changes with the defaults: on a 64 GB Mac a third GUI Editor still
+    fits, and beside three GUI Editors a fourth of either mode is refused by the budget, while up
+    to six headless Editors are admitted where three were.
 
 ### Fixed
 

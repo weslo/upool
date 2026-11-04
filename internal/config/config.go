@@ -73,10 +73,18 @@ type Config struct {
 	Base Setting[string]
 	// MaxColdImports caps the cold imports running at once; default 1.
 	MaxColdImports Setting[int]
-	// EditorRAMBudgetGB is the RAM, in GB, that Editors may be charged; default physical RAM / 4.
+	// EditorRAMBudgetGB is the RAM, in GB, that Editors may be charged; default physical RAM / 3,
+	// which at 64 GB holds three working GUI Editors and the helper charge (docs/contracts.md (h);
+	// #287).
 	EditorRAMBudgetGB Setting[float64]
-	// EditorRAMGB is the charge, in GB, per long-lived Editor; default 2.5.
-	EditorRAMGB Setting[float64]
+	// EditorRAMGBGUI is the charge, in GB, per long-lived GUI Editor; default 6, what one cost
+	// with its children after an hour of play mode, builds and shader compilation on the first
+	// benchmark run. A layer that sets editor_ram_gb, its old name, and not editor_ram_gb_gui sets
+	// it, so that a config written before the split keeps its value (#287).
+	EditorRAMGBGUI Setting[float64]
+	// EditorRAMGBHeadless is the charge, in GB, per long-lived headless Editor; default 2.5
+	// (docs/contracts.md (h); #287).
+	EditorRAMGBHeadless Setting[float64]
 	// HelperRAMGB is the charge, in GB, once any Editor is up; default 2.
 	HelperRAMGB Setting[float64]
 	// MaxEditors caps the Editors running at once. It is optional and unset unless a layer sets
@@ -99,9 +107,15 @@ type Config struct {
 
 // keys are every setting's key, in Config's order.
 var keys = []string{
-	"ready", "max_slots", "base", "max_cold_imports", "editor_ram_budget_gb", "editor_ram_gb",
-	"helper_ram_gb", "max_editors", "shrink_after", "max_disk", "agent_ttl", "confirm_timeout",
+	"ready", "max_slots", "base", "max_cold_imports", "editor_ram_budget_gb", "editor_ram_gb_gui",
+	"editor_ram_gb_headless", "helper_ram_gb", "max_editors", "shrink_after", "max_disk",
+	"agent_ttl", "confirm_timeout",
 }
+
+// oldKeys are the keys settings had before a rename, each with the key it is now. Every layer that
+// takes the new key takes the old one too, and sets the setting with it where it does not set the
+// new key (#287).
+var oldKeys = map[string]string{"editor_ram_gb": "editor_ram_gb_gui"}
 
 // repoKeys are the keys the repo file accepts: the data docs/design.md lists for it. Its lane
 // folder lists arrive with #31.
@@ -145,8 +159,15 @@ func EnvName(key string) string {
 }
 
 // gb is a gigabyte as the RAM settings count one, 2^30 bytes: 64 GB of RAM, which hw.memsize gives
-// as 68719476736, is the budget of 16 in docs/contracts.md (h).
+// as 68719476736, is 64 of them.
 const gb = 1 << 30
+
+// budgetShare is the part of physical RAM editor_ram_budget_gb defaults to, a third: at 64 GB that
+// is 21.3 GB, room for three GUI Editors at work and the helper charge, 2 + 3 × 6 = 20 GB, which
+// the first benchmark run measured at 19.0 GB with nothing short of memory. The other two thirds
+// are left to macOS, the sessions and the players and builds they run (docs/contracts.md (h);
+// #287). It was a quarter while an Editor was charged 2.5 GB whatever its mode.
+const budgetShare = 3
 
 // Load resolves every setting from in. A missing file sets nothing; a file that cannot be read or
 // parsed, an unknown key, a key the repo file does not take and a value of the wrong type are
@@ -159,7 +180,7 @@ func Load(in Inputs) (Config, error) {
 		return Config{}, fmt.Errorf("repository %q is not an absolute path", in.Repo)
 	}
 	for _, k := range slices.Sorted(maps.Keys(in.Flags)) {
-		if !slices.Contains(keys, k) {
+		if _, old := oldKeys[k]; !old && !slices.Contains(keys, k) {
 			return Config{}, fmt.Errorf("flag for unknown key %q", k)
 		}
 	}
@@ -186,7 +207,10 @@ func Load(in Inputs) (Config, error) {
 	c.MaxColdImports = or(lookup(&r, "max_cold_imports", parseInt, nil, user.MaxColdImports), 1)
 	c.EditorRAMBudgetGB = lookup(&r, "editor_ram_budget_gb", parseFloat, nil,
 		user.EditorRAMBudgetGB)
-	c.EditorRAMGB = or(lookup(&r, "editor_ram_gb", parseFloat, nil, user.EditorRAMGB), 2.5)
+	c.EditorRAMGBGUI = or(newerOf(lookup(&r, "editor_ram_gb_gui", parseFloat, nil,
+		user.EditorRAMGBGUI), lookup(&r, "editor_ram_gb", parseFloat, nil, user.EditorRAMGB)), 6)
+	c.EditorRAMGBHeadless = or(lookup(&r, "editor_ram_gb_headless", parseFloat, nil,
+		user.EditorRAMGBHeadless), 2.5)
 	c.HelperRAMGB = or(lookup(&r, "helper_ram_gb", parseFloat, nil, user.HelperRAMGB), 2)
 	c.MaxEditors = lookup(&r, "max_editors", parseInt, nil, user.MaxEditors)
 	c.ShrinkAfter = or(lookup(&r, "shrink_after", parseDuration, nil,
@@ -206,10 +230,10 @@ func Load(in Inputs) (Config, error) {
 		}
 		ram, err := memory()
 		if err != nil {
-			return Config{}, fmt.Errorf("defaulting editor_ram_budget_gb to physical RAM / 4: %w",
-				err)
+			return Config{}, fmt.Errorf("defaulting editor_ram_budget_gb to physical RAM / %d: %w",
+				budgetShare, err)
 		}
-		c.EditorRAMBudgetGB = Setting[float64]{float64(ram) / gb / 4, Default}
+		c.EditorRAMBudgetGB = Setting[float64]{float64(ram) / gb / budgetShare, Default}
 	}
 	return c, nil
 }
@@ -273,18 +297,22 @@ func writeNew(path, data string) (written bool, err error) {
 // file is either TOML file's contents. Every key is a pointer, so one the file leaves out is nil
 // and falls through to the next layer.
 type file struct {
-	Ready             *int      `toml:"ready"`
-	MaxSlots          *int      `toml:"max_slots"`
-	Base              *string   `toml:"base"`
-	MaxColdImports    *int      `toml:"max_cold_imports"`
-	EditorRAMBudgetGB *float64  `toml:"editor_ram_budget_gb"`
-	EditorRAMGB       *float64  `toml:"editor_ram_gb"`
-	HelperRAMGB       *float64  `toml:"helper_ram_gb"`
-	MaxEditors        *int      `toml:"max_editors"`
-	ShrinkAfter       *duration `toml:"shrink_after"`
-	MaxDisk           *float64  `toml:"max_disk"`
-	AgentTTL          *duration `toml:"agent_ttl"`
-	ConfirmTimeout    *duration `toml:"confirm_timeout"`
+	Ready               *int      `toml:"ready"`
+	MaxSlots            *int      `toml:"max_slots"`
+	Base                *string   `toml:"base"`
+	MaxColdImports      *int      `toml:"max_cold_imports"`
+	EditorRAMBudgetGB   *float64  `toml:"editor_ram_budget_gb"`
+	EditorRAMGBGUI      *float64  `toml:"editor_ram_gb_gui"`
+	EditorRAMGBHeadless *float64  `toml:"editor_ram_gb_headless"`
+	HelperRAMGB         *float64  `toml:"helper_ram_gb"`
+	MaxEditors          *int      `toml:"max_editors"`
+	ShrinkAfter         *duration `toml:"shrink_after"`
+	MaxDisk             *float64  `toml:"max_disk"`
+	AgentTTL            *duration `toml:"agent_ttl"`
+	ConfirmTimeout      *duration `toml:"confirm_timeout"`
+
+	// EditorRAMGB is editor_ram_gb, editor_ram_gb_gui's old name (oldKeys).
+	EditorRAMGB *float64 `toml:"editor_ram_gb"`
 }
 
 // readFile decodes the TOML file at path, which messages name as shown. The repo file, repo true,
@@ -355,6 +383,20 @@ func lookup[T any](r *resolver, key string, parse func(string) (T, error),
 		return Setting[T]{*user, User}
 	}
 	return Setting[T]{Source: Unset}
+}
+
+// rank orders the sources by precedence: a flag over the environment, over the repo file, over
+// the user file, over a default, over nothing.
+var rank = map[Source]int{Unset: 0, Default: 1, User: 2, Repo: 3, Env: 4, Flag: 5}
+
+// newerOf returns s, a setting's lookup by its key, unless old, its lookup by its old key
+// (oldKeys), comes from a higher layer: in each layer the key wins over its old name, and the old
+// name still sets what that layer does not set by the key.
+func newerOf[T any](s, old Setting[T]) Setting[T] {
+	if rank[old.Source] > rank[s.Source] {
+		return old
+	}
+	return s
 }
 
 // or returns s, or def as a Default setting if s is Unset.

@@ -88,8 +88,10 @@ a second peer and which host a server; in what order their changes land>
 
 ### Memory per Editor
 
-Budget: `editor_ram_budget_gb` <n>, `max_editors` <n>. Refused: <which opens, naming the limit, or
-none>. Queued: <which opens waited behind a cold import, and for how long, or none>.
+Budget: `editor_ram_budget_gb` <n>, `editor_ram_gb_gui` <n>, `editor_ram_gb_headless` <n>,
+`helper_ram_gb` <n>, `max_editors` <n>, each from the user config or the default. Refused: <which
+opens, naming the limit and the charge, or none>. Queued: <which opens waited behind a cold
+import, and for how long, or none>.
 
 Each cell is the Editor's resident size with its children's, one level down, summed, in GB.
 

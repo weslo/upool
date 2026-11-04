@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/pathvars"
@@ -234,8 +236,9 @@ func checkEditors(t *testing.T, p harnessPool, want ...ledger.Editor) {
 
 // The acceptance test of #89, a ready reply: `upool open` in a slot with a Library opens a
 // headless Editor (A36; A33), waits with `unity status --until-ready --timeout 120` (A37), and
-// records one ledger entry, under the captured launchedPid, charged editor_ram_gb. The CLI's
-// Hub-registry warning, on stderr and in the envelope, is dropped for the slot (#285).
+// records one ledger entry, under the captured launchedPid, charged editor_ram_gb_headless, 2.5 by
+// default (#287). The CLI's Hub-registry warning, on stderr and in the envelope, is dropped for
+// the slot (#285).
 func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
@@ -257,22 +260,73 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 }
 
 // --gui opens the Editor with -automated and without -batchmode (A33, as amended by #279), and
-// records it as gui. stdout is the bare envelope and the warning is on stderr, as
-// testdata/captures/unity/open-gui-streams.* recorded them (A12).
+// records it as gui, charged editor_ram_gb_gui, 6 by default (#287). stdout is the bare envelope
+// and the warning is on stderr, as testdata/captures/unity/open-gui-streams.* recorded them
+// (A12).
 func TestOpenGUI(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady,
 		settledReply)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedGUIPID),
 		func() time.Time { return clock }, "--gui")
-	want := "opened slot-1's Editor gui, process 25428: ready, charged 2.5 GB\n"
+	want := "opened slot-1's Editor gui, process 25428: ready, charged 6.0 GB\n"
 	if r.code != output.ExitOK || r.stdout != want {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr,
 			want)
 	}
 	checkOpenCalls(t, p, u, false, true, "120", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
+}
+
+// writeUserSettings writes doc as the user config, ~/.config/upool/config.toml, under p's home, as
+// init_darwin_test.go's writeUserConfig does on macOS alone.
+func writeUserSettings(t *testing.T, p harnessPool, doc string) {
+	t.Helper()
+	path := config.UserPath(p.Home)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The acceptance test of #287, the user's settings: a GUI open is charged the user config's
+// editor_ram_gb_gui, or its old name editor_ram_gb in a config written before the split, with the
+// new name winning where the file has both, and a headless open is charged the user's
+// editor_ram_gb_headless, which editor_ram_gb does not set.
+func TestOpenChargesTheUsersSettingForItsMode(t *testing.T) {
+	for _, tt := range []struct {
+		name, user, mode string
+		want             float64
+	}{
+		{"legacy editor_ram_gb, gui", "editor_ram_gb = 3\n", modeGUI, 3},
+		{"legacy editor_ram_gb, headless", "editor_ram_gb = 3\n", modeHeadless, 2.5},
+		{"editor_ram_gb_gui over editor_ram_gb", "editor_ram_gb = 3\neditor_ram_gb_gui = 4\n",
+			modeGUI, 4},
+		{"editor_ram_gb_headless", "editor_ram_gb_headless = 1.5\n", modeHeadless, 1.5},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := warmPool(t)
+			writeUserSettings(t, p, tt.user)
+			capture, pid, args := "open-headless.json", capturedPID, []string{}
+			if tt.mode == modeGUI {
+				capture, pid, args = "open-gui-streams.json", capturedGUIPID, []string{"--gui"}
+			}
+			p.installUnity(t, openReply(t, p.Env, capture), statusReady, settledReply)
+			r := runOpen(t, p, procsAlive(os.Getpid(), pid), func() time.Time { return clock },
+				args...)
+			want := fmt.Sprintf("opened slot-1's Editor %s, process %d: ready, charged %.1f GB\n",
+				tt.mode, pid, tt.want)
+			if r.code != output.ExitOK || r.stdout != want {
+				t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout,
+					r.stderr, want)
+			}
+			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: pid, Mode: tt.mode,
+				OpenedByUpool: true, ChargeGB: tt.want})
+		})
+	}
 }
 
 // refusedWith is refusal replayed with exit.
@@ -310,7 +364,7 @@ func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
 					t.Errorf("open waited %s, want %s: a poll interval after each refusal",
 						waited, 2*unity.SettlePollInterval)
 				}
-				want := "opened slot-1's Editor gui, process 25428: ready, charged 2.5 GB\n"
+				want := "opened slot-1's Editor gui, process 25428: ready, charged 6.0 GB\n"
 				line := timingsPrefix + "open slot-1: admit 0 ms, ready 2000 ms; total 2000 ms"
 				if r.code != output.ExitOK || r.stdout != want || r.timings != line {
 					t.Errorf("exit %d, stdout %q, timings %q, stderr %q; want 0, %q and %q",
@@ -319,7 +373,7 @@ func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
 			})
 			checkOpenCalls(t, p, u, false, true, "120", 3)
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
 		})
 	}
 }
@@ -335,7 +389,7 @@ func TestOpenSaysWhenTheEditorIsStillImporting(t *testing.T) {
 	}{
 		{[]string{"--gui"}, func(t *testing.T, r result) {
 			want := "opened slot-1's Editor gui, process 25428: ready; importing, expect a " +
-				"short settle; charged 2.5 GB\n"
+				"short settle; charged 6.0 GB\n"
 			if r.stdout != want {
 				t.Errorf("stdout %q, want %q", r.stdout, want)
 			}
@@ -362,7 +416,7 @@ func TestOpenSaysWhenTheEditorIsStillImporting(t *testing.T) {
 			tt.want(t, r)
 			checkOpenCalls(t, p, u, false, true, "120", 1)
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
 		})
 	}
 }
@@ -485,7 +539,7 @@ func TestOpenHelpNamesTheDefaultModeAndWhatEachIsFor(t *testing.T) {
 
 // A slot with no Library, or with reimport_pending set, is opened as a cold import (A20), with
 // the cold-import timeout (A37). Once the Editor is ready the cold import ends: the entry is
-// charged editor_ram_gb, and reimport_pending is cleared (A39).
+// charged editor_ram_gb_headless, and reimport_pending is cleared (A39).
 func TestOpenChargesAColdImportUntilReady(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -577,30 +631,88 @@ func TestOpenFailsWhenTheLaunchFails(t *testing.T) {
 	checkEditors(t, p)
 }
 
-// The acceptance test of #89, a refused admission: with max_editors' three Editors open, open
-// fails at once naming the limit, makes no unity call (the fake answers none), and leaves the
-// ledger as it was (A38).
+// The acceptance test of #89, a refused admission, with #287's charges: at the harness's budget of
+// 16 GB, two GUI Editors at 6 GB leave no room for a third, and four headless Editors at 2.5 GB
+// are the max_editors it derives, floor((16 − 2 − 2) / 2.5) = 4. Either way open fails at once
+// naming the limit and the charge the Editor would have had, makes no unity call (the fake
+// answers none), and leaves the ledger as it was (A38).
 func TestOpenRefusedByTheBudgetCallsNoUnity(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		mode   string
+		charge float64
+		open   []string
+		args   []string
+		want   string
+	}{
+		{"editor_ram_budget_gb", modeGUI, 6, []string{"slot-2", "slot-3"}, []string{"--gui"},
+			"editor_ram_budget_gb refuses another Editor, a gui one charged 6.0 GB: the Editors " +
+				"would be charged 20.0 GB, over its 16.0 GB"},
+		{"max_editors", modeHeadless, 2.5, []string{"slot-2", "slot-3", "slot-4", "slot-5"}, nil,
+			"max_editors refuses another Editor, a headless one charged 2.5 GB: 4 Editors are " +
+				"open, and it allows 4"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := warmPool(t)
+			u := p.installUnity(t)
+			var open []ledger.Editor
+			pids := []int{os.Getpid()}
+			for i, n := range tt.open {
+				open = append(open, ledger.Editor{Project: p.Path(".claude/worktrees/" + n),
+					PID: 1001 + i, Mode: tt.mode, OpenedByUpool: true, ChargeGB: tt.charge})
+				pids = append(pids, 1001+i)
+			}
+			writeLedger(t, p, open...)
+			r := runOpen(t, p, procsAlive(pids...), func() time.Time { return clock }, tt.args...)
+			want := "upool: opening the Editor of " + p.slot("slot-1") + ": " + tt.want + "\n"
+			if r.code != output.ExitFailure || r.stderr != want {
+				t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
+			}
+			if calls := u.Calls(); len(calls) != 0 {
+				t.Errorf("unity calls = %+v, want none", calls)
+			}
+			checkEditors(t, p, open...)
+		})
+	}
+}
+
+// The manual gate's check of #287 (docs/manual-gates/M7.md, check 10) against the fake: with
+// editor_ram_budget_gb 10 and the default charges, a GUI Editor at 6 GB leaves no room for a
+// second, 2 + 6 + 6 = 14 GB, which the budget refuses naming itself and the charge; with
+// editor_ram_gb_gui 2.5, and the first Editor opened again under it, the second is admitted,
+// 2 + 2.5 + 2.5 = 7 GB.
+func TestOpenRefusesASecondGUIEditorAtABudgetOf10(t *testing.T) {
 	p := warmPool(t)
-	p.installUnity(t)
-	var open []ledger.Editor
-	for i, n := range []string{"slot-2", "slot-3", "slot-4"} {
-		open = append(open, ledger.Editor{Project: p.Path(".claude/worktrees/" + n),
-			PID: 1001 + i, Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+	p.Setenv(config.EnvName("editor_ram_budget_gb"), "10")
+	refused := p.installUnity(t)
+	first := ledger.Editor{Project: p.slot("slot-2"), PID: 1001, Mode: modeGUI,
+		OpenedByUpool: true, ChargeGB: 6}
+	writeLedger(t, p, first)
+	procs := procsAlive(os.Getpid(), 1001, capturedGUIPID)
+	r := runOpen(t, p, procs, func() time.Time { return clock }, "--gui")
+	want := "upool: opening the Editor of " + p.slot("slot-1") + ": editor_ram_budget_gb " +
+		"refuses another Editor, a gui one charged 6.0 GB: the Editors would be charged 14.0 GB, " +
+		"over its 10.0 GB\n"
+	if r.code != output.ExitFailure || r.stderr != want || len(refused.Calls()) != 0 {
+		t.Errorf("exit %d, stderr %q, unity calls %+v; want 1, %q and none", r.code, r.stderr,
+			refused.Calls(), want)
 	}
-	writeLedger(t, p, open...)
-	r := runOpen(t, p, procsAlive(os.Getpid(), 1001, 1002, 1003),
-		func() time.Time { return clock })
-	if r.code != output.ExitFailure || !strings.Contains(r.stderr,
-		"max_editors refuses another Editor: 3 Editors are open, and it allows 3") {
-		t.Errorf("exit %d, stderr %q; want 1 and the max_editors refusal", r.code, r.stderr)
+
+	p.Setenv(config.EnvName("editor_ram_gb_gui"), "2.5")
+	first.ChargeGB = 2.5
+	writeLedger(t, p, first)
+	p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady, settledReply)
+	r = runOpen(t, p, procs, func() time.Time { return clock }, "--gui")
+	if r.code != output.ExitOK {
+		t.Errorf("with editor_ram_gb_gui 2.5: exit %d, stderr %q; want 0", r.code, r.stderr)
 	}
-	checkEditors(t, p, open...)
+	checkEditors(t, p, first, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
+		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
 }
 
 // A refusal by max_cold_imports waits for the running cold import, saying so once on stderr, and
-// fails after the cold-import timeout, naming the limit, with no unity call (A38). The wait passes
-// on testing/synctest's clock.
+// fails after the cold-import timeout, naming the limit and the charge the open would have had,
+// with no unity call (A38; #287). The wait passes on testing/synctest's clock.
 func TestOpenWaitsForTheRunningColdImport(t *testing.T) {
 	p := newHarnessPool(t) // slot-1 has no Library, so this open is a cold import
 	p.installUnity(t)
@@ -613,12 +725,11 @@ func TestOpenWaitsForTheRunningColdImport(t *testing.T) {
 		if waited := time.Since(begin); waited != unity.ColdReadyTimeout {
 			t.Errorf("open waited %s, want %s", waited, unity.ColdReadyTimeout)
 		}
-		waiting := "upool: waiting to open the Editor of " + p.slot("slot-1") +
-			": max_cold_imports refuses another Editor: 1 cold imports are running, and it " +
-			"allows 1 at once\n"
+		refusal := "max_cold_imports refuses another Editor, a headless one charged 4.5 GB as a " +
+			"cold import: 1 cold imports are running, and it allows 1 at once\n"
+		waiting := "upool: waiting to open the Editor of " + p.slot("slot-1") + ": " + refusal
 		failed := "upool: opening the Editor of " + p.slot("slot-1") + ": still refused after " +
-			"5m0s: max_cold_imports refuses another Editor: 1 cold imports are running, and it " +
-			"allows 1 at once\n"
+			"5m0s: " + refusal
 		if r.code != output.ExitFailure || r.stderr != waiting+failed {
 			t.Errorf("exit %d, stderr %q; want 1 and\n%s%s", r.code, r.stderr, waiting, failed)
 		}
