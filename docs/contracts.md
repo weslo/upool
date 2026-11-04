@@ -1041,8 +1041,9 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   Amended by A50: the reclaim now leaves such a slot leased while the app's record names it, and
   `doctor` names its worktree and says how to free it.
 
-  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
-  2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
+  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and in the desktop app
+  running Claude Code 2.1.317 the session tool deleted the slots it archived (2.1.305 was the
+  machine's `claude` CLI, the version `doctor` checks), with nothing to say whether the remove
   hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
   `manual-gates/M7.md` check 7 archives a clean and a dirty slot each way on the current build;
   its result fills in (a), "Archive paths", and updates this answer.
