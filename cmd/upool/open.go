@@ -67,10 +67,18 @@ type openReport struct {
 	ColdImport bool `json:"cold_import"`
 	// ChargeGB is the Editor's charge in the ledger now.
 	ChargeGB float64 `json:"charge_gb"`
+	// Settled is false when the Editor, though ready, still refused the settle probe as open's
+	// timeout ran out: an import or refresh is in flight, and its next Unity call may be refused
+	// for a moment (#282).
+	Settled bool `json:"settled"`
 }
 
-// Human returns one line saying which Editor is ready.
+// Human returns one line saying which Editor is ready, and whether it is still importing (#282).
 func (r openReport) Human() string {
+	if !r.Settled {
+		return fmt.Sprintf("opened %s's Editor %s, process %d: ready; importing, expect a short "+
+			"settle; charged %.1f GB", r.Slot, r.Mode, r.PID, r.ChargeGB)
+	}
 	return fmt.Sprintf("opened %s's Editor %s, process %d: ready, charged %.1f GB", r.Slot,
 		r.Mode, r.PID, r.ChargeGB)
 }
@@ -105,6 +113,8 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 //     from stdout's envelope (A12), and records it in place of its own.
 //  3. It waits with `unity status --until-ready` while checking that the Editor is still running
 //     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout.
+//     Without rewarm, it then waits for the ready Editor to settle, unity.WaitSettled, until the
+//     same timeout from the launch, and reports it unsettled when that runs out (#282).
 //  4. Once the Editor is ready, it ends a cold import and clears reimport_pending (A39).
 //
 // Before a headless launch it keeps the slot's Library/LastSceneManagerSetup.txt in upool's state
@@ -114,7 +124,8 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 // charges nothing for an Editor that never became ready, and drops the kept scene list.
 //
 // Its steps are the admission, step 1, and ready, from `unity open` to `unity status
-// --until-ready` reporting the Editor ready, steps 2 and 3 (#266).
+// --until-ready` reporting the Editor ready and, for open, on to the Editor settled or the
+// timeout run out, steps 2 and 3 (#266; #282).
 func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s pool.Slot,
 	mode string, rewarm bool) (openReport, []string, error) {
 	repo := rp.pool.Repo
@@ -180,10 +191,17 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 		}
 		return fail(pid, err)
 	}
+	settled := true
+	if !rewarm {
+		settled, err = client.WaitSettled(ctx, procs, s.Path, pid, launched.Add(timeout), inv.now)
+		if err != nil {
+			return fail(pid, err)
+		}
+	}
 	inv.timer.Since("ready", "", launched)
 
 	r := openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode, ColdImport: cold,
-		ChargeGB: e.ChargeGB}
+		ChargeGB: e.ChargeGB, Settled: settled}
 	if cold {
 		if err := ledger.EndColdImport(ctx, inv.home, procs, budget, s.Path); err != nil {
 			return openReport{}, warnings, err

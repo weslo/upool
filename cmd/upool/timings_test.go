@@ -253,7 +253,7 @@ func TestTimingsOfRefreshMoveAndRewarm(t *testing.T) {
 // ready, from `unity open` to the Editor ready; under --json, a warm open the same.
 func TestTimingsOfOpen(t *testing.T) {
 	p := newHarnessPool(t)
-	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, settledReply)
 	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 1001, Mode: modeHeadless,
 		OpenedByUpool: true, ColdImport: true, ChargeGB: 4.5})
 	procs := &dyingStart{editorProcs: procsAlive(os.Getpid(), capturedPID), pid: 1001, starts: 2}
@@ -272,7 +272,7 @@ func TestTimingsOfOpen(t *testing.T) {
 	})
 
 	p = warmPool(t)
-	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, settledReply)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID), func() time.Time { return clock },
 		"--json")
 	got := envelopeTimings(t, r)
