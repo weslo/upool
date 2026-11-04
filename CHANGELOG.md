@@ -20,6 +20,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
   Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
   A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+- `upool open` no longer prints `upool: warning: Warning: "<slot>" was not found in the Hub
+  project registry, opening as a file path.`, the Unity CLI's warning with the prefix doubled, on
+  every open (#285). No slot is ever in the Hub's project registry, since upool opens a slot by
+  its path and never registers it with the Hub (docs/design.md, "Why not `unity vcs git worktree
+  add --seed`, symlinks, or the Accelerator"), so the warning is dropped whenever upool opens a
+  slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
+  passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
+  once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
 
 ## [0.6.1] - 2026-11-03
 

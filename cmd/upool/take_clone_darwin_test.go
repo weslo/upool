@@ -101,6 +101,13 @@ func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
 	if !strings.Contains(r.stderr, want) {
 		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
 	}
+	// The open's Hub-registry warning comes through once, after upool's prefix alone (#285).
+	if !strings.Contains(r.stderr, "upool: warning: \"") ||
+		!strings.Contains(r.stderr, "\" was not found in the Hub project registry") ||
+		strings.Contains(r.stderr, "Warning: ") {
+		t.Errorf("stderr = %q, want the CLI's Hub-registry warning after upool's prefix alone",
+			r.stderr)
+	}
 	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
 		{"close", e.Repo, "--format", "json"}}
