@@ -3,6 +3,7 @@ package ledger
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/weslo/upool/internal/paths"
 )
@@ -24,6 +25,25 @@ func Launched(ctx context.Context, home, project string, admitted, launched int)
 				ErrNotInLedger)
 		}
 		l.Editors[i].PID = launched
+		return nil
+	})
+}
+
+// Ready records at as the time `upool open` saw the Editor recorded for project under pid ready,
+// its ready_at, under ~/.upool/lock: status reckons from it how long the Editor has been open
+// (docs/contracts.md (e), editors[].ready_at; #281). It fails with ErrNotInLedger when no such
+// entry is there.
+func Ready(ctx context.Context, home, project string, pid int, at time.Time) error {
+	return Update(ctx, home, func(l *Ledger) error {
+		i, err := l.find(project, pid)
+		if err != nil {
+			return err
+		}
+		if i < 0 {
+			return fmt.Errorf("recording the Editor of %s, process %d, ready: %w", project, pid,
+				ErrNotInLedger)
+		}
+		l.Editors[i].ReadyAt = &at
 		return nil
 	})
 }
