@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -147,30 +148,31 @@ func checkSucceeded(t *testing.T, r result) {
 }
 
 // From the main checkout, anywhere under it, or inside one of its slots, status shows that pool
-// alone, and the other registered pool not at all.
+// alone, and the other registered pool not at all. Inside a slot it marks that slot as the one
+// the working directory is in, and outside every slot it marks none (#283).
 func TestStatusShowsThePoolContainingTheWorkingDirectory(t *testing.T) {
 	h := newStatusHome(t)
 	worktrees := filepath.Join(h.down, ".claude", "worktrees")
 	for _, c := range []struct {
-		name, wd string
+		name, wd, golden string
 	}{
-		{"the main checkout", h.down},
-		{"a subdirectory of the main checkout", filepath.Join(h.down, "Assets")},
-		{"the worktrees directory", worktrees},
-		{"a slot", filepath.Join(worktrees, "slot-1")},
-		{"a subdirectory of a slot", filepath.Join(worktrees, "slot-10", "Assets")},
+		{"the main checkout", h.down, "status-one-pool"},
+		{"a subdirectory of the main checkout", filepath.Join(h.down, "Assets"), "status-one-pool"},
+		{"the worktrees directory", worktrees, "status-one-pool"},
+		{"a slot", filepath.Join(worktrees, "slot-1"), "status-here"},
+		{"a subdirectory of a slot", filepath.Join(worktrees, "slot-1", "Assets"), "status-here"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := runStatus(t, h.home, c.wd)
 			checkSucceeded(t, r)
-			checkGolden(t, "status-one-pool.stdout", h.home, r.stdout)
+			checkGolden(t, c.golden+".stdout", h.home, r.stdout)
 			if strings.Contains(r.stdout, h.castle) {
 				t.Errorf("stdout = %q, want no mention of the other pool, %s", r.stdout, h.castle)
 			}
 
 			r = runStatus(t, h.home, c.wd, "--json")
 			checkSucceeded(t, r)
-			checkGolden(t, "status-one-pool.json", h.home, r.stdout)
+			checkGolden(t, c.golden+".json", h.home, r.stdout)
 		})
 	}
 
@@ -180,6 +182,145 @@ func TestStatusShowsThePoolContainingTheWorkingDirectory(t *testing.T) {
 		strings.Contains(r.stdout, h.down) {
 		t.Errorf("stdout from castle's slot = %q, want castle's pool alone, starting %q",
 			r.stdout, want)
+	}
+}
+
+// status marks the one slot the working directory is in, as which finds it, by its path: not
+// slot-1 from inside slot-10, and with --all not down's slot-2 from inside castle's. Outside every
+// slot it marks none (#283).
+func TestStatusMarksOnlyTheSlotTheWorkingDirectoryIsIn(t *testing.T) {
+	h := newStatusHome(t)
+	slot := func(repo, name string) string {
+		return filepath.Join(repo, ".claude", "worktrees", name)
+	}
+	for _, c := range []struct {
+		name string
+		wd   string
+		args []string
+		want []string
+	}{
+		{"a subdirectory of slot-10", filepath.Join(slot(h.down, "slot-10"), "Assets"), nil,
+			[]string{"down/slot-10"}},
+		{"an unconfirmed lease's slot", slot(h.down, "slot-3"), nil, []string{"down/slot-3"}},
+		{"a creating slot", slot(h.down, "slot-6"), nil, []string{"down/slot-6"}},
+		{"castle's slot-2, with --all", slot(h.castle, "slot-2"), []string{"--all"},
+			[]string{"castle/slot-2"}},
+		{"down's slot-1, with --all", slot(h.down, "slot-1"), []string{"--all"},
+			[]string{"down/slot-1"}},
+		{"the main checkout, with --all", h.down, []string{"--all"}, nil},
+		{"outside every pool, with --all", tempDir(t), []string{"--all"}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := runStatus(t, h.home, c.wd, c.args...)
+			checkSucceeded(t, r)
+			if got := markedRows(r.stdout); !slices.Equal(got, c.want) {
+				t.Errorf("rows marked (here) = %q, want %q; stdout:\n%s", got, c.want, r.stdout)
+			}
+
+			r = runStatus(t, h.home, c.wd, append(c.args, "--json")...)
+			checkSucceeded(t, r)
+			if got := markedSlots(t, r.stdout); !slices.Equal(got, c.want) {
+				t.Errorf("--json: slots with here = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// markedRows names each row of status's table that is marked "(here)", as the base name of its
+// pool's main checkout, a "/" and the slot's name.
+func markedRows(stdout string) []string {
+	var marked []string
+	for section := range strings.SplitSeq(strings.TrimSuffix(stdout, "\n"), "\n\n") {
+		lines := strings.Split(section, "\n")
+		repo, _, _ := strings.Cut(lines[0], " (base ")
+		for _, line := range lines[1:] {
+			if name, _, ok := strings.Cut(line, " (here) "); ok && !strings.Contains(name, " ") {
+				marked = append(marked, filepath.Base(repo)+"/"+name)
+			}
+		}
+	}
+	return marked
+}
+
+// markedSlots names each slot status --json marks here, as markedRows names it.
+func markedSlots(t *testing.T, stdout string) []string {
+	t.Helper()
+	var data struct {
+		Pools []struct {
+			Repo  string `json:"repo"`
+			Slots []struct {
+				Name string `json:"name"`
+				Here bool   `json:"here"`
+			} `json:"slots"`
+		} `json:"pools"`
+	}
+	decodeData(t, stdout, &data)
+	var marked []string
+	for _, p := range data.Pools {
+		for _, s := range p.Slots {
+			if s.Here {
+				marked = append(marked, filepath.Base(p.Repo)+"/"+s.Name)
+			}
+		}
+	}
+	return marked
+}
+
+// Without --all, status shows its pool as --all shows it from the same directory: every slot in
+// whatever state, the creating slot-6 and warming slot-7 among them, and the refresh job, from the
+// main checkout and from inside a slot, where a session runs it (#283).
+func TestStatusShowsItsPoolAsAllDoes(t *testing.T) {
+	checkShowsItsPoolAsAllDoes(t, newStatusHome(t))
+}
+
+// checkShowsItsPoolAsAllDoes fails the test unless status, from down's main checkout and from
+// inside two of its slots, shows down's pool, its creating and warming slots included, as status
+// --all does from the same directory, in both forms.
+func checkShowsItsPoolAsAllDoes(t *testing.T, h statusHome) {
+	t.Helper()
+	worktrees := filepath.Join(h.down, ".claude", "worktrees")
+	for _, wd := range []string{h.down, filepath.Join(worktrees, "slot-1"),
+		filepath.Join(worktrees, "slot-3", "Assets")} {
+		plain, all := runStatus(t, h.home, wd), runStatus(t, h.home, wd, "--all")
+		checkSucceeded(t, plain)
+		checkSucceeded(t, all)
+		// down was registered first, so --all shows it first.
+		if !strings.HasPrefix(all.stdout, plain.stdout) {
+			t.Errorf("from %s: stdout =\n%s\nwant down's part of --all's:\n%s", wd, plain.stdout,
+				all.stdout)
+		}
+
+		plain, all = runStatus(t, h.home, wd, "--json"), runStatus(t, h.home, wd, "--all", "--json")
+		var mine, every struct {
+			Pools []map[string]any `json:"pools"`
+		}
+		decodeData(t, plain.stdout, &mine)
+		decodeData(t, all.stdout, &every)
+		if len(mine.Pools) != 1 || len(every.Pools) != 2 {
+			t.Fatalf("from %s: %d pools, and %d with --all; want 1 and 2", wd, len(mine.Pools),
+				len(every.Pools))
+		}
+		if got, want := mustJSON(t, mine.Pools[0]), mustJSON(t, every.Pools[0]); string(got) !=
+			string(want) {
+			t.Errorf("from %s: --json pool = %s, want --all's for down, %s", wd, got, want)
+		}
+		var slots struct {
+			Pools []struct {
+				Slots []struct {
+					Name  string     `json:"name"`
+					State pool.State `json:"state"`
+				} `json:"slots"`
+			} `json:"pools"`
+		}
+		decodeData(t, plain.stdout, &slots)
+		states := map[string]pool.State{}
+		for _, s := range slots.Pools[0].Slots {
+			states[s.Name] = s.State
+		}
+		if states["slot-6"] != pool.StateCreating || states["slot-7"] != pool.StateWarming {
+			t.Errorf("from %s: slot-6 is %q and slot-7 %q, want %s and %s", wd, states["slot-6"],
+				states["slot-7"], pool.StateCreating, pool.StateWarming)
+		}
 	}
 }
 
@@ -215,10 +356,12 @@ func TestStatusShowsTheInnermostPool(t *testing.T) {
 	}
 }
 
-// --all shows every registered pool, in the order they were registered, wherever it runs.
+// --all shows every registered pool, in the order they were registered, wherever it runs, even
+// where the working directory, which then only marks a slot (#283), cannot be read: an empty PWD,
+// which has no canonical key.
 func TestStatusAllShowsEveryPool(t *testing.T) {
 	h := newStatusHome(t)
-	for _, wd := range []string{tempDir(t), h.castle, h.down} {
+	for _, wd := range []string{tempDir(t), h.castle, h.down, ""} {
 		r := runStatus(t, h.home, wd, "--all")
 		checkSucceeded(t, r)
 		checkGolden(t, "status-all.stdout", h.home, r.stdout)

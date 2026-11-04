@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool status` marks the slot the working directory is in, as `upool which` finds it, with
+  `(here)` after its name, and with `"here": true` on that slot under `--json`, with `--all` or
+  without (#283). A session runs status from its slot, so it can now tell which lease is its own:
+  the lease's holder, for a desktop session the app's ID, is not the session's own
+  (docs/contracts.md (a); (e), the lease's `holder`). Outside every slot nothing is marked, and the
+  output is unchanged. Plain `status` shows its pool as `--all` does, every slot, `creating` and
+  `warming` ones included, and the running refresh, and is now tested to, from the main checkout
+  and from inside a slot.
 - Each run of `upool hook <event>` whose request belongs to a pool is logged in the pool's hook
   log, `~/.upool/pools/<repo-key>/hooks.jsonl`, beside its state (#278; docs/contracts.md (e), "The
   hook log"): one JSON line as the hook starts its work and one as it ends, with the event, the
