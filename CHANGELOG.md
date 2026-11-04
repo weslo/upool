@@ -7,6 +7,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Every Editor upool opens is launched with `-automated` (#279; docs/contracts.md A33, as amended).
+  `upool open --gui` runs `unity open <slot> --args "-automated"`, and a headless `upool open`,
+  refresh's re-warm and the stale-seed refresh run `unity open <slot> --args "-batchmode
+  -automated"`. On the first benchmark run a GUI Editor opened without `-automated` held
+  `upool close` on a native Save panel. Unity's documentation does not say what `-automated`
+  suppresses, so whether it keeps such a panel from blocking the Editor, and whether the CLI hands
+  a headless Editor both arguments, are checks in docs/manual-gates/M7.md, not yet run.
+- `upool open --help` says what each mode is for: headless, the default, for imports, builds and
+  tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
+  say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
+  "Context for the session").
+
 ### Fixed
 
 - A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).

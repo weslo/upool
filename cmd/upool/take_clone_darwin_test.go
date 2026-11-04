@@ -108,7 +108,7 @@ func TestTakeRefreshesAStaleSeedBeforeCloning(t *testing.T) {
 		t.Errorf("stderr = %q, want the CLI's Hub-registry warning after upool's prefix alone",
 			r.stderr)
 	}
-	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode -automated", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
 		{"close", e.Repo, "--format", "json"}}
 	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {

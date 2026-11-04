@@ -10,4 +10,6 @@ checkout with a warm Library under `.claude/worktrees/slot-N`.
 - `UNITY_PROJECT_PATH` is exported and names your slot. Pass it positionally to `unity test`,
   `run`, `build`, `close` and `cache key`, which take the project as an argument:
   `unity test "$UNITY_PROJECT_PATH" --mode EditMode`.
+- Open your slot's Editor with `upool open`, headless by default for imports, builds and tests, or
+  `upool open --gui` for play mode and captures; close it with `upool close`.
 - Run `unity command save_all` before `unity close "$UNITY_PROJECT_PATH"`.

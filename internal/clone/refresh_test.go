@@ -158,7 +158,7 @@ func refreshCalls(repo string, closed closing) [][]string {
 
 // refreshCallsWaiting are refreshCalls with a wait of timeout seconds.
 func refreshCallsWaiting(repo, timeout string, closed closing) [][]string {
-	calls := [][]string{{"open", repo, "--args", "-batchmode", "--format", "json"},
+	calls := [][]string{{"open", repo, "--args", "-batchmode -automated", "--format", "json"},
 		{"status", "--until-ready", "--timeout", timeout, "--format", "json"}}
 	switch closed {
 	case closedPlain:

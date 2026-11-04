@@ -45,6 +45,16 @@ const (
 	ExitPollInterval = time.Second
 )
 
+// The Editor arguments Launch passes through `unity open --args`, which takes them as one string
+// (`unity open --help`, CLI 1.0.0-beta.13). Every Editor gets -automated, the automation mode
+// the first benchmark's blocked close called for, and a headless one -batchmode as well (A33, as
+// amended by #279). Neither what -automated suppresses nor how the CLI splits the string into
+// the Editor's arguments is documented or captured, so docs/manual-gates/M7.md checks both.
+const (
+	guiEditorArgs      = "-automated"
+	headlessEditorArgs = "-batchmode -automated"
+)
+
 // The warning `unity open` gives for a project the Hub's project registry does not hold, in every
 // `unity open` capture: `Warning: "<path>" was not found in the Hub project registry, opening as a
 // file path.` (docs/contracts.md (d)).
@@ -55,20 +65,20 @@ const (
 	notInHubRegistry = `" was not found in the Hub project registry, opening as a file path.`
 )
 
-// Launch runs `unity open <project>`, with `--args -batchmode` for a headless Editor (A33), and
-// returns the PID it launched, launchedPid in stdout's envelope (A12), and the CLI's warnings,
-// such as its Hub-registry warning, which it repeats in the envelope. Each warning comes without
-// the CLI's own "Warning: ", since upool prints every warning after its own "upool: warning: "
-// (#285).
+// Launch runs `unity open <project> --args <arguments>`, with -automated for every Editor and
+// -batchmode as well for a headless one (A33, as amended by #279), and returns the PID it
+// launched, launchedPid in stdout's envelope (A12), and the CLI's warnings, such as its
+// Hub-registry warning, which it repeats in the envelope. Each warning comes without the CLI's own
+// "Warning: ", since upool prints every warning after its own "upool: warning: " (#285).
 func (c Client) Launch(ctx context.Context, project string, headless bool) (int, []string,
 	error) {
 	ctx, cancel := context.WithTimeout(ctx, launchTimeout)
 	defer cancel()
-	var args []string
+	editorArgs := guiEditorArgs
 	if headless {
-		args = []string{"--args", "-batchmode"}
+		editorArgs = headlessEditorArgs
 	}
-	reply, err := c.Call(ctx, VerbOpen, project, args...)
+	reply, err := c.Call(ctx, VerbOpen, project, "--args", editorArgs)
 	if err == nil {
 		err = reply.Err()
 	}
