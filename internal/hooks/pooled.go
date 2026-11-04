@@ -73,6 +73,7 @@ func pooledWorktree(ctx context.Context, env Env, req Request, repo registry.Rep
 			_, _ = fmt.Fprintln(env.Stderr, "upool: "+line)
 		}
 		if err == nil {
+			env.Log.did(OutcomeSlot, s.Name, s.Path)
 			return s.Path, nil
 		}
 		if !errors.Is(err, pool.ErrNoSlot) {

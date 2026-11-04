@@ -15,22 +15,20 @@ import (
 // worktreeCreate is `upool hook worktree-create`: it decodes the request on stdin and hands it to
 // internal/hooks, which returns the worktree path the dispatcher prints (docs/contracts.md (a)).
 func worktreeCreate(inv *invocation) (string, error) {
-	req, err := hooks.Decode(inv.stdin)
-	if err != nil {
-		return "", err
-	}
-	return hooks.WorktreeCreate(context.Background(), hooksEnv(inv), req)
+	return logged(inv, hooks.EventWorktreeCreate, func(env hooks.Env, req hooks.Request) (string,
+		error) {
+		return hooks.WorktreeCreate(context.Background(), env, req)
+	})
 }
 
 // worktreeRemove is `upool hook worktree-remove`: it decodes the request on stdin and hands it to
 // internal/hooks. Its failExit is 0, so its error goes to stderr and the hook still exits 0
 // (docs/contracts.md (d)).
 func worktreeRemove(inv *invocation) (string, error) {
-	req, err := hooks.Decode(inv.stdin)
-	if err != nil {
-		return "", err
-	}
-	return hooks.WorktreeRemove(context.Background(), hooksEnv(inv), req)
+	return logged(inv, hooks.EventWorktreeRemove, func(env hooks.Env, req hooks.Request) (string,
+		error) {
+		return hooks.WorktreeRemove(context.Background(), env, req)
+	})
 }
 
 // sessionStart is `upool hook session-start`: it decodes the request on stdin and hands it to
@@ -39,11 +37,10 @@ func worktreeRemove(inv *invocation) (string, error) {
 // that still leaves a context, such as a confirm refused, goes to stderr here, so that the session
 // gets its instructions all the same.
 func sessionStart(inv *invocation) (string, error) {
-	req, err := hooks.Decode(inv.stdin)
-	if err != nil {
-		return "", err
-	}
-	doc, err := hooks.SessionStart(context.Background(), hooksEnv(inv), req)
+	doc, err := logged(inv, hooks.EventSessionStart, func(env hooks.Env, req hooks.Request) (string,
+		error) {
+		return hooks.SessionStart(context.Background(), env, req)
+	})
 	if err != nil && doc != "" {
 		say(inv.stderr, "hook session-start: "+err.Error())
 		return doc, nil
@@ -55,11 +52,10 @@ func sessionStart(inv *invocation) (string, error) {
 // internal/hooks, and returns the context document that gives a slot session's subagent upool's
 // instructions (A43). Its failExit is 0, so its error goes to stderr and the hook still exits 0.
 func subagentStart(inv *invocation) (string, error) {
-	req, err := hooks.Decode(inv.stdin)
-	if err != nil {
-		return "", err
-	}
-	return hooks.SubagentStart(context.Background(), hooksEnv(inv), req)
+	return logged(inv, hooks.EventSubagentStart, func(env hooks.Env, req hooks.Request) (string,
+		error) {
+		return hooks.SubagentStart(context.Background(), env, req)
+	})
 }
 
 // preToolUse is `upool hook pre-tool-use`: it decodes the request on stdin and hands it to the lane
@@ -67,11 +63,29 @@ func subagentStart(inv *invocation) (string, error) {
 // .meta file written in a script lane, and otherwise nothing (docs/design.md, "Lanes: scripts in
 // parallel, scenes one at a time, `.meta` never regenerated").
 func preToolUse(inv *invocation) (hooks.Decision, error) {
+	return logged(inv, hooks.EventPreToolUse, func(env hooks.Env, req hooks.Request) (
+		hooks.Decision, error) {
+		return hooks.LaneGuard(env, req)
+	})
+}
+
+// logged decodes the hook request on stdin and runs handle on it, between the two lines the hook
+// log of the request's pool gets for the run of event's hook: one before the work, so that a run
+// that is killed still leaves it, and one after, with what the hook did and the error it ended
+// with (#278; docs/contracts.md (e), "The hook log"). A request that is not a pool's, or stdin that
+// does not decode, logs nothing.
+func logged[T any](inv *invocation, event string,
+	handle func(env hooks.Env, req hooks.Request) (T, error)) (T, error) {
 	req, err := hooks.Decode(inv.stdin)
 	if err != nil {
-		return hooks.Decision{}, err
+		var none T
+		return none, err
 	}
-	return hooks.LaneGuard(hooksEnv(inv), req)
+	env := hooksEnv(inv)
+	env.Log = hooks.StartLog(env, event, inv.pid, req)
+	out, err := handle(env, req)
+	env.Log.End(err)
+	return out, err
 }
 
 // hooksEnv is what internal/hooks takes from the process, from inv.

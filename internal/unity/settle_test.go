@@ -9,16 +9,16 @@ import (
 	"time"
 )
 
-// hangingRunner is a Runner whose first call hangs until its context ends, as a CLI that never
+// hangOnceRunner is a Runner whose first call hangs until its context ends, as a CLI that never
 // answers, and whose later calls reply with reply. It records each call's arguments.
-type hangingRunner struct {
+type hangOnceRunner struct {
 	reply []byte
 
 	mu    sync.Mutex
 	calls [][]string
 }
 
-func (r *hangingRunner) Run(ctx context.Context, _ string, _ []string, args ...string) (Result,
+func (r *hangOnceRunner) Run(ctx context.Context, _ string, _ []string, args ...string) (Result,
 	error) {
 	r.mu.Lock()
 	r.calls = append(r.calls, args)
@@ -58,7 +58,7 @@ func TestWaitSettledCutsAProbeThatHangs(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				r := &hangingRunner{reply: captured(t, "command-eval-first-call.json")}
+				r := &hangOnceRunner{reply: captured(t, "command-eval-first-call.json")}
 				begin := time.Now()
 				settled, err := Client{Runner: r}.WaitSettled(t.Context(), runningProcs{},
 					"/work/slot", 25147, begin.Add(tt.deadline), time.Now)
