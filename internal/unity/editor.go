@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weslo/upool/internal/output"
@@ -44,32 +45,68 @@ const (
 	ExitPollInterval = time.Second
 )
 
-// Launch runs `unity open <project>`, with `--args -batchmode` for a headless Editor (A33), and
-// returns the PID it launched, launchedPid in stdout's envelope (A12), and the CLI's warnings,
-// such as its Hub-registry warning, which it repeats in the envelope.
+// The Editor arguments Launch passes through `unity open --args`, which takes them as one string
+// (`unity open --help`, CLI 1.0.0-beta.13). Every Editor gets -automated, the automation mode
+// the first benchmark's blocked close called for, and a headless one -batchmode as well (A33, as
+// amended by #279). Neither what -automated suppresses nor how the CLI splits the string into
+// the Editor's arguments is documented or captured, so docs/manual-gates/M7.md checks both.
+const (
+	guiEditorArgs      = "-automated"
+	headlessEditorArgs = "-batchmode -automated"
+)
+
+// The warning `unity open` gives for a project the Hub's project registry does not hold, in every
+// `unity open` capture: `Warning: "<path>" was not found in the Hub project registry, opening as a
+// file path.` (docs/contracts.md (d)).
+const (
+	// cliWarningPrefix starts the warning, as it starts every warning a capture of the CLI holds.
+	cliWarningPrefix = "Warning: "
+	// notInHubRegistry ends it, after the quoted path of the project.
+	notInHubRegistry = `" was not found in the Hub project registry, opening as a file path.`
+)
+
+// Launch runs `unity open <project> --args <arguments>`, with -automated for every Editor and
+// -batchmode as well for a headless one (A33, as amended by #279), and returns the PID it
+// launched, launchedPid in stdout's envelope (A12), and the CLI's warnings, such as its
+// Hub-registry warning, which it repeats in the envelope. Each warning comes without the CLI's own
+// "Warning: ", since upool prints every warning after its own "upool: warning: " (#285).
 func (c Client) Launch(ctx context.Context, project string, headless bool) (int, []string,
 	error) {
 	ctx, cancel := context.WithTimeout(ctx, launchTimeout)
 	defer cancel()
-	var args []string
+	editorArgs := guiEditorArgs
 	if headless {
-		args = []string{"--args", "-batchmode"}
+		editorArgs = headlessEditorArgs
 	}
-	reply, err := c.Call(ctx, VerbOpen, project, args...)
+	reply, err := c.Call(ctx, VerbOpen, project, "--args", editorArgs)
 	if err == nil {
 		err = reply.Err()
 	}
 	if err != nil {
 		return 0, nil, err
 	}
+	var warnings []string
+	for _, w := range reply.Response.Warnings {
+		warnings = append(warnings, strings.TrimPrefix(w, cliWarningPrefix))
+	}
 	var data struct {
 		LaunchedPID int `json:"launchedPid"`
 	}
 	if json.Unmarshal(reply.Response.Data, &data) != nil || data.LaunchedPID < 1 {
-		return 0, reply.Response.Warnings, output.Fail(output.CodeCommandFailed,
+		return 0, warnings, output.Fail(output.CodeCommandFailed,
 			"unity open %s reported no launchedPid", project)
 	}
-	return data.LaunchedPID, reply.Response.Warnings, nil
+	return data.LaunchedPID, warnings, nil
+}
+
+// NotInHubRegistry reports whether warning, one of Launch's, is the CLI's warning that the project
+// it opened was not found in the Hub project registry, and so was opened as a file path
+// (docs/contracts.md (d)). upool opens a slot by its path and never registers it with the Hub
+// (docs/design.md, "Why not `unity vcs git worktree add --seed`, symlinks, or the Accelerator"), so
+// the CLI gives this warning on every open of a slot, and for a slot it says nothing (#285).
+func NotInHubRegistry(warning string) bool {
+	w := strings.TrimPrefix(warning, cliWarningPrefix)
+	return strings.HasPrefix(w, `"`) && strings.HasSuffix(w, notInHubRegistry)
 }
 
 // NotReadyError is WaitReady's error for an Editor that was not ready when the wait ran out and

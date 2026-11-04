@@ -22,7 +22,21 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   it was handed while that session's lease is still on it. The hook log is a file of its own, not
   lines in the timings log, which has a line for each timed operation once it has ended, where the
   hooks time nothing. Contract (a) gains a table of the archive paths as captured so far, and
-  docs/manual-gates/M7.md check 2 re-captures the four on the current app build.
+  docs/manual-gates/M7.md check 5 re-captures the four on the current app build.
+
+### Changed
+
+- Every Editor upool opens is launched with `-automated` (#279; docs/contracts.md A33, as amended).
+  `upool open --gui` runs `unity open <slot> --args "-automated"`, and a headless `upool open`,
+  refresh's re-warm and the stale-seed refresh run `unity open <slot> --args "-batchmode
+  -automated"`. On the first benchmark run a GUI Editor opened without `-automated` held
+  `upool close` on a native Save panel. Unity's documentation does not say what `-automated`
+  suppresses, so whether it keeps such a panel from blocking the Editor, and whether the CLI hands
+  a headless Editor both arguments, are checks in docs/manual-gates/M7.md, not yet run.
+- `upool open --help` says what each mode is for: headless, the default, for imports, builds and
+  tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
+  say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
+  "Context for the session").
 
 ### Fixed
 
@@ -37,6 +51,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
   Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
   A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+- `upool open` no longer prints `upool: warning: Warning: "<slot>" was not found in the Hub
+  project registry, opening as a file path.`, the Unity CLI's warning with the prefix doubled, on
+  every open (#285). No slot is ever in the Hub's project registry, since upool opens a slot by
+  its path and never registers it with the Hub (docs/design.md, "Why not `unity vcs git worktree
+  add --seed`, symlinks, or the Accelerator"), so the warning is dropped whenever upool opens a
+  slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
+  passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
+  once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
 
 ## [0.6.1] - 2026-11-03
 

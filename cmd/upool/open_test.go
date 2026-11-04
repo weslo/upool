@@ -165,17 +165,17 @@ var (
 )
 
 // checkOpenCalls fails the test unless u's calls are `unity open` on slot-1, with
-// `--args -batchmode` when headless, then, when status, `unity status --until-ready` with timeout,
-// each targeting slot-1.
+// `--args "-automated"`, or `--args "-batchmode -automated"` when headless (A33, as amended by
+// #279), then, when status, `unity status --until-ready` with timeout, each targeting slot-1.
 func checkOpenCalls(t *testing.T, p harnessPool, u *fake.Unity, headless, status bool,
 	timeout string) {
 	t.Helper()
 	slot := p.slot("slot-1")
-	want := [][]string{{"open", slot}}
+	editorArgs := "-automated"
 	if headless {
-		want[0] = append(want[0], "--args", "-batchmode")
+		editorArgs = "-batchmode -automated"
 	}
-	want[0] = append(want[0], "--format", "json")
+	want := [][]string{{"open", slot, "--args", editorArgs, "--format", "json"}}
 	if status {
 		want = append(want, []string{"status", "--until-ready", "--timeout", timeout, "--format",
 			"json"})
@@ -209,16 +209,15 @@ func checkEditors(t *testing.T, p harnessPool, want ...ledger.Editor) {
 // The acceptance test of #89, a ready reply: `upool open` in a slot with a Library opens a
 // headless Editor (A36; A33), waits with `unity status --until-ready --timeout 120` (A37), and
 // records one ledger entry, under the captured launchedPid, charged editor_ram_gb. The CLI's
-// Hub-registry warning, on stderr and in the envelope, comes through as upool's warning (A12).
+// Hub-registry warning, on stderr and in the envelope, is dropped for the slot (#285).
 func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID), func() time.Time { return clock },
 		"--json")
 	env := decode(t, r.stdout)
-	if r.code != output.ExitOK || !env.Success || len(env.Warnings) != 1 ||
-		!strings.Contains(env.Warnings[0], "was not found in the Hub project registry") {
-		t.Errorf("exit %d, envelope %+v, stderr %q; want 0, success and the Hub warning", r.code,
+	if r.code != output.ExitOK || !env.Success || len(env.Warnings) != 0 {
+		t.Errorf("exit %d, envelope %+v, stderr %q; want 0, success and no warning", r.code,
 			env, r.stderr)
 	}
 	checkOpenCalls(t, p, u, true, true, "120")
@@ -226,9 +225,9 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 }
 
-// --gui opens the Editor without -batchmode, and records it as gui. stdout is the bare envelope
-// and the warning is on stderr, as testdata/captures/unity/open-gui-streams.* recorded them
-// (A12).
+// --gui opens the Editor with -automated and without -batchmode (A33, as amended by #279), and
+// records it as gui. stdout is the bare envelope and the warning is on stderr, as
+// testdata/captures/unity/open-gui-streams.* recorded them (A12).
 func TestOpenGUI(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady)
@@ -242,6 +241,101 @@ func TestOpenGUI(t *testing.T) {
 	checkOpenCalls(t, p, u, false, true, "120")
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
 		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+}
+
+// The acceptance test of #279: every mode puts the Editor in automation mode, `unity open <slot>
+// --args <string>` with -automated as one of the string's words, and headless, the default, also
+// with -batchmode (A33, as amended; A36). The fake replays the captures of `unity open` without
+// -automated, open-headless and open-gui-streams, since no capture with it is recorded yet
+// (testdata/README.md, the pending open-automated-* rows).
+func TestOpenPassesAutomatedInEveryMode(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		args    []string
+		capture string
+		pid     int
+		want    string
+	}{
+		{"default", nil, "open-headless.json", capturedPID, "-batchmode -automated"},
+		{"--headless", []string{"--headless"}, "open-headless.json", capturedPID,
+			"-batchmode -automated"},
+		{"--gui", []string{"--gui"}, "open-gui-streams.json", capturedGUIPID, "-automated"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := warmPool(t)
+			u := p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid), func() time.Time { return clock },
+				tt.args...)
+			if r.code != output.ExitOK {
+				t.Fatalf("exit %d, stderr %q; want 0", r.code, r.stderr)
+			}
+			calls := u.Calls()
+			if len(calls) == 0 {
+				t.Fatal("unity was not called")
+			}
+			got := calls[0].Args
+			i := slices.Index(got, "--args")
+			if got[0] != "open" || i < 0 || i+1 >= len(got) || got[i+1] != tt.want ||
+				!slices.Contains(strings.Fields(got[i+1]), "-automated") {
+				t.Errorf("unity open's arguments = %q, want --args %q, with -automated", got,
+					tt.want)
+			}
+		})
+	}
+}
+
+// The acceptance test of #285: on every `unity open` of a slot, the CLI warns that the slot was
+// not found in the Hub project registry, on stderr and in the envelope (docs/contracts.md (d);
+// testdata/captures/unity/open-headless.*, open-gui-streams.*). No slot ever is there, since upool
+// opens a slot by its path and never registers it with the Hub (docs/design.md, "Why not `unity
+// vcs git worktree add --seed`, symlinks, or the Accelerator"), so `upool open` drops the warning:
+// it prints none, headless or --gui, under --json or without it.
+func TestOpenDropsTheHubRegistryWarningForASlot(t *testing.T) {
+	for _, tt := range []struct {
+		capture string
+		pid     int
+		args    []string
+	}{
+		{"open-headless.json", capturedPID, nil},
+		{"open-headless.json", capturedPID, []string{"--json"}},
+		{"open-gui-streams.json", capturedGUIPID, []string{"--gui"}},
+		{"open-gui-streams.json", capturedGUIPID, []string{"--gui", "--json"}},
+	} {
+		t.Run(strings.Join(append([]string{tt.capture}, tt.args...), " "), func(t *testing.T) {
+			p := warmPool(t)
+			p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid),
+				func() time.Time { return clock }, tt.args...)
+			if r.code != output.ExitOK || strings.Contains(r.stderr, "warning") {
+				t.Errorf("exit %d, stderr %q; want 0 and no warning", r.code, r.stderr)
+			}
+			if slices.Contains(tt.args, "--json") {
+				if env := decode(t, r.stdout); len(env.Warnings) != 0 {
+					t.Errorf("warnings = %q, want none", env.Warnings)
+				}
+			}
+		})
+	}
+}
+
+// open's help names the default mode and says what each mode is for, which the first benchmark's
+// sessions had to find by trial (#279).
+func TestOpenHelpNamesTheDefaultModeAndWhatEachIsFor(t *testing.T) {
+	p := warmPool(t)
+	r := runOpen(t, p, procsAlive(os.Getpid()), func() time.Time { return clock }, "--help")
+	for _, want := range []string{
+		"usage: upool open [--headless|--gui] [--json]",
+		"-headless\n    \topen the Editor in batch mode, with no window, for imports, builds " +
+			"and tests (the default)",
+		"-gui\n    \topen the Editor with its window, for play mode and captures",
+	} {
+		if !strings.Contains(r.stdout, want) {
+			t.Errorf("open --help printed %q, want it to say %q", r.stdout, want)
+		}
+	}
+	if r.code != output.ExitOK {
+		t.Errorf("exit %d, want 0", r.code)
+	}
 }
 
 // A slot with no Library, or with reimport_pending set, is opened as a cold import (A20), with

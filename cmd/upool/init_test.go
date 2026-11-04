@@ -191,7 +191,8 @@ func TestInitRefusesALibraryItsRefreshLeavesStale(t *testing.T) {
 				t.Errorf("ledger = %+v, %v; want no Editor", l.Editors, err)
 			}
 			if u != nil {
-				want := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+				want := [][]string{
+					{"open", e.Repo, "--args", "-batchmode -automated", "--format", "json"},
 					{"status", "--until-ready", "--timeout", "120", "--format", "json"},
 					{"close", e.Repo, "--format", "json"}}
 				if got := unityArgs(u); !slices.EqualFunc(got, want, slices.Equal) {

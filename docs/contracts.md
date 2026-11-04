@@ -112,7 +112,7 @@ column is A28's, from the second M2 gate run on desktop app 3.1623.0; "the clean
 `Cleaning up worktree`, `Removing worktree … (leased by …)` and `Removed hook-based worktree`
 lines. A later build deleted the slot's directory on a session-tool archive (the rules above),
 and nothing on the machine said whether the remove hook ran. upool now logs each hook run in the
-pool's hook log ((e), "The hook log"), and [manual-gates/M7.md](manual-gates/M7.md) check 2
+pool's hook log ((e), "The hook log"), and [manual-gates/M7.md](manual-gates/M7.md) check 5
 archives a clean and a dirty slot each way on the current build: it records which ran the hook, in
 what order to the directory's removal and with what outcome, and names each new capture. Until it
 has run, the last column is pending, and so is A28's update (#278).
@@ -174,6 +174,7 @@ context (A43; #229).
 |---|---|
 | For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
+| The instructions say in one line how to open the slot's Editor and close it: `upool open`, headless by default for imports, builds and tests, or `upool open --gui` for play mode and captures, then `upool close`. `upool open --help` says the same of its two flags. The first benchmark's sessions found the default by trial: one closed a headless Editor and reopened it `--gui`, two read `--help` | `assets/claude-md-block.md`; A33 as amended; A36; #279; [the first benchmark record](https://github.com/weslo/upool/pull/276) |
 | For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context, has its holder recorded and is exported the slot, where it works (A47) | `hooks/cli-resume-checkout-session-start.json`; `hooks/cli-slot-resume-checkout-session-start.json`; question 43; A46; A47 |
 | A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
 | A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with the session's `session_id` and `cwd` where the subagent is; for a session in a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
@@ -949,7 +950,7 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
   2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
   hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
-  `manual-gates/M7.md` check 2 archives a clean and a dirty slot each way on the current build;
+  `manual-gates/M7.md` check 5 archives a clean and a dirty slot each way on the current build;
   its result fills in (a), "Archive paths", and updates this answer.
 
 ### Decided for M3
@@ -1018,6 +1019,28 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   CLI picks the project's Editor version and the verb table's targeting rules hold (#82).
   `-nographics` is not passed: it would make the Editor behave unlike the GUI one a person
   develops in (maintainer decision, 2026-10-21; D-editors; (c)).
+
+  **Amended** ([#279](https://github.com/weslo/upool/issues/279)). Every Editor upool launches gets
+  `-automated` too: `unity open <slot> --args "-batchmode -automated"` headless, and
+  `unity open <slot> --args "-automated"` for `--gui`. That is `open`'s two modes and the two
+  launches that share its wrapper, refresh's re-warm and the clone recipe's stale-seed refresh. On
+  the first benchmark run a GUI Editor opened without `-automated` held `upool close` on a native
+  Save panel, and its session had no way to add the argument
+  ([the run's record](https://github.com/weslo/upool/pull/276)). What `-automated` suppresses is
+  not documented. `unity open --help` (CLI 1.0.0-beta.13) says only that `--args` passes extra
+  arguments to Unity, and Unity's
+  [Editor command-line arguments](https://docs.unity3d.com/6000.5/Documentation/Manual/EditorCommandLineArguments.html)
+  page lists no `-automated`; of the arguments it lists, it is `-batchmode` that "suppresses
+  dialog windows that require human interaction (such as the Save Scene window)". So nothing
+  documents that `-automated` keeps a native panel, such as the macOS Save panel, from blocking a
+  GUI Editor, and upool does not claim it does: the M7 gate records whether it does
+  (docs/manual-gates/M7.md, check 2). Two other things are not captured either. How the CLI
+  splits the `--args` string into the Editor's arguments: the gate checks that a headless Editor
+  gets `-batchmode` and `-automated` as two. And a
+  [forum report](https://discussions.unity.com/t/automated-deadlocks-editor-shutdown-when-the-scene-has-unsaved-changes/1732700)
+  (Editor 6000.5.0f1) of an `-automated` Editor that would not quit while a scene had unsaved
+  changes, where without it `unity close` discards them (S§8 C.4): `upool close` saves first, and
+  the gate tries a plain close of a dirty scene (maintainer decision, 2026-11-03; D-editors).
 
 - **2. Unrecorded exit codes** ([#12](https://github.com/weslo/upool/issues/12)). The spike
   recorded no exit for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the first-eval `COMMAND_FAILED`
