@@ -38,6 +38,8 @@ type fakeHelper struct {
 	path string
 	// answer is what each run answers.
 	answer func(ctx context.Context, run helperRun) (stderr []byte, exit int, err error)
+	// logErr, when set, is why the unified log cannot be read.
+	logErr error
 
 	mu   sync.Mutex
 	runs []helperRun
@@ -59,9 +61,20 @@ func newFakeHelper(t *testing.T, answer func(context.Context, helperRun) ([]byte
 	return &fakeHelper{path: path, answer: answer}
 }
 
-// desktop is the desktopHelper that finds and runs f.
+// desktop is the desktopHelper that finds and runs f, with a unified log that reads as empty, or
+// that fails with f.logErr, as for a standard account.
 func (f *fakeHelper) desktop() desktopHelper {
-	return desktopHelper{paths: []string{f.path}, run: f.run}
+	return desktopHelper{paths: []string{f.path}, run: f.run, log: emptyLog{f.logErr}}
+}
+
+// emptyLog is a tcc.Log with no event in it, as `log show` prints that, or that fails with err.
+type emptyLog struct{ err error }
+
+func (l emptyLog) Show(context.Context, time.Duration, string) ([]byte, error) {
+	if l.err != nil {
+		return nil, l.err
+	}
+	return []byte(`{"count":0,"finished":1}` + "\n"), nil
 }
 
 func (f *fakeHelper) run(ctx context.Context, helper string, argv, _ []string, dir string,
@@ -209,6 +222,51 @@ func TestDoctorDocumentsAccessWarnsWhileThePromptIsPending(t *testing.T) {
 			})
 		})
 	}
+}
+
+// Where the unified log cannot be read, as from a standard account, the check cannot tell a prompt
+// from a stall (decision on #286, 2026-11-04). A dry run the bound ended with no waiting line, and
+// one that failed saying it could not read the log, as the hook does at its patience then, each
+// warn that macOS may be asking, saying to answer the prompt if it is showing and run doctor
+// again, and naming the other causes; neither fails. A denial is still a denial.
+func TestDoctorDocumentsAccessWarnsWhenItCannotReadTheLog(t *testing.T) {
+	p := newHarnessPool(t)
+	unknown := "macOS may be asking whether upool may access Documents, but upool cannot read " +
+		"the unified log to tell, which needs an admin account: answer the prompt if it is " +
+		"showing, then run upool doctor again; otherwise upool may be denied the Documents " +
+		"folder in System Settings → Privacy & Security → Files and Folders, or its git may be " +
+		"hung"
+	readErr := errors.New("reading the TCC log with /usr/bin/log show: exit status 64")
+	t.Run("the bound reached", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			f := newFakeHelper(t, holding(""))
+			f.logErr = readErr
+			c := documentsCheck(t, p, f, createHookUpool(p.Repo))
+			if want := unknown + " (" + readErr.Error() + ")"; c.Result != checkWarn ||
+				c.Reason != want {
+				t.Errorf("check = %s, %q; want warn, %q", c.Result, c.Reason, want)
+			}
+		})
+	})
+	t.Run("the hook failed fast", func(t *testing.T) {
+		stalled := "upool: hook worktree-create: git -C " + p.Repo + " worktree list did not " +
+			"answer within 2s, and " + hooks.LogUnreadable + " to tell why (it needs an admin " +
+			"account: " + readErr.Error() + "): macOS may be asking …\n"
+		f := newFakeHelper(t, answering(stalled, output.ExitFailure))
+		f.logErr = readErr
+		if c := documentsCheck(t, p, f, createHookUpool(p.Repo)); c.Result != checkWarn ||
+			c.Reason != unknown {
+			t.Errorf("check = %s, %q; want warn, %q", c.Result, c.Reason, unknown)
+		}
+	})
+	t.Run("denied", func(t *testing.T) {
+		f := newFakeHelper(t, answering(deniedHookStderr(t, p.Repo), output.ExitFailure))
+		f.logErr = readErr
+		if c := documentsCheck(t, p, f, createHookUpool(p.Repo)); c.Result != checkFail ||
+			!strings.HasPrefix(c.Reason, "macOS denies upool access to Documents") {
+			t.Errorf("check = %s, %q; want the denial, failing", c.Result, c.Reason)
+		}
+	})
 }
 
 // The acceptance test of #286, access denied: git under the helper fails with `Operation not

@@ -119,16 +119,29 @@ func stop(cancel context.CancelFunc, done <-chan listed) {
 	}
 }
 
+// LogUnreadable is how the stall error of a hook that could not read the unified log names that,
+// for `upool doctor` to find on the hook's stderr: the log is readable only from an admin account,
+// its store, /var/db/diagnostics, being root:admin mode 750 (decision on #286, 2026-11-04).
+const LogUnreadable = "upool could not read macOS's unified log"
+
 // stalled is the error for a git call in checkout that did not answer within gitPatience while
 // macOS showed no prompt for it, or while its log of prompts, whose reading failed with logErr,
-// could not tell.
+// could not tell. A log upool cannot read means it cannot tell, not that no prompt is open, so
+// that error says macOS may be asking, and to answer the prompt if it is showing and run `upool
+// doctor`, before the other likely causes; the hook still fails at once, since waiting without
+// knowing is what the benchmark's silent hour was (#286).
 func stalled(checkout string, logErr error) error {
-	why := "and macOS is not asking whether upool may access Documents"
 	if logErr != nil {
-		why = fmt.Sprintf("and macOS's log of its prompts could not be read (%v)", logErr)
+		return fmt.Errorf("git -C %s worktree list did not answer within %s, and %s to tell why "+
+			"(it needs an admin account: %v): macOS may be asking whether upool may access the "+
+			"Documents folder, so answer the prompt if it is showing, then run upool doctor; "+
+			"otherwise the likely causes are upool denied the Documents folder in System Settings "+
+			"→ Privacy & Security → Files and Folders, or a hung git", checkout, gitPatience,
+			LogUnreadable, logErr)
 	}
-	return fmt.Errorf("git -C %s worktree list did not answer within %s, %s: the likely causes "+
-		"are upool denied the Documents folder in System Settings → Privacy & Security → Files "+
-		"and Folders, a prompt for it left unanswered for over %.0f minutes, or a hung git",
-		checkout, gitPatience, why, tcc.Window.Minutes())
+	return fmt.Errorf("git -C %s worktree list did not answer within %s, and macOS is not asking "+
+		"whether upool may access Documents: the likely causes are upool denied the Documents "+
+		"folder in System Settings → Privacy & Security → Files and Folders, a prompt for it left "+
+		"unanswered for over %.0f minutes, or a hung git", checkout, gitPatience,
+		tcc.Window.Minutes())
 }

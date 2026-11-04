@@ -172,6 +172,17 @@ func ParseResults(out []byte) (map[string]bool, error) {
 	return answered, nil
 }
 
+// Readable returns why l cannot be read, or nil when it can, from a query for the last minute's
+// Documents prompts. The log is readable only from an admin account: its store,
+// /var/db/diagnostics, is root:admin mode 750 (decision on #286, 2026-11-04).
+func Readable(ctx context.Context, l Log) error {
+	if l == nil {
+		return errors.New("no TCC log to read")
+	}
+	_, err := l.Show(ctx, time.Minute, promptsPredicate)
+	return err
+}
+
 // Pending returns the latest prompt for the Documents folder logged within Window that has no
 // result, and whether there is one: a prompt still on the screen. Only a prompt about subject
 // counts, the hook's own binary with its symlinks resolved, as TCC names it; an empty subject

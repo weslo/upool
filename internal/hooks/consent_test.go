@@ -201,26 +201,48 @@ func TestCreateFailsFastOnAStallWithNoPrompt(t *testing.T) {
 	}
 }
 
-// A stall the log cannot explain, because the log cannot be read, fails at the patience's end
-// too, saying so.
+// A stall the log cannot explain, because it cannot be read, as from a standard account, still
+// fails at the patience's end, ending git: but it cannot tell whether a prompt is open, so it says
+// macOS may be asking, to answer the prompt if it is showing and run upool doctor, and only then
+// the other causes, with no prompt left unanswered among them (decision on #286, 2026-11-04).
 func TestCreateFailsFastOnAStallWithAnUnreadableLog(t *testing.T) {
 	h := newHarness(t, true)
 	h.readySlot(t, "slot-1", h.slotPath("slot-1"))
 	req := h.capture(t, "desktop-session-create.json")
+	var g stallingGit
 	synctest.Test(t, func(t *testing.T) {
 		log := newCapturedLog("", "")
-		log.err = errors.New("log: Must be admin")
-		env, _ := h.stalling(log)
+		log.err = errors.New("reading the TCC log with /usr/bin/log show: exit status 64")
+		var env Env
+		env, g = h.stalling(log)
 		start := time.Now()
-		_, err := WorktreeCreate(context.Background(), env, req)
+		got, err := WorktreeCreate(context.Background(), env, req)
 		if waited := time.Since(start); waited != 2*time.Second {
 			t.Errorf("the hook waited %s, want 2s", waited)
 		}
-		if err == nil || !strings.Contains(err.Error(), "did not answer within 2s, and macOS's "+
-			"log of its prompts could not be read (log: Must be admin): the likely causes") {
-			t.Errorf("WorktreeCreate = %v; want the stall, the log's error and the causes", err)
+		want := "git -C " + h.e.Repo + " worktree list did not answer within 2s, and upool " +
+			"could not read macOS's unified log to tell why (it needs an admin account: " +
+			"reading the TCC log with /usr/bin/log show: exit status 64): macOS may be asking " +
+			"whether upool may access the Documents folder, so answer the prompt if it is " +
+			"showing, then run upool doctor; otherwise the likely causes are upool denied the " +
+			"Documents folder in System Settings → Privacy & Security → Files and Folders, or a " +
+			"hung git"
+		if got != "" || err == nil || err.Error() != want {
+			t.Errorf("WorktreeCreate = %q, %v; want no path and %q", got, err, want)
+		}
+		if !strings.Contains(err.Error(), LogUnreadable) {
+			t.Errorf("the error does not contain %q, which doctor looks for", LogUnreadable)
 		}
 	})
+	if !g.ended.Load() {
+		t.Error("git's call was not ended")
+	}
+	if h.stderr.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing: no prompt known to wait for", h.stderr)
+	}
+	if s := h.slot(t, "slot-1"); s.State != pool.StateReady || s.Lease != nil {
+		t.Errorf("slot-1 = %s with lease %+v, want it ready and unleased", s.State, s.Lease)
+	}
 }
 
 // A prompt nobody answers holds the hook for the 4 min 55 s the desktop app leaves it, the

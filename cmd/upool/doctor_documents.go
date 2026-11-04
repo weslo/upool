@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/hooks"
+	"github.com/weslo/upool/internal/tcc"
 )
 
 // checkDocumentsAccess is the check that has the desktop app's helper run upool's create hook, so
@@ -38,6 +39,9 @@ type desktopHelper struct {
 	paths []string
 	// run runs a command through the helper; nil is runHelper, as a process.
 	run helperRunner
+	// log is the unified log, which the check reads to tell a dry run the bound ended while it
+	// waited from one that could not tell; nil is tcc.LogShow.
+	log tcc.Log
 }
 
 // helperRunner runs argv through the helper at path, in dir, with env as its environment and stdin
@@ -72,6 +76,18 @@ func runHelper(ctx context.Context, helper string, argv, env []string, dir strin
 		return stderr.Bytes(), -1, fmt.Errorf("running %s: %w", helper, err)
 	}
 	return stderr.Bytes(), 0, nil
+}
+
+// readable returns why the check cannot read the unified log, as for a standard account, or nil
+// when it can, bounded as a dry run is.
+func (h desktopHelper) readable(ctx context.Context, inv *invocation) error {
+	l := h.log
+	if l == nil {
+		l = tcc.LogShow{Env: inv.environ()}
+	}
+	ctx, cancel := context.WithTimeout(ctx, documentsBound)
+	defer cancel()
+	return tcc.Readable(ctx, l)
 }
 
 // findHelper returns the first of paths that is an executable file.
@@ -129,9 +145,11 @@ func probeRequest(repo string) ([]byte, error) {
 // the hook answers; warns while the prompt is open, the bound having ended the hook, saying to
 // answer it and run doctor again; fails, naming the setting, when macOS denies upool the folder,
 // though the answer came within the bound, after the waiting line; and fails with the hook's error
-// otherwise. It warns, naming where it looked,
-// when the helper is not there, or when the project registers no create hook. With no helper to
-// look for, off macOS, it reports false and runs nothing.
+// otherwise. Where the unified log cannot be read, as from a standard account, it cannot tell a
+// prompt from a stall: a dry run the bound ended with no waiting line, or one that failed saying
+// it could not read the log, warns that macOS may be asking, with what to do either way. It warns,
+// naming where it looked, when the helper is not there, or when the project registers no create
+// hook. With no helper to look for, off macOS, it reports false and runs nothing.
 func documentsAccessCheck(ctx context.Context, inv *invocation, repo,
 	upool string) (doctorCheck, bool) {
 	h := inv.desktop
@@ -157,26 +175,38 @@ func documentsAccessCheck(ctx context.Context, inv *invocation, repo,
 	if run == nil {
 		run = runHelper
 	}
-	ctx, cancel := context.WithTimeout(ctx, documentsBound)
+	bounded, cancel := context.WithTimeout(ctx, documentsBound)
 	defer cancel()
 	start := inv.now()
-	stderr, exit, err := run(ctx, helper, []string{upool, "hook", "worktree-create", dryRunFlag},
-		inv.environ(), repo, stdin)
+	stderr, exit, err := run(bounded, helper, []string{upool, "hook", "worktree-create",
+		dryRunFlag}, inv.environ(), repo, stdin)
 	took := inv.now().Sub(start)
 	name := filepath.Base(upool)
 	pending := fmt.Sprintf("macOS is asking whether %s may access Documents; answer it, then "+
 		"run upool doctor again", name)
+	// An unreadable log means the check cannot tell, not that no prompt is open (decision on
+	// #286, 2026-11-04).
+	unknown := fmt.Sprintf("macOS may be asking whether %s may access Documents, but upool "+
+		"cannot read the unified log to tell, which needs an admin account: answer the prompt "+
+		"if it is showing, then run upool doctor again; otherwise %s may be denied the "+
+		"Documents folder in System Settings → Privacy & Security → Files and Folders, or its "+
+		"git may be hung", name, name)
 	// The waiting line tells something only of a hook the bound ended: one that wrote it and then
 	// ended on its own was answered meanwhile, and its exit says how.
+	waited := bytes.Contains(stderr, []byte("upool: "+hooks.WaitingLine))
 	switch {
 	case err == nil && exit == 0:
 		return doctorCheck{checkDocumentsAccess, checkPass, fmt.Sprintf("the desktop app's "+
 			"helper ran %s's create hook, and its git read %s in %d ms", name, repo,
 			took.Milliseconds())}, true
-	case errors.Is(err, context.DeadlineExceeded):
-		if !bytes.Contains(stderr, []byte("upool: "+hooks.WaitingLine)) {
-			pending += fmt.Sprintf(" (the hook did not answer within %s)", documentsBound)
+	case errors.Is(err, context.DeadlineExceeded) && !waited:
+		if readErr := h.readable(ctx, inv); readErr != nil {
+			return doctorCheck{checkDocumentsAccess, checkWarn, unknown + fmt.Sprintf(" (%v)",
+				readErr)}, true
 		}
+		return doctorCheck{checkDocumentsAccess, checkWarn, pending + fmt.Sprintf(" (the hook "+
+			"did not answer within %s)", documentsBound)}, true
+	case errors.Is(err, context.DeadlineExceeded):
 		return doctorCheck{checkDocumentsAccess, checkWarn, pending}, true
 	case err != nil:
 		return failedCheck(checkDocumentsAccess, err), true
@@ -184,6 +214,8 @@ func documentsAccessCheck(ctx context.Context, inv *invocation, repo,
 		return doctorCheck{checkDocumentsAccess, checkFail, fmt.Sprintf("macOS denies %s "+
 			"access to Documents: allow it in System Settings → Privacy & Security → Files and "+
 			"Folders, then run upool doctor again", name)}, true
+	case bytes.Contains(stderr, []byte(hooks.LogUnreadable)):
+		return doctorCheck{checkDocumentsAccess, checkWarn, unknown}, true
 	}
 	return doctorCheck{checkDocumentsAccess, checkFail, fmt.Sprintf("the create hook failed "+
 		"under the desktop app's helper, exit %d: %s", exit, lastLine(stderr))}, true

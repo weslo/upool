@@ -106,6 +106,31 @@ func TestPendingWithNoPromptLoggedFindsNone(t *testing.T) {
 	}
 }
 
+// Readable reports a log that cannot be read, from a query of the last minute, and nothing for one
+// that can.
+func TestReadableReportsALogThatCannotBeRead(t *testing.T) {
+	boom := errors.New("log: cannot read")
+	if err := Readable(t.Context(), &shortLog{fakeLog{err: boom}}); !errors.Is(err, boom) {
+		t.Errorf("Readable of a failing log = %v, want %v", err, boom)
+	}
+	l := &shortLog{fakeLog{prompts: capture(t, "documents-result-pending.ndjson")}}
+	if err := Readable(t.Context(), l); err != nil || len(l.queries) != 1 ||
+		!strings.Contains(l.queries[0], Documents) {
+		t.Errorf("Readable = %v after queries %q; want nil after one for Documents prompts", err,
+			l.queries)
+	}
+	if err := Readable(t.Context(), nil); err == nil {
+		t.Error("Readable of no log = nil, want an error")
+	}
+}
+
+// shortLog is a fakeLog that answers any window, as Readable asks for a minute's.
+type shortLog struct{ fakeLog }
+
+func (s *shortLog) Show(ctx context.Context, _ time.Duration, predicate string) ([]byte, error) {
+	return s.fakeLog.Show(ctx, Window, predicate)
+}
+
 // A log that cannot be read, or that prints something other than ndjson, is an error, not a
 // prompt.
 func TestPendingReportsALogItCannotRead(t *testing.T) {
