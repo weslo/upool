@@ -119,9 +119,11 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 //     in the Hub project registry, which every open of a slot gives, since upool opens a slot by
 //     its path and never registers it with the Hub (#285).
 //  3. It waits with `unity status --until-ready` while checking that the Editor is still running
-//     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout.
-//     Without rewarm, it then waits for the ready Editor to settle, unity.WaitSettled, until the
-//     same timeout from the launch, and reports it unsettled when that runs out (#282).
+//     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout. It
+//     records when it saw the Editor ready as the Editor's ready_at, from which status reckons how
+//     long the Editor has been open (#281). Without rewarm, it then waits for the ready Editor to
+//     settle, unity.WaitSettled, until the same timeout from the launch, and reports it unsettled
+//     when that runs out (#282).
 //  4. Once the Editor is ready, it ends a cold import and clears reimport_pending (A39).
 //
 // Before a headless launch it keeps the slot's Library/LastSceneManagerSetup.txt in upool's state
@@ -197,6 +199,9 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 			return openReport{Slot: s.Name, Path: s.Path, PID: pid, Mode: mode,
 				ColdImport: cold, ChargeGB: e.ChargeGB}, warnings, err
 		}
+		return fail(pid, err)
+	}
+	if err := ledger.Ready(ctx, inv.home, s.Path, pid, inv.now()); err != nil {
 		return fail(pid, err)
 	}
 	settled := true

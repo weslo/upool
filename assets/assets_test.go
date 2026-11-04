@@ -41,6 +41,27 @@ func TestClaudeMDBlockSaysHowToWorkInASlot(t *testing.T) {
 	}
 }
 
+// The acceptance test of #281's session context: what a slot's session is told says to open the
+// Editor when the work needs it, to close it with `upool close` once the work is done, a pull
+// request open and nothing left to verify, and to reopen it for a follow-up (docs/contracts.md
+// (b), "Context for the session"). On the first benchmark run two sessions, told none of this,
+// kept their Editors open 2 h 50 min while they waited on review.
+func TestInstructionsSayToCloseTheEditorOnceTheWorkIsDone(t *testing.T) {
+	// Compared as words, so that rewrapping the Markdown does not fail the test.
+	got := strings.Join(strings.Fields(Instructions()), " ")
+	for _, want := range []string{
+		"Open the Editor when the work needs it",
+		"Once the work is done, a pull request open and nothing left to verify, close it with " +
+			"`upool close`",
+		"rather than leave it running while you wait on review",
+		"Reopen it with `upool open` for a follow-up",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the session's instructions do not say %q", want)
+		}
+	}
+}
+
 // The skill opens with the frontmatter Claude Code and other agents read, its name matching its
 // directory and its description on one line, and ends in a newline.
 func TestSkillHasFrontmatter(t *testing.T) {

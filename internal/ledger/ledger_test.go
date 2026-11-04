@@ -10,8 +10,10 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/weslo/upool/internal/pathvars"
 	"github.com/weslo/upool/internal/statefile"
@@ -36,8 +38,11 @@ func tempDir(t *testing.T) string {
 	return dir
 }
 
+// readyAt is the golden file's ready_at, when upool open saw slot-1's Editor ready.
+var readyAt = time.Date(2026, 11, 3, 19, 42, 30, 0, time.UTC)
+
 // full returns a ledger with every key in docs/contracts.md (e) set: a long-lived Editor upool
-// opened, and one running a cold import that it did not.
+// opened and saw ready, and one running a cold import that it did not, not ready yet.
 func full() Ledger {
 	return Ledger{
 		SchemaVersion: SchemaVersion,
@@ -48,6 +53,7 @@ func full() Ledger {
 				Mode:          "gui",
 				OpenedByUpool: true,
 				ChargeGB:      2.5,
+				ReadyAt:       &readyAt,
 			},
 			{
 				Project:    repo.Path + "/.claude/worktrees/slot-2",
@@ -169,7 +175,7 @@ func TestGoldenHasExactlyTheContractKeys(t *testing.T) {
 	}
 	for _, raw := range editors {
 		check("editor", object(t, raw),
-			"project", "pid", "mode", "opened_by_upool", "cold_import", "charge_gb")
+			"project", "pid", "mode", "opened_by_upool", "cold_import", "charge_gb", "ready_at")
 	}
 }
 
@@ -182,8 +188,8 @@ func TestEmptyLedgerIsWrittenWithAnArray(t *testing.T) {
 	if got := string(doc["editors"]); got != "[]" {
 		t.Errorf("editors = %s, want []", got)
 	}
-	if got := string(doc["schema_version"]); got != "1" {
-		t.Errorf("schema_version = %s, want 1", got)
+	if got, want := string(doc["schema_version"]), strconv.Itoa(SchemaVersion); got != want {
+		t.Errorf("schema_version = %s, want %s", got, want)
 	}
 }
 
@@ -237,16 +243,47 @@ func TestUpdateWritesAnOlderDocumentAtTheCurrentVersion(t *testing.T) {
 	}
 }
 
+// A version-1 ledger, written before the Editors' ready_at (#281), reads with no ready time for
+// any Editor, and its next write migrates it to the current version with ready_at null, keeping
+// every field it had (A7).
+func TestVersion1LedgerReadsWithNoReadyTimeAndIsMigrated(t *testing.T) {
+	home := tempDir(t)
+	writeFile(t, home, `{"schema_version":1,"editors":[{"project":"/src/down/.claude/worktrees/`+
+		`slot-1","pid":51207,"mode":"gui","opened_by_upool":true,"cold_import":false,`+
+		`"charge_gb":6}]}`)
+	want := Editor{Project: "/src/down/.claude/worktrees/slot-1", PID: 51207, Mode: "gui",
+		OpenedByUpool: true, ChargeGB: 6}
+	if l := load(t, home); l.SchemaVersion != 1 || !reflect.DeepEqual(l.Editors, []Editor{want}) {
+		t.Errorf("Load = %+v, want version 1 and %+v, with no ready_at", l, want)
+	}
+	if err := unchanged(home); err != nil {
+		t.Fatal(err)
+	}
+	doc := object(t, []byte(readFile(t, home)))
+	var editors []map[string]json.RawMessage
+	if err := json.Unmarshal(doc["editors"], &editors); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(doc["schema_version"]), strconv.Itoa(SchemaVersion); got != want ||
+		len(editors) != 1 || string(editors[0]["ready_at"]) != "null" ||
+		string(editors[0]["charge_gb"]) != "6" {
+		t.Errorf("editors.json after a write = %s, want schema_version %s and the Editor with "+
+			"ready_at null", readFile(t, home), want)
+	}
+}
+
 func TestNewerSchemaVersionIsRefused(t *testing.T) {
 	home := tempDir(t)
 	// A newer upool may add keys too; the version is what the message is about.
-	doc := `{"schema_version":2,"editors":[],"added_later":true}`
+	newer := strconv.Itoa(SchemaVersion + 1)
+	doc := `{"schema_version":` + newer + `,"editors":[],"added_later":true}`
 	writeFile(t, home, doc)
 	check := func(op string, err error) {
 		t.Helper()
-		if err == nil || !strings.Contains(err.Error(), "schema_version 2") ||
+		if err == nil || !strings.Contains(err.Error(), "schema_version "+newer) ||
 			!strings.Contains(err.Error(), "upgrade upool") || !strings.Contains(err.Error(), shown) {
-			t.Errorf("%s error = %v, want %s, schema_version 2 and upgrade upool", op, err, shown)
+			t.Errorf("%s error = %v, want %s, schema_version %s and upgrade upool", op, err,
+				shown, newer)
 		}
 	}
 	_, err := Load(home)
