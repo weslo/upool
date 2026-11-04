@@ -77,7 +77,7 @@ winget, whose gate runs on Windows.
 | ✅ Done | [M3 Editor governance](https://github.com/weslo/upool/milestone/4) | The RAM budget for running Editors, `open` and `close`, and the lane hook | v0.3.0 |
 | ✅ Done | [M4 Hygiene and release](https://github.com/weslo/upool/milestone/5) | `refresh --fetch`, `prune`, `status --du` and the disk budget, then the Homebrew release the Quickstart uses | v0.4.0 |
 | ✅ Done | [M5](https://github.com/weslo/upool/milestone/6) | Work moved out of M4: a slot stuck when a desktop session ends without `WorktreeRemove` ([#192](https://github.com/weslo/upool/issues/192)) | v0.5.0 |
-| 🚧 In progress | [Early Benchmarking](https://github.com/weslo/upool/milestone/8) | Step timings for every slot and Editor operation, and the `upool-benchmark` skill with the run record ([#266](https://github.com/weslo/upool/issues/266), [#267](https://github.com/weslo/upool/issues/267)); the first run's record is still to come | v0.6.1 |
+| 🚧 In progress | [Early Benchmarking](https://github.com/weslo/upool/milestone/8) | Step timings for every slot and Editor operation, and the `upool-benchmark` skill with the run record ([#266](https://github.com/weslo/upool/issues/266), [#267](https://github.com/weslo/upool/issues/267)); the first run's record is [docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md](docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md) | v0.6.1 |
 | 🔜 Next | [🪟 Windows Compatibility](https://github.com/weslo/upool/milestone/7) | upool on Windows, installed from winget, starting with a spike that measures what the design rests on there ([#261](https://github.com/weslo/upool/issues/261)) | — |
 
 ## 📚 Documentation

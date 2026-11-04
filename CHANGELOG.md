@@ -7,6 +7,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The first benchmark record, `docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md`:
+  three sessions on a 9 GB Library, two of them editing the same two prefabs, with the
+  measurements, what the sessions reported, and what the run changes for upool.
+
 ## [0.6.1] - 2026-11-03
 
 ### Fixed
