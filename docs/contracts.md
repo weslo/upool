@@ -112,7 +112,7 @@ column is A28's, from the second M2 gate run on desktop app 3.1623.0; "the clean
 `Cleaning up worktree`, `Removing worktree … (leased by …)` and `Removed hook-based worktree`
 lines. A later build deleted the slot's directory on a session-tool archive (the rules above),
 and nothing on the machine said whether the remove hook ran. upool now logs each hook run in the
-pool's hook log ((e), "The hook log"), and [manual-gates/M7.md](manual-gates/M7.md) check 5
+pool's hook log ((e), "The hook log"), and [manual-gates/M7.md](manual-gates/M7.md) check 7
 archives a clean and a dirty slot each way on the current build: it records which ran the hook, in
 what order to the directory's removal and with what outcome, and names each new capture. Until it
 has run, the last column is pending, and so is A28's update (#278).
@@ -252,6 +252,32 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 | 2 | `INVALID_COMMAND_ARGS` | error: unknown option '--project-path' | `cache key --project-path` | S§8 D.1 | `unity/cache-key-project-path-invalid.json`; `unity/cache-key-project-path-rejected.json` (A2) |
 | 7 | — | — | **never observed** in any capture | — | none; a failure, upool exits 1 (A1) |
 
+The close and the save before it fail in two more ways, which upool handles by the call rather than
+by this table's code mapping (#280):
+
+- **`unity close` leaves the Editor running.** A plain close exits 6 with
+  `PROJECTS_CLOSE_UNREACHABLE` ("… has no graceful-close channel. Re-run with --force to terminate
+  it.") for an Editor in the middle of a cold import or one sent the close within seconds of ready,
+  and with `PROJECTS_CLOSE_TIMEOUT` ("… did not close within 30s. …") for a headless Editor of a
+  main checkout closed as it became ready; `unity close --force` closed such an Editor, exit 0,
+  `method: forced` ((c), the `close` row; `unity/close-unreachable.json`,
+  `unity/close-timeout.json`, `unity/close-force-unreachable.json`). Refresh retries and forces
+  such a close (A40; A48). `upool close` passes the failure on, exiting 6, and `upool close
+  --force`, which saves nothing, is the way out of it (A48, as amended by #280).
+- **`save_all` does not answer.** On the first benchmark run, a GUI Editor's open scene had no
+  path, its `save_all` opened a native Save panel, and the CLI gave up after 30 s with the panel
+  still up (docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md). That reply is not captured
+  (command-save-all-timeout.json, **pending** in testdata/README.md), and upool does not read it: it
+  bounds each call that saves or lists scenes at 20 s, and fails one that runs out, or whose
+  re-query meets the main-thread timeout again (A29), as timed out, naming a native panel as the
+  likely cause unless the ledger records the Editor as headless. `save_all` takes no parameters
+  (`unity/command-list-query-save.json`), so it cannot be told to pass a scene over: upool lists
+  the open scenes first, with `unity command eval`, and when one has no path it saves the others
+  one at a time, also with `eval` (A48, as amended). Neither eval's reply from a real Editor is
+  captured yet (command-eval-scenes-untitled.json and command-eval-save-scene.json, **pending**);
+  the tests replay `unity/command-eval-first-call.json` with the string upool's code returns in
+  place of that eval's.
+
 ### upool's own exit codes
 
 The design says only that "exit codes and the JSON envelope mirror the Unity CLI's own" and that
@@ -301,7 +327,7 @@ hooks, which do their own take and confirm in-process, time nothing.
 | `release` | `save_all` and `close`, only for an Editor upool opened in the slot, as `close`'s own; `verify` (A34); `status`, define-order noise reverted and the slot judged clean or dirty; `reset`, only for a clean slot; then `mirror` (A44) |
 | `refresh` | `reset` for each `needs-reset` slot it resets ((f) transition 20); `close` for each Editor an earlier re-warm left live in a `warming` slot whose owner died, which it closes before the top-up ((f) transition 22; A40 as amended by #273); `mirror` (A44); `clone` for each slot the top-up clones; `move` and `rewarm` for each slot it moves to base, the re-warm from its Editor's open to its close ((f) transitions 3 and 18; A40). Each step but `mirror` names its slot |
 | `open` | `admit`, the ledger's admission, waiting for a running cold import to end if it must (A38); then `ready`, from `unity open` until `unity status --until-ready` reports the Editor ready (A37) |
-| `close` | `save_all`; then `close`, from `unity close` until the Editor's process is gone and the ledger and the scene list are updated (A8) |
+| `close` | `save_all`, the save of the Editor's scenes, which since #280 includes listing them first and, when one has no path, saves the others one at a time instead of with save_all (A48, as amended); then `close`, from `unity close` until the Editor's process is gone and the ledger and the scene list are updated (A8). `close --force` saves nothing, so its one step is `close`, the forced close included |
 
 ## (e) State schemas
 
@@ -950,7 +976,7 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
   2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
   hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
-  `manual-gates/M7.md` check 5 archives a clean and a dirty slot each way on the current build;
+  `manual-gates/M7.md` check 7 archives a clean and a dirty slot each way on the current build;
   its result fills in (a), "Archive paths", and updates this answer.
 
 ### Decided for M3
@@ -1402,6 +1428,47 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     ([#273](https://github.com/weslo/upool/issues/273); A40 as amended). Before #273 it was left
     as it was, and a close the Editor could not yet be reached for left the slot `warming` with
     the Editor live, which blocked every take.
+
+  **Amended** ([#280](https://github.com/weslo/upool/issues/280)). On the first benchmark run
+  (2026-11-03, CLI 1.0.0-beta.13, Editor 6000.4.11f1;
+  docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md), a session's `upool close` hung its
+  slot's GUI Editor. After a development build, the Editor's restore left its open scene with no
+  path. The scene had no unsaved changes, yet `save_all` opened a native Save panel for it. The
+  CLI gave up after 30 s, `close` refused to close after the failed save, and every later Unity
+  call timed out until a person dismissed the panel. Nor did `upool close` have a `--force`. The
+  maintainer decided (2026-11-03, in #280) that `upool close` saves only the scenes that have a
+  path and says which it skipped, names the panel when a save times out, and has `--force`. What
+  follows is the implementation's, for the close of an Editor a session works in, `upool close`'s
+  and `upool release`'s, which share it:
+  - **Listed first:** before it saves, close lists the Editor's open scenes, with each one's path
+    and whether it has unsaved changes, by `unity command eval`. A listing that fails any other
+    way than a timeout is a warning, and `save_all` saves every scene, as before.
+  - **Only scenes that have a path:** when every scene has a path, `save_all` saves them, as
+    before. Otherwise it cannot be used, since it takes no parameters to pass a scene over
+    (`unity/command-list-query-save.json`). Each scene that has a path and unsaved changes is
+    then saved on its own, with `EditorSceneManager.SaveScene` through `eval`. A scene with no
+    path is not saved, and a warning on stderr says so for each, with whether the close discards
+    unsaved changes in it.
+  - **Bounded:** each call that lists or saves is bounded at 20 s, under the CLI's 30 s, and a
+    main-thread timeout is re-queried once, as A29 has it for `save_all`. A call that runs out, or
+    whose re-query times out again, fails the close as timed out. For an Editor the ledger
+    records as GUI, or does not record, the message names a native panel as the likely cause,
+    and says to press Cancel in the slot's Editor and run the command again, or to run
+    `upool close --force` if nothing is unsaved. A headless Editor, opened in batch mode (A33) as
+    `upool open` opens by default (A36), has no window to press Cancel in, so its timed-out save
+    is the plain failure, with no advice to force a close that would discard the work.
+  - **`upool close --force`:** saves nothing and closes with `unity close <slot> --force`. Once
+    the Editor is gone, it clears what that leaves, as A45 has it, and puts back the scene list
+    (A8). It is a session's way out of an Editor that will not close, and it discards unsaved work.
+    `upool close` itself neither retries nor forces a close, since a forced close would discard
+    the session's work.
+  - **The re-warm** is unchanged: its Editor, one upool opened headless at base, holds no work,
+    and is saved with `save_all` alone, now bounded, then closed retrying and then forcing, as
+    above (#273).
+  - **Unverified,** and checked by `manual-gates/M7.md`, checks 5 and 6: what a real Editor does
+    with these calls, that the listing reports a scene with no path as one, and that a close with
+    one open raises no panel. The replies of the listing, of the one-scene save and of a
+    `save_all` held by a panel are captures check 6 adds.
 
 - **49. An Editor that has not yet written its instance file**
   ([#255](https://github.com/weslo/upool/issues/255)). upool knew an Editor it had not opened only

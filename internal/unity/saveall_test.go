@@ -84,13 +84,17 @@ func TestSaveAllReturnsAnyOtherFailure(t *testing.T) {
 	checkSaveAllCalls(t, calls, 1, slot)
 }
 
-// A second timeout is SaveAll's error, still marked ErrMayHaveRun, and there is no third call.
+// A second timeout is SaveAll's error, a TimedOutError still marked ErrMayHaveRun, and there is no
+// third call: the Editor's main thread took neither save, as when a native panel holds it (#280).
 func TestSaveAllStopsAfterOneReQuery(t *testing.T) {
 	timeout := fake.Reply{Capture: "command-eval-main-thread-timeout.json", Exit: 1}
 	calls, slot, err := saveAllIn(t, timeout, timeout)
 	var f *output.Failure
-	if !errors.As(err, &f) || f.Exit() != output.ExitFailure || !errors.Is(err, ErrMayHaveRun) {
-		t.Errorf("SaveAll: %v, want the timeout, exiting 1 and marked ErrMayHaveRun", err)
+	var timedOut *TimedOutError
+	if !errors.As(err, &f) || f.Exit() != output.ExitFailure || !errors.Is(err, ErrMayHaveRun) ||
+		!errors.As(err, &timedOut) {
+		t.Errorf("SaveAll: %v, want the timeout, exiting 1, marked ErrMayHaveRun and a "+
+			"TimedOutError", err)
 	}
 	checkSaveAllCalls(t, calls, 2, slot)
 }
