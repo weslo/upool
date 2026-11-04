@@ -53,6 +53,9 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 		return "", err
 	}
 	doc, err := ContextDocument(EventSessionStart)
+	if err == nil {
+		env.Log.did(OutcomeContext, ref.slot.Name, "")
+	}
 	errs := []error{err}
 	if !takesUp(ref, req.SessionID, env.ParentPID) {
 		l := ref.slot.Lease

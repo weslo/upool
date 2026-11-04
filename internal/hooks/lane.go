@@ -12,9 +12,9 @@ import (
 	"github.com/weslo/upool/internal/registry"
 )
 
-// eventPreToolUse is PreToolUse's hook_event_name, which the lane guard's decision names
+// EventPreToolUse is PreToolUse's hook_event_name, which the lane guard's decision names
 // (testdata/captures/hooks/pretooluse-*.json).
-const eventPreToolUse = "PreToolUse"
+const EventPreToolUse = "PreToolUse"
 
 // sceneFiles are the extensions of the files only the scene lane writes: scenes, prefabs, assets
 // and .meta files, whose references and GUIDs break when two writers change them at once
@@ -39,7 +39,7 @@ func (d Decision) Output() ([]byte, error) {
 		return nil, nil
 	}
 	return json.Marshal(map[string]any{"hookSpecificOutput": map[string]string{
-		"hookEventName":            eventPreToolUse,
+		"hookEventName":            EventPreToolUse,
 		"permissionDecision":       "deny",
 		"permissionDecisionReason": d.Reason,
 	}})
@@ -75,6 +75,7 @@ func LaneGuard(env Env, req Request) (Decision, error) {
 	if err != nil {
 		rel = path
 	}
+	env.Log.did(OutcomeDeny, s.Name, "")
 	return Decision{Deny: true, Reason: fmt.Sprintf("upool: %s is in the script lane, which does "+
 		"not write %s: scenes, prefabs, assets and .meta files are written in the scene lane, by "+
 		"one lease of the project at a time. To edit it, take a slot in the scene lane with "+

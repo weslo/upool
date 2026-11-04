@@ -7,8 +7,50 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `upool status` marks the slot the working directory is in, as `upool which` finds it, with
+  `(here)` after its name, and with `"here": true` on that slot under `--json`, with `--all` or
+  without (#283). A session runs status from its slot, so it can now tell which lease is its own:
+  the lease's holder, for a desktop session the app's ID, is not the session's own
+  (docs/contracts.md (a); (e), the lease's `holder`). Outside every slot nothing is marked, and the
+  output is unchanged. Plain `status` shows its pool as `--all` does, every slot, `creating` and
+  `warming` ones included, and the running refresh, and is now tested to, from the main checkout
+  and from inside a slot.
+- `upool close --force` saves nothing and closes the slot's Editor with `unity close <slot>
+  --force`, then removes the instance files a forced close leaves, as A45 has it, and puts back a
+  headless Editor's scene list (#280; docs/contracts.md A48, as amended). It is the way out of an
+  Editor that will not close when nothing in it is unsaved, and it discards anything that is. It
+  says `closed slot-N's Editor without saving`, reports `"saved": false` under `--json`, and times
+  the close as its one step. Every close's `--json` now reports `saved`.
+- Each run of `upool hook <event>` whose request belongs to a pool is logged in the pool's hook
+  log, `~/.upool/pools/<repo-key>/hooks.jsonl`, beside its state (#278; docs/contracts.md (e), "The
+  hook log"): one JSON line as the hook starts its work and one as it ends, with the event, the
+  kind of request, the path it names, the hook's process and the time, and on the end line what
+  the hook did, such as `needs-reset`, `parked`, or `failed` with its error. So whether the desktop
+  app ran the remove hook when it let a slot go, and in what order to the slot's removal, now has
+  an answer on the machine. A hook that is killed still leaves its first line; one held before
+  upool's own code runs, as macOS can hold it under `~/Documents` (#286), leaves none. `doctor`
+  reads the log: for each slot the app's record no longer names, a `hook-log` line gives the
+  slot's last `WorktreeRemove` and its outcome, or warns that none came for the desktop session
+  it was handed while that session's lease is still on it. The hook log is a file of its own, not
+  lines in the timings log, which has a line for each timed operation once it has ended, where the
+  hooks time nothing. Contract (a) gains a table of the archive paths as captured so far, and
+  docs/manual-gates/M7.md check 7 re-captures the four on the current app build.
+
 ### Changed
 
+- Every Editor upool opens is launched with `-automated` (#279; docs/contracts.md A33, as amended).
+  `upool open --gui` runs `unity open <slot> --args "-automated"`, and a headless `upool open`,
+  refresh's re-warm and the stale-seed refresh run `unity open <slot> --args "-batchmode
+  -automated"`. On the first benchmark run a GUI Editor opened without `-automated` held
+  `upool close` on a native Save panel. Unity's documentation does not say what `-automated`
+  suppresses, so whether it keeps such a panel from blocking the Editor, and whether the CLI hands
+  a headless Editor both arguments, are checks in docs/manual-gates/M7.md, not yet run.
+- `upool open --help` says what each mode is for: headless, the default, for imports, builds and
+  tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
+  say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
+  "Context for the session").
 - The RAM budget charges an Editor by its mode, so that a refusal means memory is short (#287;
   docs/contracts.md (h), A9 as amended). The first benchmark run measured three GUI Editors at
   work, with their children, at 19.0 GB together, against the 7.5 GB the single 2.5 GB charge gave
@@ -33,6 +75,56 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   - Which opens are admitted changes with the defaults: on a 64 GB Mac a third GUI Editor still
     fits, and beside three GUI Editors a fourth of either mode is refused by the budget, while up
     to six headless Editors are admitted where three were.
+
+### Fixed
+
+- A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).
+  On the first benchmark run, archiving three sessions through the desktop app's session tool
+  deleted each one's slot and sent upool no `WorktreeRemove`; with the three left `leased` at
+  `max_slots`, `take` could neither reclaim them nor clone, and `doctor --fix` and `prune` changed
+  nothing. Now `take`'s reclaim, `refresh` before its top-up, and `doctor --fix` drop such a slot
+  from `state.json` when the desktop app's record does not name it, pruning a registration git
+  still has, so that a clone can replace it within `max_slots` (docs/contracts.md (f) transition
+  24). `take` and `refresh` say `dropped slot-N from the pool, since its holder, process <pid>, is
+  gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
+  Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
+  A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+- `upool open` no longer prints `upool: warning: Warning: "<slot>" was not found in the Hub
+  project registry, opening as a file path.`, the Unity CLI's warning with the prefix doubled, on
+  every open (#285). No slot is ever in the Hub's project registry, since upool opens a slot by
+  its path and never registers it with the Hub (docs/design.md, "Why not `unity vcs git worktree
+  add --seed`, symlinks, or the Accelerator"), so the warning is dropped whenever upool opens a
+  slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
+  passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
+  once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
+- `upool close` can no longer be hung by a native Save panel (#280). On the first benchmark run,
+  `save_all` opened one for an open scene with no path, which a development build's restore had
+  left, and held the Editor until a person dismissed it. `close`, and `release` for an Editor upool
+  opened, now list the Editor's open scenes first, with `unity command eval`. When one has no path,
+  they skip save_all, which cannot be told to pass a scene over. They save each scene that has a
+  path and unsaved changes on its own instead, and a warning on stderr names each scene they did
+  not save. A listing that fails any other way than a timeout is a warning, and save_all saves
+  every scene as before. Each call that lists or saves is bounded at 20 s. A save that runs out,
+  or whose re-query meets the main-thread timeout again, fails the close. For a GUI Editor, the
+  message names a native panel as the likely cause: press Cancel in the slot's Editor and run the
+  command again, or `upool close --force` if nothing is unsaved. A headless Editor, which has no
+  window, gets the plain failure (docs/contracts.md (d); A48, as amended). The replies of the
+  listing, of the one-scene save and of a `save_all` a panel holds are not yet captured from a
+  real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
+- `upool open` reports ready only once an import in flight has settled, or says that it has not
+  (#282). On the first benchmark run, after a merge brought new assets into a slot, `open --gui`
+  printed `ready` while they were still importing, and the session's next Unity call was refused
+  as still settling. Once `unity status --until-ready` reports the Editor ready, open now probes
+  it with the read-only `unity command eval "return Application.unityVersion;"` once a second,
+  each probe bounded at 10 s, until one answers, and takes any failed probe for the Editor still
+  settling, since the refusal's reply is not captured. It waits within its own timeout, 120 s from
+  the launch or 300 s for a cold import (docs/contracts.md A37), and its `ready` step includes the
+  wait. When the timeout runs out first, open still succeeds, prints
+  `ready; importing, expect a short settle` in place of `ready`, and reports `settled: false`
+  under `--json`, where a settled Editor reports `settled: true`; an Editor whose process is gone
+  meanwhile fails the open, as before ready. Refresh's re-warm does not wait. docs/contracts.md (d)
+  says what is and is not recorded ("An Editor still settling after ready"), and
+  docs/manual-gates/M7.md checks 8 and 9 capture the refusal and check open against a real Editor.
 
 ## [0.6.1] - 2026-11-03
 
