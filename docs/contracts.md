@@ -105,6 +105,25 @@ by `session_id` (S§7 item 3; D-route).
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
+### Archive paths
+
+What each way of archiving a desktop session in a slot does, as far as the captures go. The middle
+column is A28's, from the second M2 gate run on desktop app 3.1623.0; "the cleanup" is the app's
+`Cleaning up worktree`, `Removing worktree … (leased by …)` and `Removed hook-based worktree`
+lines. A later build deleted the slot's directory on a session-tool archive (the rules above),
+and nothing on the machine said whether the remove hook ran. upool now logs each hook run in the
+pool's hook log ((e), "The hook log"), and [manual-gates/M7.md](manual-gates/M7.md) check 2
+archives a clean and a dirty slot each way on the current build: it records which ran the hook, in
+what order to the directory's removal and with what outcome, and names each new capture. Until it
+has run, the last column is pending, and so is A28's update (#278).
+
+| Archive | Slot | Desktop app 3.1623.0 | Current build | Source |
+|---|---|---|---|---|
+| The Archive button (`LocalSessions.archive` in `main.log`) | clean | the cleanup, the remove hook run, the directory kept | pending (`hooks/desktop-archive-button-clean-remove.json`) | A28 |
+| The Archive button | dirty | the cleanup; the remove hook parked the slot with the file kept, and the app dropped its record | pending (`hooks/desktop-archive-button-dirty-remove.json`) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
+| The app's session tool (`archive_session`) | clean | the cleanup and the remove hook, as the Archive button does | pending (`hooks/desktop-session-tool-clean-remove.json`) | A28; `evidence/logs/desktop-dirty-archive-main.log`, the archive after the resume |
+| The app's session tool | dirty | `Archived session` and nothing more: no remove hook, and the record kept | pending (`hooks/desktop-session-tool-dirty-remove.json`) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
+
 ## (b) SessionStart and `CLAUDE_ENV_FILE`
 
 ### SessionStart fields
@@ -416,6 +435,65 @@ says so in a warning, as it does for any failure to log.
 ```json
 {"time":"2026-11-02T08:30:00Z","operation":"take","slot":"slot-3","ok":true,"steps":[{"name":"clone","slot":"slot-3","ms":25912},{"name":"handout","ms":41}],"total_ms":25962}
 ```
+
+### `~/.upool/pools/<repo-key>/hooks.jsonl` (the hook log)
+
+Not a state file: two JSON objects for each run of `upool hook <event>` whose request belongs to a
+pool, one appended as the hook starts its work and one as it ends, so that whether a hook ran, and
+what it did, has an answer on the machine ([#278](https://github.com/weslo/upool/issues/278)). A
+request belongs to the pool of the registered repository whose main checkout holds the path the
+request names (`path`, below), a slot or a worktree under it included, the innermost where
+repositories nest, or failing that its `cwd`; a request in no registered repository is logged
+nowhere. It is a log of its own, not lines in the timings log: that log has one line for each
+operation that reports timings, written once the operation has ended, with its steps, and the
+hooks time nothing ((d), "upool's own envelope"), whereas a hook's first line must be written
+before its work, so that a hook that is killed, or that the app gives up waiting for, still leaves
+it. Otherwise it is kept as the timings log is: beside the pool's `state.json`, never in a slot;
+appended without `~/.upool/lock`, which a hook may be waiting for, each line in one write to the
+file opened for appending; no `schema_version`; and created by the hook, but never the pool's
+directory. A failure to log is a warning on stderr, and the hook's work and exit code are as they
+would have been; a hook that could not write its start line writes no end line. It grows by two
+lines a run, `PreToolUse`'s for each file a slot's session writes among them, and nothing trims
+it.
+
+The start line proves only that upool's own code ran. A hook held before then writes nothing: macOS
+holds a upool started with its working directory under `~/Documents`, and no `$PWD` naming it, in
+Go's start-up `Getwd`, before `main`, while it asks whether upool may access that folder (#286),
+and a hook the app gives up on in that state leaves no line at all. A start line with no end line
+from the same `pid` is a hook that was killed, or is still running.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `time` | timestamp | when the line was written |
+| `pid` | integer | the hook's process, which pairs a run's two lines when hooks run at once |
+| `event` | string | the `hook_event_name` of the event the subcommand handles: `WorktreeCreate`, `WorktreeRemove`, `SessionStart`, `SubagentStart` or `PreToolUse` |
+| `phase` | string | `start`, written before the hook's work, or `end`, after it |
+| `kind` | string, omitted when empty | what the request is, as its stdin tells: for `WorktreeCreate`, `subagent`, `desktop session` or `CLI session` ((a), "Telling the kinds apart"); for `WorktreeRemove`, `desktop session` when its `transcript_path` is empty and `CLI session` otherwise ((a), "WorktreeRemove fields"); for `SessionStart`, its `source` ((b)); for `SubagentStart`, `subagent`; for `PreToolUse`, the tool's name |
+| `path` | string, omitted when empty | the path the request names: `WorktreeRemove`'s `worktree_path`; the file a `PreToolUse` tool writes, made absolute against `cwd`; otherwise `cwd` |
+| `outcome` | string, end line only | what the hook did, from the table below |
+| `slot` | string, end line only, omitted when none | the pool's slot the hook acted on |
+| `worktree` | string, end line only, omitted when none | the worktree path `WorktreeCreate` printed |
+| `error` | string, end line only, omitted when none | the error the hook ended with, which it also wrote on stderr |
+
+| Event | Outcomes |
+|---|---|
+| `WorktreeCreate` | `slot`, the pooled branch's handout, naming the slot; `agent-worktree` and `pass-through`, the other two branches' worktree (D-route) |
+| `WorktreeRemove` | `needs-reset` or `parked`, a slot judged clean or dirty, naming it ((f) transitions 8 and 9); `removed` or `kept`, a pass-through worktree removed clean or kept dirty (A22); `gone`, one no longer on disk |
+| `SessionStart`, `SubagentStart` | `context`, a session in a slot given upool's instructions, naming the slot, even when its confirm failed, with that error (A43); `none`, a session in no slot |
+| `PreToolUse` | `deny`, a write the lane guard denies, naming the slot; `none`, one it lets through |
+| any | `failed`, a hook that failed before it did anything, with its `error` |
+
+```json
+{"time":"2026-11-04T09:30:00.012Z","pid":4242,"event":"WorktreeRemove","phase":"start","kind":"desktop session","path":"${repo}/.claude/worktrees/slot-1"}
+{"time":"2026-11-04T09:30:00.051Z","pid":4242,"event":"WorktreeRemove","phase":"end","kind":"desktop session","path":"${repo}/.claude/worktrees/slot-1","outcome":"needs-reset","slot":"slot-1"}
+```
+
+`doctor` reads it. For each slot of the pool that the desktop app's record ((a); A50) does not
+name, it gives a `hook-log` line: the slot's last `WorktreeRemove` and its outcome, a warning when
+it failed or logged no end; or, when the log has a desktop session handed the slot since, that no
+`WorktreeRemove` came for that session, a warning while that session's lease is still on the slot.
+A slot the log has neither for gets no line, and while the record is unknown, as without the app,
+nothing is reported.
 
 ## (f) Slot lifecycle
 
@@ -865,6 +943,12 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
 
   Amended by A50: the reclaim now leaves such a slot leased while the app's record names it, and
   `doctor` names its worktree and says how to free it.
+
+  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
+  2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
+  hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
+  `manual-gates/M7.md` check 2 archives a clean and a dirty slot each way on the current build;
+  its result fills in (a), "Archive paths", and updates this answer.
 
 ### Decided for M3
 

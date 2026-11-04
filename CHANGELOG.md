@@ -7,6 +7,23 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Each run of `upool hook <event>` whose request belongs to a pool is logged in the pool's hook
+  log, `~/.upool/pools/<repo-key>/hooks.jsonl`, beside its state (#278; docs/contracts.md (e), "The
+  hook log"): one JSON line as the hook starts its work and one as it ends, with the event, the
+  kind of request, the path it names, the hook's process and the time, and on the end line what
+  the hook did, such as `needs-reset`, `parked`, or `failed` with its error. So whether the desktop
+  app ran the remove hook when it let a slot go, and in what order to the slot's removal, now has
+  an answer on the machine. A hook that is killed still leaves its first line; one held before
+  upool's own code runs, as macOS can hold it under `~/Documents` (#286), leaves none. `doctor`
+  reads the log: for each slot the app's record no longer names, a `hook-log` line gives the
+  slot's last `WorktreeRemove` and its outcome, or warns that none came for the desktop session
+  it was handed while that session's lease is still on it. The hook log is a file of its own, not
+  lines in the timings log, which has a line for each timed operation once it has ended, where the
+  hooks time nothing. Contract (a) gains a table of the archive paths as captured so far, and
+  docs/manual-gates/M7.md check 2 re-captures the four on the current app build.
+
 ### Fixed
 
 - A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).
