@@ -27,7 +27,10 @@ const statusUsage = "status [--all] [--du] [--json]"
 // docs/contracts.md (f) has every read of the pool settle: an unconfirmed lease past
 // confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). With
 // --du it reports each slot's disk use, its private size beside its apparent size, and each
-// pool's sum (docs/contracts.md A32; #99).
+// pool's sum (docs/contracts.md A32; #99). With --all or without, it lists every slot, creating
+// and warming ones included, and the refresh job, and it marks the slot the working directory is
+// in, since a lease's holder, for a desktop session the app's ID, is not the session's own
+// (docs/contracts.md (a); (e), the lease's `holder` and `session_id`; #283).
 var statusCommand = command{
 	usage: statusUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -82,6 +85,9 @@ type slotStatus struct {
 	// not handed out until `doctor --fix` clears it (A50); expiries is how often.
 	Quarantined bool `json:"quarantined,omitempty"`
 	expiries    int
+	// Here is set on the slot the working directory is in, as which finds it, so that a session
+	// can tell its own slot and lease (#283).
+	Here bool `json:"here,omitempty"`
 }
 
 // Human returns each pool as a line naming its main checkout and base, then a table of its slots:
@@ -89,7 +95,8 @@ type slotStatus struct {
 // for a slot that has no lease, after a line announcing the refresh job while it runs. With --du
 // the table adds each slot's private and apparent size, "-" for a slot whose directory is gone,
 // and a line after it gives the pool's sums. A line after the table says why each quarantined slot
-// is quarantined and how to clear it (A50). Pools are separated by a blank line.
+// is quarantined and how to clear it (A50). The slot the working directory is in has "(here)"
+// after its name (#283). Pools are separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -126,7 +133,11 @@ func (r statusReport) Human() string {
 					confirmed = "yes"
 				}
 			}
-			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s", s.Name, s.State, lane, holder, age,
+			name := s.Name
+			if s.Here {
+				name += " (here)"
+			}
+			row := fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s", name, s.State, lane, holder, age,
 				confirmed)
 			if r.du {
 				private, apparent := "-", "-"
@@ -192,25 +203,24 @@ func leaseAge(d time.Duration) string {
 
 // status is status's handler. Without --all it reports the registered pool whose main checkout
 // contains the working directory, which a slot's does too, since slots live under
-// <repo>/.claude/worktrees; anywhere else it fails. Paths are compared as canonical keys, as which
-// compares them (docs/design.md, "Repository, CI and Homebrew distribution", the first of the five
-// rules after the layout).
+// <repo>/.claude/worktrees; anywhere else it fails. With --all or without, it marks the slot the
+// working directory is in; with --all, which the working directory does not choose, one it cannot
+// read marks none. Paths are compared as canonical keys, as which compares them (docs/design.md,
+// "Repository, CI and Homebrew distribution", the first of the five rules after the layout).
 func status(inv *invocation, all, du bool) (any, []string, error) {
 	if len(inv.args) > 0 {
 		return nil, nil, fmt.Errorf("unexpected arguments %q; usage: upool %s", inv.args,
 			statusUsage)
 	}
-	keep := func(registry.Repo) bool { return true }
-	var wd string
-	if !all {
-		var err error
-		if wd, err = inv.getwd(); err != nil {
-			return nil, nil, fmt.Errorf("reading the working directory: %w", err)
-		}
-		cwd, err := paths.Key(wd)
-		if err != nil {
+	wd, cwd, err := workingDirectory(inv)
+	if err != nil {
+		if !all {
 			return nil, nil, err
 		}
+		cwd = ""
+	}
+	keep := func(registry.Repo) bool { return true }
+	if !all {
 		keep = func(repo registry.Repo) bool { return paths.Within(cwd, repo.Path) }
 	}
 	notes, err := expireLeases(context.Background(), inv, keep)
@@ -239,6 +249,9 @@ func status(inv *invocation, all, du bool) (any, []string, error) {
 		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
 			return nil, nil, err
 		}
+		if err := ps.markHere(rp.repo, cwd); err != nil {
+			return nil, notes, err
+		}
 		if du {
 			if err := ps.measure(); err != nil {
 				return nil, notes, err
@@ -247,6 +260,35 @@ func status(inv *invocation, all, du bool) (any, []string, error) {
 		r.Pools = append(r.Pools, ps)
 	}
 	return r, notes, nil
+}
+
+// workingDirectory returns the working directory and its canonical key.
+func workingDirectory(inv *invocation) (wd, key string, err error) {
+	if wd, err = inv.getwd(); err != nil {
+		return "", "", fmt.Errorf("reading the working directory: %w", err)
+	}
+	if key, err = paths.Key(wd); err != nil {
+		return wd, "", err
+	}
+	return wd, key, nil
+}
+
+// markHere marks the slot of p, repo's pool, whose directory contains the key cwd, as which finds
+// it, so that a session sees which slot, and which lease, is its own (#283). An empty cwd, or one
+// outside repo's main checkout, under which every slot of the pool lies, marks none.
+func (p *poolStatus) markHere(repo registry.Repo, cwd string) error {
+	if cwd == "" || !paths.Within(cwd, repo.Path) {
+		return nil
+	}
+	for i := range p.Slots {
+		s := &p.Slots[i]
+		key, err := paths.Key(s.Path)
+		if err != nil {
+			return err
+		}
+		s.Here = paths.Within(cwd, key)
+	}
+	return nil
 }
 
 // measure gives each slot of p whose directory exists its disk use, and p their sum (A32). A

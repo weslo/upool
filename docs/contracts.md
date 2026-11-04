@@ -311,7 +311,7 @@ Pool:
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
 | `agent_worktrees` | array of agent worktree | subagent worktrees made by the hook | hook (subagent branch), `prune` | D-route |
-| `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`: its PID and that process's start time, so a reused PID is not mistaken for it | `refresh`, which the session-start hook spawns after a confirmed startup: records itself as it starts, unless a live job is recorded, and clears itself as it ends (#79) | D-build; D-env; A7 |
+| `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`, with `--all` or without, while its process is alive: its PID and that process's start time, so a reused PID is not mistaken for it | `refresh`, which the session-start hook spawns after a confirmed startup: records itself as it starts, unless a live job is recorded, and clears itself as it ends (#79) | D-build; D-env; A7; #283 |
 
 Slot:
 
@@ -319,7 +319,7 @@ Slot:
 |---|---|---|---|---|
 | `name` | string | `slot-N` | `init`, `take` (create), `refresh` | D-commands |
 | `path` | string, absolute path | `<repo>/.claude/worktrees/slot-N` | same | D-commands |
-| `state` | string, one of the states in (f) | lifecycle state; `creating` is the "acquisition incomplete" entry written before `git worktree add` | every transition in (f) | D-leases; D-route; A4 |
+| `state` | string, one of the states in (f) | lifecycle state; `creating` is the "acquisition incomplete" entry written before `git worktree add`. `status` lists every slot in its state, `creating` and `warming` ones included, with `--all` or without | every transition in (f) | D-leases; D-route; A4; #283 |
 | `owner_pid` | integer or null | the process cloning the slot (`creating`) or re-warming it (`warming`); null in every other state. A dead owner starts recovery, (f) transitions 21 and 22 | clone (`init`, `take`, `refresh`), `refresh` | A4 |
 | `owner_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the owner | same | A4 |
 | `seed_head` | string, commit SHA | the seed source's `git rev-parse HEAD` at clone time: the commit the cloned Library matches. The slot is then moved to base ((g) step 7), so its own HEAD may differ | clone (`init`, `take`, `refresh`) | D-lifecycle; S§8 "What this changes (updated)", staleness row; A10 |
@@ -334,7 +334,7 @@ Lease:
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
 | `lease_id` | string, random | identity for `release --if-lease-id` | `take` | D-commands; D-leases |
-| `holder` | string | `--holder ID`; for the desktop hook, the create stdin `session_id` | `take` | D-route |
+| `holder` | string | `--holder ID`; for the desktop hook, the create stdin `session_id`, the app's ID, which is not the session's own (`session_id` below; (a)). `status` shows it, and marks the slot the working directory is in, as `which` finds it: `(here)` after the slot's name, and `"here": true` with `--json`, so that a session can tell its own lease without knowing either ID | `take` | D-route; #283 |
 | `worktree_path` | string, absolute path | correlation key for `--confirm`, remove and release | `take` | D-route; D-leases |
 | `holder_pid` | integer or null | the process whose life the lease follows, for dead-PID reclaim: `upool run`'s own PID; for a create-hook lease, null until `take --confirm` sets it to the `SessionStart` hook's parent, the session's CLI process (unverified that no shell sits between them, as for `parent_pid` below); null for a bare `take`, which is never reclaimed automatically | `take`, `run`, `take --confirm` | D-leases; A6 |
 | `holder_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the holder | same | D-leases; A6 |

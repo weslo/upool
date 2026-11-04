@@ -5,12 +5,47 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/weslo/upool/internal/pool"
 	"github.com/weslo/upool/internal/registry"
 )
+
+// With its refresh job running, status announces it without --all, from the main checkout and
+// from inside a slot, where a session runs it, as --all does from the same directory (#283). Only
+// macOS reads the process start time that tells a live job from a gone one (internal/proc).
+func TestStatusShowsTheRunningRefreshWithoutAll(t *testing.T) {
+	h := newStatusHome(t)
+	repo, ok, err := registry.Lookup(h.home, h.down)
+	if err != nil || !ok {
+		t.Fatalf("looking up %s: found %t, error %v; want it registered", h.down, ok, err)
+	}
+	job := liveJob(t)
+	err = pool.Update(t.Context(), h.home, repo.Key, func(p *pool.Pool) error {
+		p.RefreshJob = job
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := "refreshing: upool refresh is running as process " + strconv.Itoa(job.PID)
+	for _, wd := range []string{h.down, filepath.Join(h.down, ".claude", "worktrees", "slot-1")} {
+		r := runStatus(t, h.home, wd)
+		checkSucceeded(t, r)
+		if !strings.Contains(r.stdout, line) {
+			t.Errorf("from %s: stdout = %q, want the line %q", wd, r.stdout, line)
+		}
+		r = runStatus(t, h.home, wd, "--json")
+		checkSucceeded(t, r)
+		if !strings.Contains(r.stdout, `"pid": `+strconv.Itoa(job.PID)) {
+			t.Errorf("from %s: --json = %s, want refresh_job naming process %d", wd, r.stdout,
+				job.PID)
+		}
+	}
+	checkShowsItsPoolAsAllDoes(t, h)
+}
 
 // TestStatusMatchesThePrivateVarSpellingOfAPool registers a pool under one spelling of /var and
 // runs status under the other, as TestWhichMatchesThePrivateVarSpellingOfASlot does for which:
