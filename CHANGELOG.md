@@ -87,6 +87,20 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   window, gets the plain failure (docs/contracts.md (d); A48, as amended). The replies of the
   listing, of the one-scene save and of a `save_all` a panel holds are not yet captured from a
   real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
+- `upool open` reports ready only once an import in flight has settled, or says that it has not
+  (#282). On the first benchmark run, after a merge brought new assets into a slot, `open --gui`
+  printed `ready` while they were still importing, and the session's next Unity call was refused
+  as still settling. Once `unity status --until-ready` reports the Editor ready, open now probes
+  it with the read-only `unity command eval "return Application.unityVersion;"` once a second,
+  each probe bounded at 10 s, until one answers, and takes any failed probe for the Editor still
+  settling, since the refusal's reply is not captured. It waits within its own timeout, 120 s from
+  the launch or 300 s for a cold import (docs/contracts.md A37), and its `ready` step includes the
+  wait. When the timeout runs out first, open still succeeds, prints
+  `ready; importing, expect a short settle` in place of `ready`, and reports `settled: false`
+  under `--json`, where a settled Editor reports `settled: true`; an Editor whose process is gone
+  meanwhile fails the open, as before ready. Refresh's re-warm does not wait. docs/contracts.md (d)
+  says what is and is not recorded ("An Editor still settling after ready"), and
+  docs/manual-gates/M7.md checks 8 and 9 capture the refusal and check open against a real Editor.
 
 ## [0.6.1] - 2026-11-03
 

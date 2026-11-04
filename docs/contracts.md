@@ -237,6 +237,26 @@ Rule for the tool and the skill: export `UNITY_PROJECT_PATH=<slot>` into every s
 | `vcs git worktree` JSON redacts the home directory to `/Users/<user>`, so its paths cannot be used verbatim (upool never calls it); `projects verify` does the same | S§5; `unity/projects-verify-pass.json` |
 | Fixtures write the directory a command ran in as `${cwd}`; the spike ran these from `/tmp`, which the CLI reports as `/private/tmp` | `testdata/README.md` |
 
+**An Editor still settling after ready.** On the first benchmark run, after a merge brought new
+assets into a slot, `upool open --gui` reported the Editor ready while the merged assets were still
+importing, and the session's next Unity call "was refused as still settling for a few seconds"
+([the run's record](https://github.com/weslo/upool/pull/276), Observations). The record says no
+more of the refusal; [#282](https://github.com/weslo/upool/issues/282), written after the run with
+nothing captured behind it, describes it as a 503, "still settling", that cleared within seconds.
+Neither the 503 nor any other part of the refusal is recorded: its envelope, code, message and exit
+are not captured, and neither is what `unity status` reports while an import runs. Both captures
+are **pending** (`status-settling` and `command-eval-settling`, testdata/README.md). So
+`upool open` reads the Editor rather than the refusal. Once
+`status --until-ready` has reported it ready, open sends the read-only
+`unity command eval "return Application.unityVersion;"`, whose answer on a freshly ready Editor is
+`unity/command-eval-first-call.json`, and takes any failure of it for the Editor still settling,
+whatever its code, message or exit, the main-thread timeout below included, which is the Editor's
+main thread still busy. It sends the eval again a second after each failure, each bounded at 10 s,
+until one succeeds or one fails at the open's timeout from the launch (A37), when open reports
+`ready; importing, expect a short settle`; an Editor whose process is gone fails the open. The
+tests stand the refusal in with `unity/command-eval-main-thread-timeout.json`, its status and
+reason replaced by #282's 503 and "still settling", a reply no CLI is recorded printing.
+
 ### Codes upool must handle
 
 | Exit | `errors[].code` | Message (captured) | When | Source | Fixture |
@@ -326,7 +346,7 @@ hooks, which do their own take and confirm in-process, time nothing.
 | `take --confirm` | `reset`, the deferred reset, only for a lease that owes one (A23); then `confirm`, the write to `state.json`. It mirrors nothing into the slot (A44), so it has no mirror step |
 | `release` | `save_all` and `close`, only for an Editor upool opened in the slot, as `close`'s own; `verify` (A34); `status`, define-order noise reverted and the slot judged clean or dirty; `reset`, only for a clean slot; then `mirror` (A44) |
 | `refresh` | `reset` for each `needs-reset` slot it resets ((f) transition 20); `close` for each Editor an earlier re-warm left live in a `warming` slot whose owner died, which it closes before the top-up ((f) transition 22; A40 as amended by #273); `mirror` (A44); `clone` for each slot the top-up clones; `move` and `rewarm` for each slot it moves to base, the re-warm from its Editor's open to its close ((f) transitions 3 and 18; A40). Each step but `mirror` names its slot |
-| `open` | `admit`, the ledger's admission, waiting for a running cold import to end if it must (A38); then `ready`, from `unity open` until `unity status --until-ready` reports the Editor ready (A37) |
+| `open` | `admit`, the ledger's admission, waiting for a running cold import to end if it must (A38); then `ready`, from `unity open` until `unity status --until-ready` reports the Editor ready (A37) and on until the Editor has settled, or until the open's timeout, when it has not ("An Editor still settling after ready", above; #282) |
 | `close` | `save_all`, the save of the Editor's scenes, which since #280 includes listing them first and, when one has no path, saves the others one at a time instead of with save_all (A48, as amended); then `close`, from `unity close` until the Editor's process is gone and the ledger and the scene list are updated (A8). `close --force` saves nothing, so its one step is `close`, the forced close included |
 
 ## (e) State schemas

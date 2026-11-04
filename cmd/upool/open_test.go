@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -164,11 +165,33 @@ var (
 	statusNoInstances = fake.Reply{Capture: "status-until-ready-no-instances.json", Exit: 6}
 )
 
+// The fake's replies to the settle probe, `unity command eval` of unity.SettleProbe (#282).
+// settledReply is the capture of that very call answering on a freshly ready Editor. No capture
+// records the refusal of an Editor still settling: the first benchmark record says only that the
+// call "was refused as still settling", and #282 describes it as a 503 "still settling", which
+// nothing records (docs/contracts.md (d), "An Editor still settling after ready"). So
+// stillSettling stands in for it, until the pending command-eval-settling capture can
+// (testdata/README.md): the Pipeline server's recorded refusal of the same eval,
+// command-eval-main-thread-timeout.json, with its HTTP status and reason replaced by #282's 503
+// and "still settling", a reply no CLI is recorded printing. Its exit is not recorded either.
+var (
+	settledReply = fake.Reply{Capture: "command-eval-first-call.json",
+		Vars: []pathvars.Var{{Name: "repo", Path: "/repo"}}}
+	stillSettling = fake.Reply{Capture: "command-eval-main-thread-timeout.json",
+		Replace: []string{"400 Bad Request: Internal Server Error. Main thread operation timed " +
+			"out after 5000ms", "503 Service Unavailable: still settling"}}
+)
+
+// probeArgs are the settle probe's arguments after `unity` (#282).
+var probeArgs = []string{"command", "eval", unity.SettleProbe, "--format", "json"}
+
 // checkOpenCalls fails the test unless u's calls are `unity open` on slot-1, with
 // `--args "-automated"`, or `--args "-batchmode -automated"` when headless (A33, as amended by
 // #279), then, when status, `unity status --until-ready` with timeout, each targeting slot-1.
+// Then come probes settle probes, `unity command eval` of unity.SettleProbe, targeting slot-1 too
+// (#282).
 func checkOpenCalls(t *testing.T, p harnessPool, u *fake.Unity, headless, status bool,
-	timeout string) {
+	timeout string, probes int) {
 	t.Helper()
 	slot := p.slot("slot-1")
 	editorArgs := "-automated"
@@ -179,6 +202,9 @@ func checkOpenCalls(t *testing.T, p harnessPool, u *fake.Unity, headless, status
 	if status {
 		want = append(want, []string{"status", "--until-ready", "--timeout", timeout, "--format",
 			"json"})
+	}
+	for range probes {
+		want = append(want, probeArgs)
 	}
 	calls := u.Calls()
 	if !slices.EqualFunc(calls, want, func(c fake.Call, args []string) bool {
@@ -212,7 +238,8 @@ func checkEditors(t *testing.T, p harnessPool, want ...ledger.Editor) {
 // Hub-registry warning, on stderr and in the envelope, is dropped for the slot (#285).
 func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	p := warmPool(t)
-	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
+		settledReply)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID), func() time.Time { return clock },
 		"--json")
 	env := decode(t, r.stdout)
@@ -220,7 +247,11 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 		t.Errorf("exit %d, envelope %+v, stderr %q; want 0, success and no warning", r.code,
 			env, r.stderr)
 	}
-	checkOpenCalls(t, p, u, true, true, "120")
+	if data, _ := env.Data.(map[string]any); data["settled"] != true {
+		t.Errorf("data %+v, want settled true: the Editor answered the settle probe (#282)",
+			env.Data)
+	}
+	checkOpenCalls(t, p, u, true, true, "120", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
 		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 }
@@ -230,7 +261,8 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 // testdata/captures/unity/open-gui-streams.* recorded them (A12).
 func TestOpenGUI(t *testing.T) {
 	p := warmPool(t)
-	u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady)
+	u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady,
+		settledReply)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedGUIPID),
 		func() time.Time { return clock }, "--gui")
 	want := "opened slot-1's Editor gui, process 25428: ready, charged 2.5 GB\n"
@@ -238,9 +270,101 @@ func TestOpenGUI(t *testing.T) {
 		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and %q", r.code, r.stdout, r.stderr,
 			want)
 	}
-	checkOpenCalls(t, p, u, false, true, "120")
+	checkOpenCalls(t, p, u, false, true, "120", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
 		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+}
+
+// refusedWith is refusal replayed with exit.
+func refusedWith(refusal fake.Reply, exit int) fake.Reply {
+	refusal.Exit = exit
+	return refusal
+}
+
+// The acceptance test of #282: a fake Editor that `unity status --until-ready` reports ready, then
+// that refuses the settle probe for two polls, then answers it. open prints a bare ready only after
+// the refusals stop, one poll interval after each, and its ready step includes the wait. The
+// refusal is stillSettling, the stand-in for the refusal no capture records, replayed with several
+// exits since its exit is not recorded either, and the recorded main-thread timeout, which open
+// takes for the same thing: neither the refusal's text nor its exit may change the result. The
+// waits pass on testing/synctest's clock.
+func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		refusal fake.Reply
+	}{
+		{"503, exit 0", refusedWith(stillSettling, 0)},
+		{"503, exit 1", refusedWith(stillSettling, 1)},
+		{"503, exit 6", refusedWith(stillSettling, 6)},
+		{"main-thread timeout", fake.Reply{Capture: "command-eval-main-thread-timeout.json",
+			Exit: 1}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p := warmPool(t)
+			u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady,
+				tt.refusal, tt.refusal, settledReply)
+			synctest.Test(t, func(t *testing.T) {
+				begin := time.Now()
+				r := runOpen(t, p, procsAlive(os.Getpid(), capturedGUIPID), time.Now, "--gui")
+				if waited := time.Since(begin); waited != 2*unity.SettlePollInterval {
+					t.Errorf("open waited %s, want %s: a poll interval after each refusal",
+						waited, 2*unity.SettlePollInterval)
+				}
+				want := "opened slot-1's Editor gui, process 25428: ready, charged 2.5 GB\n"
+				line := timingsPrefix + "open slot-1: admit 0 ms, ready 2000 ms; total 2000 ms"
+				if r.code != output.ExitOK || r.stdout != want || r.timings != line {
+					t.Errorf("exit %d, stdout %q, timings %q, stderr %q; want 0, %q and %q",
+						r.code, r.stdout, r.timings, r.stderr, want, line)
+				}
+			})
+			checkOpenCalls(t, p, u, false, true, "120", 3)
+			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+		})
+	}
+}
+
+// An Editor that still refuses the settle probe as open's timeout runs out is reported ready but
+// importing, with settled false under --json, and open succeeds with the Editor in the ledger
+// (#282). Each reading of the clock is a whole timeout past the last, so the first refusal comes
+// at the deadline and is the last probe.
+func TestOpenSaysWhenTheEditorIsStillImporting(t *testing.T) {
+	for _, tt := range []struct {
+		args []string
+		want func(t *testing.T, r result)
+	}{
+		{[]string{"--gui"}, func(t *testing.T, r result) {
+			want := "opened slot-1's Editor gui, process 25428: ready; importing, expect a " +
+				"short settle; charged 2.5 GB\n"
+			if r.stdout != want {
+				t.Errorf("stdout %q, want %q", r.stdout, want)
+			}
+		}},
+		{[]string{"--gui", "--json"}, func(t *testing.T, r result) {
+			env := decode(t, r.stdout)
+			if data, _ := env.Data.(map[string]any); !env.Success || data["settled"] != false {
+				t.Errorf("envelope %+v, want success and settled false", env)
+			}
+		}},
+	} {
+		t.Run(strings.Join(tt.args, " "), func(t *testing.T) {
+			p := warmPool(t)
+			u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady,
+				refusedWith(stillSettling, 1))
+			var ticks atomic.Int64
+			now := func() time.Time {
+				return clock.Add(time.Duration(ticks.Add(1)) * unity.ReadyTimeout)
+			}
+			r := runOpen(t, p, procsAlive(os.Getpid(), capturedGUIPID), now, tt.args...)
+			if r.code != output.ExitOK {
+				t.Errorf("exit %d, stderr %q; want 0", r.code, r.stderr)
+			}
+			tt.want(t, r)
+			checkOpenCalls(t, p, u, false, true, "120", 1)
+			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+		})
+	}
 }
 
 // The acceptance test of #279: every mode puts the Editor in automation mode, `unity open <slot>
@@ -263,7 +387,7 @@ func TestOpenPassesAutomatedInEveryMode(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			p := warmPool(t)
-			u := p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			u := p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady, settledReply)
 			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid), func() time.Time { return clock },
 				tt.args...)
 			if r.code != output.ExitOK {
@@ -282,6 +406,27 @@ func TestOpenPassesAutomatedInEveryMode(t *testing.T) {
 			}
 		})
 	}
+}
+
+// An Editor whose process is gone while it settles fails open, as one that exits before it is
+// ready does, and leaves no ledger entry (#282): here the process is gone at the first check after
+// a refused probe. On testing/synctest's clock, WaitReady's own check cannot come first.
+func TestOpenFailsWhenTheEditorExitsWhileItSettles(t *testing.T) {
+	p := warmPool(t)
+	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
+		refusedWith(stillSettling, 1))
+	procs := procsAlive(os.Getpid())
+	procs.checks[capturedPID] = 0 // running, then gone at its first check
+	synctest.Test(t, func(t *testing.T) {
+		r := runOpen(t, p, procs, time.Now)
+		want := "upool: the Editor of " + p.slot("slot-1") + ", process 25147, exited after it " +
+			"was ready, before it settled\n"
+		if r.code != output.ExitFailure || !strings.HasSuffix(r.stderr, want) {
+			t.Errorf("exit %d, stderr %q; want 1 and %q", r.code, r.stderr, want)
+		}
+	})
+	checkOpenCalls(t, p, u, true, true, "120", 1)
+	checkEditors(t, p)
 }
 
 // The acceptance test of #285: on every `unity open` of a slot, the CLI warns that the slot was
@@ -303,7 +448,7 @@ func TestOpenDropsTheHubRegistryWarningForASlot(t *testing.T) {
 	} {
 		t.Run(strings.Join(append([]string{tt.capture}, tt.args...), " "), func(t *testing.T) {
 			p := warmPool(t)
-			p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady, settledReply)
 			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid),
 				func() time.Time { return clock }, tt.args...)
 			if r.code != output.ExitOK || strings.Contains(r.stderr, "warning") {
@@ -357,7 +502,8 @@ func TestOpenChargesAColdImportUntilReady(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := newHarnessPool(t)
 			tt.prepare(t, p)
-			u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+			u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
+				settledReply)
 			r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID),
 				func() time.Time { return clock }, "--json")
 			env := decode(t, r.stdout)
@@ -366,7 +512,7 @@ func TestOpenChargesAColdImportUntilReady(t *testing.T) {
 				t.Errorf("exit %d, data %+v, stderr %q; want 0, cold_import true and a "+
 					"charge of 2.5", r.code, env.Data, r.stderr)
 			}
-			checkOpenCalls(t, p, u, true, true, "300")
+			checkOpenCalls(t, p, u, true, true, "300", 1)
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
 				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 			if s := p.loadPool(t).Slots[0]; s.ReimportPending {
@@ -396,7 +542,7 @@ func TestOpenFailsWhenTheEditorExits(t *testing.T) {
 	if took := time.Since(begin); took > 30*time.Second {
 		t.Errorf("open took %s, want it to fail well before the 120 s timeout", took)
 	}
-	checkOpenCalls(t, p, u, true, true, "120")
+	checkOpenCalls(t, p, u, true, true, "120", 0)
 	checkEditors(t, p)
 }
 
@@ -414,7 +560,7 @@ func TestOpenFailsWhenTheEditorIsNotReadyInTime(t *testing.T) {
 			" was not ready after 2m0s: ") {
 		t.Errorf("exit %d, envelope %+v; want 6 and STATUS_NO_INSTANCES", r.code, env)
 	}
-	checkOpenCalls(t, p, u, true, true, "120")
+	checkOpenCalls(t, p, u, true, true, "120", 0)
 	checkEditors(t, p)
 }
 
@@ -427,7 +573,7 @@ func TestOpenFailsWhenTheLaunchFails(t *testing.T) {
 		!strings.Contains(r.stderr, "with a reply that is not JSON") {
 		t.Errorf("exit %d, stderr %q; want 1 and the failed launch", r.code, r.stderr)
 	}
-	checkOpenCalls(t, p, u, true, false, "")
+	checkOpenCalls(t, p, u, true, false, "", 0)
 	checkEditors(t, p)
 }
 
@@ -485,7 +631,8 @@ func TestOpenWaitsForTheRunningColdImport(t *testing.T) {
 // it.
 func TestOpenGoesAheadWhenTheColdImportEnds(t *testing.T) {
 	p := newHarnessPool(t)
-	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
+		settledReply)
 	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 1001, Mode: modeHeadless,
 		OpenedByUpool: true, ColdImport: true, ChargeGB: 4.5})
 	procs := &dyingStart{editorProcs: procsAlive(os.Getpid(), capturedPID), pid: 1001, starts: 2}
@@ -499,7 +646,7 @@ func TestOpenGoesAheadWhenTheColdImportEnds(t *testing.T) {
 			t.Errorf("open waited %s, want %s", waited, 2*retryInterval)
 		}
 	})
-	checkOpenCalls(t, p, u, true, true, "300")
+	checkOpenCalls(t, p, u, true, true, "300", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
 		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
 }
