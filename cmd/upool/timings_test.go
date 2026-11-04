@@ -199,7 +199,8 @@ func TestTimingsOfRelease(t *testing.T) {
 // --json; a dirty slot is parked, with no reset step.
 func TestTimingsOfReleaseWithAnEditor(t *testing.T) {
 	p := takenPool(t)
-	p.installUnity(t, saveAllReply, closeReply, p.verifyReply("projects-verify-pass.json", 0))
+	p.installUnity(t, titledScenes, saveAllReply, closeReply,
+		p.verifyReply("projects-verify-pass.json", 0))
 	writeLedger(t, p, slot1Editor(p, true))
 	if err := os.WriteFile(filepath.Join(p.slot("slot-1"), "Assets", "new.txt"), nil,
 		0o644); err != nil {
@@ -253,7 +254,7 @@ func TestTimingsOfRefreshMoveAndRewarm(t *testing.T) {
 // ready, from `unity open` to the Editor ready; under --json, a warm open the same.
 func TestTimingsOfOpen(t *testing.T) {
 	p := newHarnessPool(t)
-	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, settledReply)
 	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 1001, Mode: modeHeadless,
 		OpenedByUpool: true, ColdImport: true, ChargeGB: 4.5})
 	procs := &dyingStart{editorProcs: procsAlive(os.Getpid(), capturedPID), pid: 1001, starts: 2}
@@ -272,7 +273,7 @@ func TestTimingsOfOpen(t *testing.T) {
 	})
 
 	p = warmPool(t)
-	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
+	p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady, settledReply)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID), func() time.Time { return clock },
 		"--json")
 	got := envelopeTimings(t, r)
@@ -283,9 +284,10 @@ func TestTimingsOfOpen(t *testing.T) {
 	checkLogged(t, p.lastLogged(t, 1), want, true)
 }
 
-// close times save_all and close, which waits here two seconds for the Editor's process to go.
+// close times save_all, the listing of the scenes with it, and close, which waits here two seconds
+// for the Editor's process to go.
 func TestTimingsOfClose(t *testing.T) {
-	p, _, _ := closePool(t, saveAllReply, closeReply)
+	p, _, _ := closePool(t, titledScenes, saveAllReply, closeReply)
 	procs := &dyingStart{editorProcs: procsAlive(), pid: closedPID, starts: 2}
 	synctest.Test(t, func(t *testing.T) {
 		r := runInSlot1(t, p, procs, time.Now, "close", "--json")
@@ -305,7 +307,7 @@ func TestTimingsOfClose(t *testing.T) {
 // A close whose `unity close` fails still reports and logs the step it completed, save_all, as
 // failed.
 func TestTimingsOfACloseThatFails(t *testing.T) {
-	p, _, _ := closePool(t, saveAllReply, fake.Reply{Capture: "version.raw.txt"})
+	p, _, _ := closePool(t, titledScenes, saveAllReply, fake.Reply{Capture: "version.raw.txt"})
 	r := runInSlot1(t, p, procsAlive(closedPID), func() time.Time { return clock }, "close")
 	line := timingsPrefix + "close slot-1: save_all 0 ms; total 0 ms"
 	if r.code != output.ExitFailure || r.timings != line {

@@ -79,36 +79,38 @@ func loadErr(t *testing.T, in Inputs) error {
 // sources is every setting's source, by key.
 func sources(c Config) map[string]Source {
 	return map[string]Source{
-		"ready":                c.Ready.Source,
-		"max_slots":            c.MaxSlots.Source,
-		"base":                 c.Base.Source,
-		"max_cold_imports":     c.MaxColdImports.Source,
-		"editor_ram_budget_gb": c.EditorRAMBudgetGB.Source,
-		"editor_ram_gb":        c.EditorRAMGB.Source,
-		"helper_ram_gb":        c.HelperRAMGB.Source,
-		"max_editors":          c.MaxEditors.Source,
-		"shrink_after":         c.ShrinkAfter.Source,
-		"max_disk":             c.MaxDisk.Source,
-		"agent_ttl":            c.AgentTTL.Source,
-		"confirm_timeout":      c.ConfirmTimeout.Source,
+		"ready":                  c.Ready.Source,
+		"max_slots":              c.MaxSlots.Source,
+		"base":                   c.Base.Source,
+		"max_cold_imports":       c.MaxColdImports.Source,
+		"editor_ram_budget_gb":   c.EditorRAMBudgetGB.Source,
+		"editor_ram_gb_gui":      c.EditorRAMGBGUI.Source,
+		"editor_ram_gb_headless": c.EditorRAMGBHeadless.Source,
+		"helper_ram_gb":          c.HelperRAMGB.Source,
+		"max_editors":            c.MaxEditors.Source,
+		"shrink_after":           c.ShrinkAfter.Source,
+		"max_disk":               c.MaxDisk.Source,
+		"agent_ttl":              c.AgentTTL.Source,
+		"confirm_timeout":        c.ConfirmTimeout.Source,
 	}
 }
 
 // nonDefault is a value for every key, as a flag or variable would give it, that is not its
 // default; checkNonDefault checks a Config holds exactly these.
 var nonDefault = map[string]string{
-	"ready":                "2",
-	"max_slots":            "5",
-	"base":                 "develop",
-	"max_cold_imports":     "2",
-	"editor_ram_budget_gb": "20",
-	"editor_ram_gb":        "3",
-	"helper_ram_gb":        "1.5",
-	"max_editors":          "4",
-	"shrink_after":         "7d",
-	"max_disk":             "40.5",
-	"agent_ttl":            "12h",
-	"confirm_timeout":      "90s",
+	"ready":                  "2",
+	"max_slots":              "5",
+	"base":                   "develop",
+	"max_cold_imports":       "2",
+	"editor_ram_budget_gb":   "20",
+	"editor_ram_gb_gui":      "7",
+	"editor_ram_gb_headless": "3",
+	"helper_ram_gb":          "1.5",
+	"max_editors":            "4",
+	"shrink_after":           "7d",
+	"max_disk":               "40.5",
+	"agent_ttl":              "12h",
+	"confirm_timeout":        "90s",
 }
 
 func checkNonDefault(t *testing.T, c Config) {
@@ -119,9 +121,11 @@ func checkNonDefault(t *testing.T, c Config) {
 			"want 2, 5, \"develop\", 2, 4", c.Ready.Value, c.MaxSlots.Value, c.Base.Value,
 			c.MaxColdImports.Value, c.MaxEditors.Value)
 	}
-	if c.EditorRAMBudgetGB.Value != 20 || c.EditorRAMGB.Value != 3 || c.HelperRAMGB.Value != 1.5 {
-		t.Errorf("editor_ram_budget_gb, editor_ram_gb, helper_ram_gb = %v, %v, %v, want 20, 3, 1.5",
-			c.EditorRAMBudgetGB.Value, c.EditorRAMGB.Value, c.HelperRAMGB.Value)
+	if c.EditorRAMBudgetGB.Value != 20 || c.EditorRAMGBGUI.Value != 7 ||
+		c.EditorRAMGBHeadless.Value != 3 || c.HelperRAMGB.Value != 1.5 {
+		t.Errorf("editor_ram_budget_gb, editor_ram_gb_gui, editor_ram_gb_headless, helper_ram_gb "+
+			"= %v, %v, %v, %v, want 20, 7, 3, 1.5", c.EditorRAMBudgetGB.Value,
+			c.EditorRAMGBGUI.Value, c.EditorRAMGBHeadless.Value, c.HelperRAMGB.Value)
 	}
 	if c.ShrinkAfter.Value != 7*24*time.Hour || c.AgentTTL.Value != 12*time.Hour ||
 		c.ConfirmTimeout.Value != 90*time.Second {
@@ -152,11 +156,14 @@ func TestDefaultsWhenNothingSetsAnything(t *testing.T) {
 	if c.MaxColdImports != (Setting[int]{1, Default}) {
 		t.Errorf("max_cold_imports = %+v, want 1 from default", c.MaxColdImports)
 	}
-	if c.EditorRAMBudgetGB != (Setting[float64]{16, Default}) {
-		t.Errorf("editor_ram_budget_gb = %+v, want 16 from default", c.EditorRAMBudgetGB)
+	if c.EditorRAMBudgetGB != (Setting[float64]{64.0 / 3, Default}) {
+		t.Errorf("editor_ram_budget_gb = %+v, want 64 / 3 from default", c.EditorRAMBudgetGB)
 	}
-	if c.EditorRAMGB != (Setting[float64]{2.5, Default}) {
-		t.Errorf("editor_ram_gb = %+v, want 2.5 from default", c.EditorRAMGB)
+	if c.EditorRAMGBGUI != (Setting[float64]{6, Default}) {
+		t.Errorf("editor_ram_gb_gui = %+v, want 6 from default", c.EditorRAMGBGUI)
+	}
+	if c.EditorRAMGBHeadless != (Setting[float64]{2.5, Default}) {
+		t.Errorf("editor_ram_gb_headless = %+v, want 2.5 from default", c.EditorRAMGBHeadless)
 	}
 	if c.HelperRAMGB != (Setting[float64]{2, Default}) {
 		t.Errorf("helper_ram_gb = %+v, want 2 from default", c.HelperRAMGB)
@@ -185,14 +192,17 @@ func TestBaseMaxEditorsAndMaxDiskHaveNoDefault(t *testing.T) {
 	}
 }
 
-func TestEditorRAMBudgetDefaultsToAQuarterOfPhysicalRAM(t *testing.T) {
+// The budget defaults to a third of physical RAM, which at 64 GB holds three GUI Editors and the
+// helper charge, 2 + 3 × 6 = 20 GB (docs/contracts.md (h); #287).
+func TestEditorRAMBudgetDefaultsToAThirdOfPhysicalRAM(t *testing.T) {
 	for _, tt := range []struct {
 		ram  uint64
 		want float64
 	}{
-		{64 << 30, 16},
-		{36 << 30, 9},
-		{18 << 30, 4.5},
+		{64 << 30, 64.0 / 3},
+		{96 << 30, 32},
+		{36 << 30, 12},
+		{18 << 30, 6},
 	} {
 		memory := func() (uint64, error) { return tt.ram, nil }
 		c := load(t, Inputs{Home: tempDir(t), Memory: memory})
@@ -292,7 +302,7 @@ func TestPrecedenceFlagEnvRepoUserDefault(t *testing.T) {
 
 func TestEachSettingTakesItsOwnHighestLayer(t *testing.T) {
 	home, repo := tempDir(t), tempDir(t)
-	writeUser(t, home, "ready = 4\nmax_slots = 4\nbase = \"u\"\neditor_ram_gb = 3\n")
+	writeUser(t, home, "ready = 4\nmax_slots = 4\nbase = \"u\"\neditor_ram_gb_gui = 3\n")
 	writeRepo(t, repo, "max_slots = 5\nbase = \"r\"\n")
 	c := load(t, Inputs{
 		Home:   home,
@@ -301,19 +311,60 @@ func TestEachSettingTakesItsOwnHighestLayer(t *testing.T) {
 		Flags:  map[string]string{"agent_ttl": "2h"},
 	})
 	want := map[string]Source{
-		"ready": User, "max_slots": Repo, "base": Env, "editor_ram_gb": User, "agent_ttl": Flag,
-		"max_cold_imports": Default, "editor_ram_budget_gb": Default, "helper_ram_gb": Default,
-		"shrink_after": Default, "confirm_timeout": Default, "max_editors": Unset,
-		"max_disk": Unset,
+		"ready": User, "max_slots": Repo, "base": Env, "editor_ram_gb_gui": User,
+		"agent_ttl": Flag, "max_cold_imports": Default, "editor_ram_budget_gb": Default,
+		"editor_ram_gb_headless": Default, "helper_ram_gb": Default, "shrink_after": Default,
+		"confirm_timeout": Default, "max_editors": Unset, "max_disk": Unset,
 	}
 	if got := sources(c); !maps.Equal(got, want) {
 		t.Errorf("sources = %v, want %v", got, want)
 	}
 	if c.Ready.Value != 4 || c.MaxSlots.Value != 5 || c.Base.Value != "e" ||
-		c.EditorRAMGB.Value != 3 || c.AgentTTL.Value != 2*time.Hour {
-		t.Errorf("ready, max_slots, base, editor_ram_gb, agent_ttl = %d, %d, %q, %v, %v, "+
+		c.EditorRAMGBGUI.Value != 3 || c.AgentTTL.Value != 2*time.Hour {
+		t.Errorf("ready, max_slots, base, editor_ram_gb_gui, agent_ttl = %d, %d, %q, %v, %v, "+
 			"want 4, 5, \"e\", 3, 2h", c.Ready.Value, c.MaxSlots.Value, c.Base.Value,
-			c.EditorRAMGB.Value, c.AgentTTL.Value)
+			c.EditorRAMGBGUI.Value, c.AgentTTL.Value)
+	}
+}
+
+// editor_ram_gb, the one charge before #287, is editor_ram_gb_gui's old name: in every layer that
+// takes the new key it sets the GUI charge, and never the headless one; a layer that sets both
+// takes editor_ram_gb_gui; and a higher layer wins whichever name it uses.
+func TestEditorRAMGBIsTheOldNameOfTheGUICharge(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		user  string
+		env   map[string]string
+		flags map[string]string
+		want  Setting[float64]
+	}{
+		{name: "user file", user: "editor_ram_gb = 3\n", want: Setting[float64]{3, User}},
+		{name: "environment", env: map[string]string{"UPOOL_EDITOR_RAM_GB": "3.5"},
+			want: Setting[float64]{3.5, Env}},
+		{name: "flag", flags: map[string]string{"editor_ram_gb": "4"},
+			want: Setting[float64]{4, Flag}},
+		{name: "both in the user file", user: "editor_ram_gb = 3\neditor_ram_gb_gui = 7\n",
+			want: Setting[float64]{7, User}},
+		{name: "old name in a higher layer", user: "editor_ram_gb_gui = 7\n",
+			env: map[string]string{"UPOOL_EDITOR_RAM_GB": "3"}, want: Setting[float64]{3, Env}},
+		{name: "new name in a higher layer", user: "editor_ram_gb = 3\n",
+			env:  map[string]string{"UPOOL_EDITOR_RAM_GB_GUI": "7"},
+			want: Setting[float64]{7, Env}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			home := tempDir(t)
+			if tt.user != "" {
+				writeUser(t, home, tt.user)
+			}
+			c := load(t, Inputs{Home: home, Getenv: env(tt.env), Flags: tt.flags})
+			if c.EditorRAMGBGUI != tt.want {
+				t.Errorf("editor_ram_gb_gui = %+v, want %+v", c.EditorRAMGBGUI, tt.want)
+			}
+			if c.EditorRAMGBHeadless != (Setting[float64]{2.5, Default}) {
+				t.Errorf("editor_ram_gb_headless = %+v, want 2.5 from default",
+					c.EditorRAMGBHeadless)
+			}
+		})
 	}
 }
 
@@ -351,7 +402,8 @@ max_slots = 5
 base = "develop"
 max_cold_imports = 2
 editor_ram_budget_gb = 20
-editor_ram_gb = 3
+editor_ram_gb_gui = 7
+editor_ram_gb_headless = 3
 helper_ram_gb = 1.5
 max_editors = 4
 shrink_after = "7d"
@@ -434,17 +486,19 @@ func TestUnknownKeyNamesFileAndKey(t *testing.T) {
 
 func TestRepoFileRejectsMachineKeys(t *testing.T) {
 	user := map[string]string{
-		"max_cold_imports":     "2",
-		"editor_ram_budget_gb": "20",
-		"editor_ram_gb":        "3",
-		"helper_ram_gb":        "1.5",
-		"max_editors":          "4",
-		"shrink_after":         `"7d"`,
-		"max_disk":             "40.5",
-		"agent_ttl":            `"12h"`,
-		"confirm_timeout":      `"90s"`,
+		"max_cold_imports":       "2",
+		"editor_ram_budget_gb":   "20",
+		"editor_ram_gb_gui":      "7",
+		"editor_ram_gb_headless": "3",
+		"editor_ram_gb":          "3",
+		"helper_ram_gb":          "1.5",
+		"max_editors":            "4",
+		"shrink_after":           `"7d"`,
+		"max_disk":               "40.5",
+		"agent_ttl":              `"12h"`,
+		"confirm_timeout":        `"90s"`,
 	}
-	if got, want := len(user)+len(repoKeys), len(keys); got != want {
+	if got, want := len(user)+len(repoKeys), len(keys)+len(oldKeys); got != want {
 		t.Fatalf("the test covers %d keys, want all %d", got, want)
 	}
 	for key, value := range user {

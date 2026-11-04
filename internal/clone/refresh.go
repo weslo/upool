@@ -58,8 +58,8 @@ var ErrEditorLeft = errors.New("its Editor could not be closed, so it stays in t
 //
 //  1. It admits the Editor to the ledger under OwnerPID: as a cold import for a cold seed, which
 //     a refusal by max_cold_imports fails, and otherwise charged as any Editor is ((h); A9).
-//  2. It runs `unity open <seed> --args -batchmode` (A33) and records the Editor's PID in place of
-//     OwnerPID (A12).
+//  2. It runs `unity open <seed> --args "-batchmode -automated"` (A33, as amended by #279) and
+//     records the Editor's PID in place of OwnerPID (A12).
 //  3. It waits with `unity status --until-ready` for A37's timeout, the cold-import one for a cold
 //     seed, checking the Editor's process, and ends a cold import once the Editor is ready (A39).
 //  4. It closes the Editor with `unity close <seed>`, without save_all, since an Editor upool

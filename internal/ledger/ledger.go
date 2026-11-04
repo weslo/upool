@@ -49,8 +49,10 @@ type Editor struct {
 	OpenedByUpool bool `json:"opened_by_upool"`
 	// ColdImport holds one of max_cold_imports while true.
 	ColdImport bool `json:"cold_import"`
-	// ChargeGB is the Editor's charge against the budget: 2.5 when long-lived, 4.5 while a cold
-	// import runs.
+	// ChargeGB is the Editor's charge against the budget, set when it is admitted, by its mode:
+	// editor_ram_gb_gui or editor_ram_gb_headless when long-lived, and while a cold import runs
+	// 4.5, or that charge if larger (Budget.EditorCharge; #287). A setting changed later charges
+	// only the Editors opened after it.
 	ChargeGB float64 `json:"charge_gb"`
 }
 

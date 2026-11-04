@@ -2,22 +2,27 @@ package pool
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"slices"
 	"time"
 
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/ledger"
+	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/proc"
 )
 
 // Reclaimer reclaims the leases of one pool whose holder process died: a clean slot gets the
-// release reset and goes back to ready, and a dirty one is parked ((f) transitions 13 and 14;
-// docs/design.md, "Leases that survive crashes and never reclaim a live tree": reclaim happens
-// only when the holder PID is dead and the ledger shows no live Editor in the slot). take reclaims
-// before it chooses a slot, and `doctor --fix` reclaims; status and doctor without --fix only
-// report.
+// release reset and goes back to ready, a dirty one is parked, and one whose directory is gone,
+// as the desktop app leaves a slot it deleted on an archive that sent no WorktreeRemove, is
+// dropped from the pool so that a clone can replace it within max_slots ((f) transitions 13, 14
+// and 24; docs/design.md, "Leases that survive crashes and never reclaim a live tree": reclaim
+// happens only when the holder PID is dead and the ledger shows no live Editor in the slot; #277).
+// take reclaims before it chooses a slot, refresh drops the gone slots before its top-up, and
+// `doctor --fix` reclaims; status and doctor without --fix only report.
 type Reclaimer struct {
 	Git git.Client
 	// Proc says whether a process is alive, at its recorded start time for a holder, so that a
@@ -48,7 +53,8 @@ type Reclaimed struct {
 	Slot string
 	// HolderPID is the dead holder's PID.
 	HolderPID int
-	// State is ready for a slot reset clean, or parked for a dirty one; empty when Err is set.
+	// State is ready for a slot reset clean, parked for a dirty one, or removed for one whose
+	// directory was gone, which is no longer in the pool; empty when Err is set.
 	State State
 	// Dirty is why a parked slot is dirty.
 	Dirty []string
@@ -137,12 +143,48 @@ func (r Reclaimer) dead(p Pool) ([]Slot, error) {
 	return dead, nil
 }
 
+// Gone returns the candidates of p whose directory is not on disk, changing nothing: the slots
+// Reclaim and DropGone drop from the pool (transition 24), which status shows as missing.
+func (r Reclaimer) Gone(p Pool) ([]Slot, error) {
+	candidates, err := r.Candidates(p)
+	if err != nil {
+		return nil, err
+	}
+	var gone []Slot
+	for _, s := range candidates {
+		if missing(s.Path) {
+			gone = append(gone, s)
+		}
+	}
+	return gone, nil
+}
+
+// missing reports whether nothing is at path. A stat that fails for another reason, such as a
+// permission, does not show the slot gone.
+func missing(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, fs.ErrNotExist)
+}
+
 // Reclaim reclaims every candidate of the pool. Each slot's define-order noise is reverted, then a
 // clean slot is reset to base, a slot an earlier upool locked is unlocked (Unlock), and state.json
-// is written under the lock, only if the lease is still the one Reclaim read. A slot that cannot
-// be reclaimed is reported in its Reclaimed's Err and left as it is; only a failure to read the
-// pool or the ledger is Reclaim's own error.
+// is written under the lock, only if the lease is still the one Reclaim read. A slot whose
+// directory is gone is dropped from the pool instead (drop). A slot that cannot be reclaimed is
+// reported in its Reclaimed's Err and left as it is; only a failure to read the pool or the
+// ledger is Reclaim's own error.
 func (r Reclaimer) Reclaim(ctx context.Context) ([]Reclaimed, error) {
+	return r.reclaimEach(ctx, func(Slot) bool { return true })
+}
+
+// DropGone drops from the pool, as Reclaim does, each candidate whose directory is not on disk, and
+// leaves every other lease as it is: refresh's recovery before its top-up, so that the top-up can
+// clone a replacement within max_slots (transition 24; #277).
+func (r Reclaimer) DropGone(ctx context.Context) ([]Reclaimed, error) {
+	return r.reclaimEach(ctx, func(s Slot) bool { return missing(s.Path) })
+}
+
+// reclaimEach reclaims each candidate of the pool that which passes, as Reclaim says.
+func (r Reclaimer) reclaimEach(ctx context.Context, which func(Slot) bool) ([]Reclaimed, error) {
 	p, err := Load(r.Home, r.Key)
 	if err != nil {
 		return nil, err
@@ -153,6 +195,9 @@ func (r Reclaimer) Reclaim(ctx context.Context) ([]Reclaimed, error) {
 	}
 	done := make([]Reclaimed, 0, len(dead))
 	for _, s := range dead {
+		if !which(s) {
+			continue
+		}
 		rc := Reclaimed{Slot: s.Name, HolderPID: *s.Lease.HolderPID}
 		rc.State, rc.Dirty, rc.Err = r.reclaim(ctx, p, s)
 		done = append(done, rc)
@@ -162,8 +207,15 @@ func (r Reclaimer) Reclaim(ctx context.Context) ([]Reclaimed, error) {
 
 // reclaim reclaims the slot s of p, whose holder is dead.
 func (r Reclaimer) reclaim(ctx context.Context, p Pool, s Slot) (State, []string, error) {
-	if info, err := os.Stat(s.Path); err != nil || !info.IsDir() {
-		return "", nil, fmt.Errorf("%s is not on disk", s.Path)
+	info, err := os.Stat(s.Path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		state, err := r.drop(ctx, p, s)
+		return state, nil, err
+	case err != nil:
+		return "", nil, fmt.Errorf("checking %s: %w", s.Path, err)
+	case !info.IsDir():
+		return "", nil, fmt.Errorf("%s is not a directory", s.Path)
 	}
 	if _, err := RevertNoise(ctx, r.Git, s.Path); err != nil {
 		return "", nil, err
@@ -208,4 +260,68 @@ func (r Reclaimer) reclaim(ctx context.Context, p Pool, s Slot) (State, []string
 		dirty = nil
 	}
 	return state, dirty, nil
+}
+
+// drop is transition 24: it drops the slot s of p, whose holder is dead and whose directory is
+// gone, from the pool, so that a clone can replace it within max_slots. There is no tree to judge
+// or reset, and nothing on disk to remove. A registration git still has, as `rm -rf` leaves one, is
+// pruned first, or the next clone, which takes the lowest free slot-N ((g) step 2), would have
+// `git worktree add` refuse that name's path; the desktop app's own deletion leaves none (#277).
+// The entry is dropped under the lock, only if the lease is still the one Reclaim read.
+func (r Reclaimer) drop(ctx context.Context, p Pool, s Slot) (State, error) {
+	if err := r.unregister(ctx, p.Repo, s.Path); err != nil {
+		return "", err
+	}
+	var state State
+	err := Update(ctx, r.Home, r.Key, func(cur *Pool) error {
+		i := slices.IndexFunc(cur.Slots, func(c Slot) bool { return c.Name == s.Name })
+		if i < 0 {
+			return fmt.Errorf("%s left state.json meanwhile", s.Name)
+		}
+		c := cur.Slots[i]
+		if c.Lease == nil || c.Lease.LeaseID != s.Lease.LeaseID {
+			return fmt.Errorf("%s's lease changed in state.json meanwhile", s.Name)
+		}
+		next, err := Next(c, Reclaim{HolderAlive: false, EditorLive: false, Gone: true})
+		if err != nil {
+			return err
+		}
+		cur.Slots, state = slices.Delete(cur.Slots, i, i+1), next
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	return state, nil
+}
+
+// unregister drops git's registration of the worktree at path, run in repo, when git still lists
+// it: `git worktree prune`, which drops only registrations whose directory is gone and so removes
+// nothing on disk, after `git worktree unlock` if an earlier upool locked it, since prune keeps a
+// locked one.
+func (r Reclaimer) unregister(ctx context.Context, repo, path string) error {
+	key, err := paths.Key(path)
+	if err != nil {
+		return err
+	}
+	wts, err := r.Git.WorktreeList(ctx, repo)
+	if err != nil {
+		return err
+	}
+	for _, wt := range wts {
+		wk, err := paths.Key(wt.Path)
+		if err != nil {
+			return err
+		}
+		if wk != key {
+			continue
+		}
+		if wt.Locked {
+			if err := r.Git.WorktreeUnlock(ctx, repo, path); err != nil {
+				return err
+			}
+		}
+		return r.Git.WorktreePrune(ctx, repo)
+	}
+	return nil
 }

@@ -54,8 +54,9 @@ closed with `upool open` and `upool close`.
 - **Memory per Editor, and whether the RAM budget refused or queued any.** Sample each Editor's
   resident size, with its children's, at three moments: when every Editor is ready, midway, and
   before the sessions end. An Editor spawns asset import workers, shader compilers and the Bee
-  backend as child processes, which `editor_ram_gb` has to cover, so sum the Editor, by the `pid`
-  that `unity status --format json` lists, and its children one level down, in kilobytes:
+  backend as child processes, which its charge, `editor_ram_gb_gui` or `editor_ram_gb_headless`
+  by its mode, has to cover, so sum the Editor, by the `pid` that `unity status --format json`
+  lists, and its children one level down, in kilobytes:
 
   ```bash
   { echo <pid>; pgrep -P <pid>; } | xargs -n1 ps -o rss= -p | awk '{s+=$1} END {print s}'
@@ -63,9 +64,11 @@ closed with `upool open` and `upool close`.
 
   The budget's decisions are in the log and on the sessions' stderr: an `open` line with `ok`
   false and no `admit` step was refused, and its session saw `refuses another Editor` naming the
-  limit; one whose `admit` step took seconds waited behind a cold import, and its session saw
-  `waiting to open the Editor of`. Note the budget the run ran under, `editor_ram_budget_gb` and
-  `max_editors`, from the user config or the defaults.
+  limit and the charge; one whose `admit` step took seconds waited behind a cold import, and its
+  session saw `waiting to open the Editor of`. `upool status` lists each Editor with its charge.
+  Note the budget the run ran under, `editor_ram_budget_gb`, `editor_ram_gb_gui`,
+  `editor_ram_gb_headless`, `helper_ram_gb` and `max_editors`, from the user config or the
+  defaults.
 - **How a conflict on a shared file went through the confirm step.** For each file two sessions
   edit: what each session did when it reached the file (edited it through its Editor, was refused
   by the lane guard, or took a slot in the scene lane), and, when the later change was confirmed

@@ -41,9 +41,13 @@ func SubagentStart(_ context.Context, env Env, req Request) (string, error) {
 	if !filepath.IsAbs(req.Cwd) {
 		return "", fmt.Errorf("the request's cwd %q is not an absolute path", req.Cwd)
 	}
-	_, ok, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
+	ref, ok, err := sessionSlot(env.Home, req.SessionID, req.Cwd)
 	if err != nil || !ok {
 		return "", err
 	}
-	return ContextDocument(EventSubagentStart)
+	doc, err := ContextDocument(EventSubagentStart)
+	if err == nil {
+		env.Log.did(OutcomeContext, ref.slot.Name, "")
+	}
+	return doc, err
 }
