@@ -101,6 +101,7 @@ by `session_id` (S§7 item 3; D-route).
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
 | The app's Archive button runs the remove hook for a dirty slot too. Archiving through the app's session tool does not: for a dirty worktree it logs `Archived session` and nothing more, runs no `WorktreeRemove` and keeps its record of the worktree, which refuses the path to later sessions ("already in use"), even after the session is deleted, until the session is resumed and archived clean (A28) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
+| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. On Claude Code 2.1.305 in the desktop app of late October 2026, archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
@@ -468,6 +469,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 21 | `creating` | removed | the owner PID is dead: `doctor --fix`, or the next `take` or `refresh`, removes the slot's worktree registration if `git worktree add` got that far (`git worktree remove --force`), then its directory and its entry | A4 |
 | 22 | `warming` | `ready` or `parked` | the owner PID is dead and the ledger shows no live Editor in the slot: the slot is checked again; clean → `ready`, and a later `refresh` moves it to base; dirty → `parked`. A live Editor upool opened headless there, which a re-warm's failed close left, is closed by the next `refresh` first (A40 as amended by #273) | A4 |
 | 23 | `ready` | `warming` | a clone chooses the slot as its seed ((g) step 0) and holds it while step 4 copies it | A19 |
+| 24 | `leased` | removed | reclaim: the lease has a holder PID **and** it is dead **and** no live Editor in the ledger **and** the app's record does not name the slot (A50) **and** the slot's directory is not on disk, as the desktop app leaves a slot it deleted on an archive that sent no `WorktreeRemove` ((a), WorktreeRemove rules). The next `take`, `refresh` before its top-up, and `doctor --fix` drop the slot's entry, after `git worktree prune` if git still lists it, so that a clone can replace it within `max_slots`, under the lowest free `slot-N` ((g) step 2), which may be the dropped slot's own. Until then `status` shows the slot `missing`, and `doctor` names the fix. A dead holder's slot still on disk is 13's or 14's, which `refresh` leaves | D-leases; A6; A50; #277 |
 
 `upool run <name> -- <cmd>` is transition 5 or 19, then 11 or 12, around the command (D-commands).
 `take <name>` fails, naming the worktree, when git already has the branch checked out in another
@@ -946,7 +948,7 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   dialog windows that require human interaction (such as the Save Scene window)". So nothing
   documents that `-automated` keeps a native panel, such as the macOS Save panel, from blocking a
   GUI Editor, and upool does not claim it does: the M7 gate records whether it does
-  (docs/manual-gates/M7.md, check 1). Two other things are not captured either. How the CLI
+  (docs/manual-gates/M7.md, check 2). Two other things are not captured either. How the CLI
   splits the `--args` string into the Editor's arguments: the gate checks that a headless Editor
   gets `-batchmode` and `-automated` as two. And a
   [forum report](https://discussions.unity.com/t/automated-deadlocks-editor-shutdown-when-the-scene-has-unsaved-changes/1732700)

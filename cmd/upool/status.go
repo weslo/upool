@@ -23,7 +23,9 @@ const statusUsage = "status [--all] [--du] [--json]"
 // statusCommand is `upool status`: the slots of the pool containing the working directory, their
 // states and their leases, or with --all those of every registered pool (docs/design.md, "One
 // binary, a dozen commands, one JSON file per pool", the `status` row). It reports what state.json
-// records, and announces the pool's refresh job while it runs (#79). It changes only what
+// records, but for a leased slot whose holder died and whose directory is gone, which it shows
+// missing until the next take or refresh, or `doctor --fix`, drops it ((f) transition 24; #277),
+// and announces the pool's refresh job while it runs (#79). It changes only what
 // docs/contracts.md (f) has every read of the pool settle: an unconfirmed lease past
 // confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). With
 // --du it reports each slot's disk use, its private size beside its apparent size, and each
@@ -71,8 +73,10 @@ type diskReport struct {
 // slotStatus is one slot, with its state as docs/contracts.md (f) names it and its lease as which
 // reports it.
 type slotStatus struct {
-	Name  string     `json:"name"`
-	Path  string     `json:"path"`
+	Name string `json:"name"`
+	Path string `json:"path"`
+	// State is the slot's state, or missing for a leased slot whose holder died and whose
+	// directory is gone, which its lease no longer holds ((f) transition 24).
 	State pool.State `json:"state"`
 	// Lease is the slot's current lease, or nil when it has none.
 	Lease *leaseReport `json:"lease"`
@@ -235,7 +239,11 @@ func status(inv *invocation, all, du bool) (any, []string, error) {
 	}
 	r := statusReport{Pools: make([]poolStatus, 0, len(pools)), now: inv.now(), du: du}
 	for _, rp := range pools {
-		ps := newPoolStatus(rp)
+		missing, err := goneSlots(inv, rp)
+		if err != nil {
+			return nil, notes, err
+		}
+		ps := newPoolStatus(rp, missing)
 		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
 			return nil, nil, err
 		}
@@ -286,18 +294,44 @@ func innermost(pools []registeredPool) registeredPool {
 	return in
 }
 
-// newPoolStatus is what status reports for rp. The main checkout is state.json's spelling of it,
-// as which reports it, or the registry's canonical one if state.json has none.
-func newPoolStatus(rp registeredPool) poolStatus {
+// newPoolStatus is what status reports for rp, with the slots missing names shown as missing. The
+// main checkout is state.json's spelling of it, as which reports it, or the registry's canonical
+// one if state.json has none.
+func newPoolStatus(rp registeredPool, missing map[string]bool) poolStatus {
 	p := poolStatus{Repo: rp.pool.Repo, Base: rp.pool.Base,
 		Slots: make([]slotStatus, 0, len(rp.pool.Slots))}
 	if p.Repo == "" {
 		p.Repo = rp.repo.Path
 	}
 	for _, s := range rp.pool.Slots {
-		p.Slots = append(p.Slots, slotStatus{Name: s.Name, Path: s.Path, State: s.State,
+		state := s.State
+		if missing[s.Name] {
+			state = pool.StateMissing
+		}
+		p.Slots = append(p.Slots, slotStatus{Name: s.Name, Path: s.Path, State: state,
 			Lease: newLeaseReport(s.Lease), Quarantined: s.Quarantined(),
 			expiries: s.UnconfirmedExpiries})
 	}
 	return p
+}
+
+// goneSlots names the slots of rp that status shows as missing: leased, their holder dead, no live
+// Editor in them, the desktop app's record not naming them, and their directory gone, which the
+// next take or refresh, or `doctor --fix`, drops from the pool ((f) transition 24; #277). Off
+// macOS, where internal/proc reads no start times, no holder can be shown dead, and it names none.
+func goneSlots(inv *invocation, rp registeredPool) (map[string]bool, error) {
+	r := pool.Reclaimer{Proc: inv.checker(), Home: inv.home, Key: rp.repo.Key,
+		Held: appHolds(inv.home)}
+	gone, err := r.Gone(rp.pool)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]bool, len(gone))
+	for _, s := range gone {
+		names[s.Name] = true
+	}
+	return names, nil
 }

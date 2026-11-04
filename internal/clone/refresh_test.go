@@ -226,8 +226,10 @@ func TestSeedRefresherOpensWaitsAndCloses(t *testing.T) {
 		"Editor first") {
 		t.Errorf("said %q, want the refresh announced", said)
 	}
-	if len(warnings) != 1 || !strings.Contains(warnings[0], "Hub project registry") {
-		t.Errorf("warnings = %q, want the CLI's Hub-registry warning", warnings)
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "Hub project registry") ||
+		strings.HasPrefix(warnings[0], "Warning") {
+		t.Errorf("warnings = %q, want the CLI's Hub-registry warning without the CLI's own "+
+			"\"Warning: \" (#285)", warnings)
 	}
 }
 

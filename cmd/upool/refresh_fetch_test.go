@@ -157,6 +157,11 @@ func TestRefreshFetch(t *testing.T) {
 		if !strings.HasPrefix(r.stderr, progress) {
 			t.Errorf("stderr = %q, want it to start %q", r.stderr, progress)
 		}
+		// The re-warm opens the slot as `upool open` does, so it drops the CLI's Hub-registry
+		// warning too (#285).
+		if strings.Contains(r.stderr, "Hub project registry") {
+			t.Errorf("stderr = %q, want no Hub-registry warning for the slot", r.stderr)
+		}
 		slot := p.slot("slot-1")
 		wantCalls := [][]string{{"cache", "key", slot, "--format", "json"},
 			{"cache", "key", slot, "--format", "json"},
