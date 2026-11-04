@@ -216,8 +216,24 @@ stops the run for a fix rather than a workaround.**
 - Not upool: the desktop app's `auto` permission classifier denied `git push --force-with-lease`
   and `gh run cancel` in every session, which shaped how the rebase landed and left a CI run
   stalled on its runner for 50 minutes until a person cancelled it.
-- At the end of the run all three slots were still leased, by sessions that were done but not
-  archived; the slots return when the sessions are.
+- **Archiving the done sessions deleted the slots and left their leases behind.** At the end of
+  the run all three slots were still leased by sessions that were done but not archived. The
+  orchestrator archived them through the app's session tool: one call each, no approval needed
+  in `auto` mode, about a second each. For each, the app logged `Cleaning up worktree`,
+  `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the
+  slot's directory from disk (a clone with the 9.2 GB Library), and dropped its own record of
+  it. No `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no
+  hook line. upool was left with three `leased` slots whose holders were dead and whose paths
+  were gone, and nothing in the CLI recovers that: `doctor` fails the three slot checks and
+  `--fix` drops only missing ready slots; `prune` finds nothing; `take` reports
+  `could not reclaim slot-N, though its holder, process N, is gone: <path> is not on disk`,
+  skips the three as leased, and declines to clone because the pool is at `max_slots`. The
+  pool could not hand out a slot until its state was edited by hand. Contract (a) was captured
+  on an earlier app build, where the hook ran about a second after the archive and the app
+  accepted exit 0 with the directory still present; on this build (Claude Code 2.1.305, the
+  desktop app of late October 2026) an archive from the session tool removed the directory
+  itself. The Archive button was not tried, and upool logs nothing for its hooks, so whether the
+  hook ran at all is not answerable from the machine.
 
 ## What this changes for upool
 
@@ -239,6 +255,15 @@ stops the run for a fix rather than a workaround.**
 - **`close` needs `--force`, and `save_all` should skip or refuse a scene with no path** and say
   so, rather than letting the Editor prompt; the timeout after `save_all` should name the panel
   as the likely cause.
+- **A leased slot whose directory is gone and whose holder is dead must be reclaimable.** The
+  app deleted three hook-based worktrees on archive without a remove reaching upool, and the
+  pool was wedged at `max_slots` with nothing ready. `take`, `refresh` and `doctor --fix` should
+  drop such a slot, or re-clone it in place, so the top-up can reach `ready` again, and `status`
+  should show it as missing rather than leased. The hook subcommands should log their
+  invocations, so that "did the hook run" has an answer. Contract (a)'s archive rows need
+  re-capturing on a current app build, the Archive button and the session tool each, clean and
+  dirty; until then the skill texts should say that archiving a session deletes its slot and the
+  pool needs a `refresh` after.
 - **The skill text should tell a session to close its Editor when its work is done** and reopen
   for a follow-up; `status` could flag a leased slot whose Editor has been idle long. Two idle
   Editors held 12 GB and two of three seats for almost three hours.
