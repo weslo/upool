@@ -105,13 +105,13 @@ func TestSkillSaysHowToDriveUnityInASlot(t *testing.T) {
 // base, then the skill's body without its front matter, well within the 10,000 characters Claude
 // Code's docs allow a hook's context (A43; #229; #284).
 func TestInstructionsAreTheBlockTheBaseAndTheSkillsBody(t *testing.T) {
-	base := Base{Name: "main", OnOrigin: true}
-	got := Instructions(base)
+	b := Branching{Base: "main", Detached: true, OnOrigin: true}
+	got := Instructions(b)
 	_, body, ok := strings.Cut(strings.TrimPrefix(Skill, "---\n"), "\n---\n")
 	if !ok {
 		t.Fatal("the skill has no front matter to strip")
 	}
-	if want := ClaudeMDBlock + base.line() + "\n" + strings.TrimLeft(body, "\n"); got != want {
+	if want := ClaudeMDBlock + b.line() + "\n" + strings.TrimLeft(body, "\n"); got != want {
 		t.Errorf("Instructions() = %q, want the block, the base's item, a blank line and the "+
 			"skill's body", got)
 	}
@@ -132,44 +132,54 @@ func TestInstructionsAreTheBlockTheBaseAndTheSkillsBody(t *testing.T) {
 	}
 }
 
-// The instructions say in one item that the slot starts detached at the pool's base, which the
-// main checkout has checked out, so that the session never checks it out; that it makes its
-// branch from origin/<base> after a fetch, or from the base itself in a repository with no
-// origin (A17); and that a commit left on the detached HEAD parks the slot (#284). Each place the
-// item names the base, it names it as the pool has it.
-func TestInstructionsSayToBranchFromTheBase(t *testing.T) {
+// The instructions say in one item that the main checkout has the pool's base checked out, so
+// that the reader never checks it out (#284). A session whose slot is detached, as handed out, is
+// also told that the slot starts detached at the base; to make its branch from origin/<base>
+// after a fetch, or from the base itself in a repository with no origin (A17); and that a commit
+// left on the detached HEAD parks the slot. Any other reader, a session on a branch or a subagent,
+// is told nothing about making a branch: from base, it would leave its own work behind. Each place
+// the item names the base, it names it as the pool has it.
+func TestInstructionsSayToBranchFromTheBaseOnlyToADetachedSession(t *testing.T) {
+	detached := []string{
+		"Your slot starts detached at `develop`, which the main checkout has checked out",
+		"Before you commit, make your branch",
+		"a commit left on the detached HEAD parks the slot when the session ends",
+	}
 	for _, tt := range []struct {
-		base      Base
+		b         Branching
 		want, not []string
 	}{
-		{Base{Name: "develop", OnOrigin: true},
-			[]string{"`git fetch origin`, then `git switch -c <name> origin/develop`:"}, nil},
-		{Base{Name: "develop"}, []string{"make your branch with `git switch -c <name> develop`:"},
+		{Branching{Base: "develop", Detached: true, OnOrigin: true}, append([]string{
+			"`git fetch origin`, then `git switch -c <name> origin/develop`:"}, detached...), nil},
+		{Branching{Base: "develop", Detached: true}, append([]string{
+			"make your branch with `git switch -c <name> develop`:"}, detached...),
 			[]string{"git fetch", "origin/"}},
+		{Branching{Base: "develop", OnOrigin: true},
+			[]string{"The main checkout has `develop` checked out"},
+			[]string{"detached", "branch", "git switch", "git fetch", "origin/", "parks"}},
+		{Branching{Base: "develop"}, []string{"The main checkout has `develop` checked out"},
+			[]string{"detached", "branch", "git switch", "git fetch", "origin/", "parks"}},
 	} {
-		item := tt.base.line()
+		item := tt.b.line()
 		if !strings.HasPrefix(item, "- ") || strings.Count(item, "\n") != 1 ||
 			!strings.HasSuffix(item, "\n") {
-			t.Errorf("the item for %+v = %q, want one list item ending in a newline", tt.base,
+			t.Errorf("the item for %+v = %q, want one list item ending in a newline", tt.b,
 				item)
 		}
 		for _, want := range append([]string{
-			"Your slot starts detached at `develop`, which the main checkout has checked out",
-			"never run `git checkout develop` here",
-			"Before you commit, make your branch",
-			"a commit left on the detached HEAD parks the slot when the session ends",
+			"never run `git checkout develop` here, even where a workflow says to",
 		}, tt.want...) {
 			if !strings.Contains(item, want) {
-				t.Errorf("the item for %+v = %q, want it to say %q", tt.base, item, want)
+				t.Errorf("the item for %+v = %q, want it to say %q", tt.b, item, want)
 			}
 		}
 		for _, not := range tt.not {
 			if strings.Contains(item, not) {
-				t.Errorf("the item for %+v = %q, want no %q", tt.base, item, not)
+				t.Errorf("the item for %+v = %q, want no %q", tt.b, item, not)
 			}
 		}
-		if got := Instructions(tt.base); !strings.Contains(got, ClaudeMDBlock+item+"\n") {
-			t.Errorf("Instructions(%+v) does not follow the block with %q", tt.base, item)
+		if got := Instructions(tt.b); !strings.Contains(got, ClaudeMDBlock+item+"\n") {
+			t.Errorf("Instructions(%+v) does not follow the block with %q", tt.b, item)
 		}
 	}
 }

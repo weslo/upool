@@ -86,14 +86,17 @@ func (h harness) start(t *testing.T, req Request) error {
 // checkContext fails the test unless got is the one-line document that gives a session upool's
 // instructions for event: Claude Code's hookSpecificOutput, with event as hookEventName and
 // assets.Instructions as additionalContext, for the harness's base, which its repository, with no
-// origin, has only as a local branch ((b); A43; #284).
+// origin, has only as a local branch. A session, whose slot the harness leaves detached at base,
+// as handed out, is told to make its branch from it; a subagent only never to check it out ((b);
+// A43; #284).
 func checkContext(t *testing.T, got, event string) {
 	t.Helper()
-	checkContextFor(t, got, event, assets.Base{Name: testenv.Base})
+	checkContextFor(t, got, event, assets.Branching{Base: testenv.Base,
+		Detached: event == EventSessionStart})
 }
 
-// checkContextFor is checkContext for the pool's base as base names it.
-func checkContextFor(t *testing.T, got, event string, base assets.Base) {
+// checkContextFor is checkContext for the branching b says.
+func checkContextFor(t *testing.T, got, event string, b assets.Branching) {
 	t.Helper()
 	var doc struct {
 		Out struct {
@@ -102,9 +105,9 @@ func checkContextFor(t *testing.T, got, event string, base assets.Base) {
 		} `json:"hookSpecificOutput"`
 	}
 	if err := json.Unmarshal([]byte(got), &doc); err != nil || strings.Contains(got, "\n") ||
-		doc.Out.Event != event || doc.Out.Context != assets.Instructions(base) {
+		doc.Out.Event != event || doc.Out.Context != assets.Instructions(b) {
 		t.Errorf("context = %q (%v), want one line of hookSpecificOutput for %s holding "+
-			"upool's instructions", got, err, event)
+			"upool's instructions for %+v", got, err, event, b)
 	}
 }
 

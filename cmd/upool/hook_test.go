@@ -270,9 +270,10 @@ func slotStdin(t *testing.T, p harnessPool, file, dir string) string {
 
 // Through the dispatcher, `upool hook session-start` and `upool hook subagent-start` print, for a
 // session in a slot and its subagent, the one line of context that gives them upool's
-// instructions, naming the pool's base, which the harness's repository, with no origin, has only
-// as a local branch, and exit 0 (A43; #229; #284). A startup whose confirm is refused still
-// prints it, with the refusal on stderr.
+// instructions, and exit 0 (A43; #229). The instructions name the pool's base, which the
+// harness's repository, with no origin, has only as a local branch: they tell the session, whose
+// slot is detached at base, to make its branch from it, and the subagent only never to check it
+// out (#284). A startup whose confirm is refused still prints them, with the refusal on stderr.
 func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
 	p := newHarnessPool(t)
 	p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
@@ -291,7 +292,8 @@ func TestHookSessionStartAndSubagentStartPrintTheInstructions(t *testing.T) {
 			stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
 			now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid()}
 		code := d.run([]string{"hook", tt.event})
-		doc, err := hooks.ContextDocument(tt.wantEvent, assets.Base{Name: testenv.Base})
+		doc, err := hooks.ContextDocument(tt.wantEvent, assets.Branching{Base: testenv.Base,
+			Detached: tt.wantEvent == hooks.EventSessionStart})
 		if err != nil {
 			t.Fatal(err)
 		}

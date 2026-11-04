@@ -266,48 +266,52 @@ func TestConfirmRefusesWhatIsNotALeasedSlot(t *testing.T) {
 // The acceptance test of #284: the startup that confirms a slot the create hook leased leaves it
 // detached at base, since a hook's handout stays detached (A18), and the context it prints tells
 // the session how to branch from the pool's base: after `git fetch origin`, from origin/<base>,
-// when the repository has it, and from the base itself when it has no origin (A17). The commands
-// the context gives make the session's branch in the slot, and the checkout it forbids is one git
-// refuses there, naming the main checkout, which has the base checked out.
+// when the repository has it, and from the base itself when it has no origin (A17). It reads the
+// slot after the confirm, so a slot its last session left on a branch, handed out from
+// needs-reset, is told the same once the deferred reset has detached it. The commands the context
+// gives make the session's branch in the slot, and the checkout it forbids is one git refuses
+// there, naming the main checkout, which has the base checked out. Once the session is on its
+// branch, a compaction, which sends the instructions again, and a subagent's start tell it only
+// never to check out the base: a branch from base would leave the session's work behind.
 func TestConfirmLeavesTheSlotDetachedAndItsContextSaysHowToBranch(t *testing.T) {
-	for _, onOrigin := range []bool{false, true} {
-		t.Run(map[bool]string{false: "no origin", true: "origin"}[onOrigin], func(t *testing.T) {
+	for _, tt := range []struct {
+		name               string
+		onOrigin, lastWork bool
+	}{{"no origin", false, false}, {"origin", true, false}, {"needs-reset", false, true}} {
+		t.Run(tt.name, func(t *testing.T) {
 			p := newHarnessPool(t)
-			if onOrigin {
+			if tt.onOrigin {
 				origin := tempDir(t)
 				p.Git("init", "-q", "--bare", "-b", testenv.Base, origin)
 				p.Git("remote", "add", "origin", origin)
 				p.Git("push", "-q", "origin", testenv.Base)
 			}
+			if tt.lastWork {
+				slot := p.slot("slot-1")
+				p.Git("-C", slot, "checkout", "-q", "-b", "old-work")
+				p.Git("-C", slot, "commit", "-q", "--allow-empty", "-m", "The last session's work")
+				p.update(t, func(pl *pool.Pool) {
+					pl.Slots[0].State = pool.StateNeedsReset
+					pl.Slots[1].State = pool.StateParked
+				})
+			}
 			p.Setenv("CLAUDE_ENV_FILE", filepath.Join(tempDir(t), "sessionstart-hook-0.sh"))
 			s := p.hookLease(t)
-			var out, errOut bytes.Buffer
-			// The top-up the confirm starts is /usr/bin/true, which does nothing, so that no
-			// refresh outlives the test.
-			d := dispatcher{commands: commandTable, hooks: hookTable,
-				stdin:  strings.NewReader(slotStdin(t, p, "session-start.json", s.Path)),
-				stdout: &out, stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
-				now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid(),
-				executable: func() (string, error) { return "/usr/bin/true", nil }}
-			code := d.run([]string{"hook", "session-start"})
-			base := assets.Base{Name: testenv.Base, OnOrigin: onOrigin}
-			doc, err := hooks.ContextDocument(hooks.EventSessionStart, base)
-			if err != nil {
-				t.Fatal(err)
+			if tt.lastWork && !s.Lease.ResetPending {
+				t.Fatalf("the hook's take leased %+v, want reset_pending", s)
 			}
-			if code != output.ExitOK || out.String() != doc+"\n" || errOut.Len() != 0 {
-				t.Fatalf("hook session-start: exit %d, stdout %q, stderr %q; want 0, the "+
-					"context for %+v and nothing", code, out.String(), errOut.String(), base)
-			}
+			detached := assets.Branching{Base: testenv.Base, Detached: true, OnOrigin: tt.onOrigin}
+			out := runStartHook(t, p, "session-start", "session-start.json", s.Path, detached)
 			if got := p.stateOf(t, s.Name); got.State != pool.StateLeased ||
-				!got.Lease.Confirmed {
-				t.Errorf("%s = %+v, want it leased and confirmed", s.Name, got)
+				!got.Lease.Confirmed || got.Lease.ResetPending {
+				t.Errorf("%s = %+v, want it leased and confirmed, with no reset pending", s.Name,
+					got)
 			}
 			if got := p.Git("-C", s.Path, "branch", "--show-current"); got != "" {
 				t.Errorf("the slot's branch = %q, want none: the handout stays detached", got)
 			}
 
-			forbidden, branch := branchCommands(t, out.String())
+			forbidden, branch := branchCommands(t, out)
 			if want := "git checkout " + testenv.Base; forbidden != want {
 				t.Errorf("the context forbids %q, want %q", forbidden, want)
 			}
@@ -327,8 +331,39 @@ func TestConfirmLeavesTheSlotDetachedAndItsContextSaysHowToBranch(t *testing.T) 
 			if got := p.Git("-C", s.Path, "rev-parse", "HEAD"); got != p.BaseCommit {
 				t.Errorf("issue-284 is at %s, want base's commit %s", got, p.BaseCommit)
 			}
+
+			onBranch := assets.Branching{Base: testenv.Base}
+			runStartHook(t, p, "session-start", "session-start-compact.json", s.Path, onBranch)
+			runStartHook(t, p, "subagent-start", "cli-subagent-start.json", s.Path, onBranch)
 		})
 	}
+}
+
+// runStartHook runs `upool hook <event>` in p through the dispatcher on capture, its cwd dir, and
+// fails the test unless it exits 0, prints the context document that says what b says about
+// branching, and says nothing on stderr. It returns what the hook printed. The top-up a startup's
+// confirm starts is /usr/bin/true, which does nothing, so that no refresh outlives the test.
+func runStartHook(t *testing.T, p harnessPool, event, capture, dir string,
+	b assets.Branching) string {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	d := dispatcher{commands: commandTable, hooks: hookTable,
+		stdin:  strings.NewReader(slotStdin(t, p, capture, dir)),
+		stdout: &out, stderr: &errOut, getenv: p.Getenv, environ: p.Environ,
+		now: func() time.Time { return clock }, pid: os.Getpid(), ppid: os.Getppid(),
+		executable: func() (string, error) { return "/usr/bin/true", nil }}
+	code := d.run([]string{"hook", event})
+	wantEvent := map[string]string{"session-start": hooks.EventSessionStart,
+		"subagent-start": hooks.EventSubagentStart}[event]
+	doc, err := hooks.ContextDocument(wantEvent, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code != output.ExitOK || out.String() != doc+"\n" || errOut.Len() != 0 {
+		t.Fatalf("hook %s on %s: exit %d, stdout %q, stderr %q; want 0, the context for %+v "+
+			"and nothing", event, capture, code, out.String(), errOut.String(), b)
+	}
+	return out.String()
 }
 
 // branchCommands returns, from doc, the context document a session-start hook printed, the

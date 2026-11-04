@@ -51,12 +51,15 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
   say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
   "Context for the session").
-- The instructions a slot's sessions and their subagents get at start say how to branch, in one
-  line that names the pool's base (#284; docs/contracts.md (b), "Context for the session"). The
-  slot starts detached at the base, which the main checkout has checked out, so `git checkout
-  <base>` must never run there. The session makes its branch with `git fetch origin`, then
-  `git switch -c <name> origin/<base>`, or from `<base>` itself in a repository with no
-  `origin/<base>`. A commit left on the detached HEAD parks the slot when the session ends. On the
+- The instructions a slot's sessions and their subagents get at start say, in one line that names
+  the pool's base, that the main checkout has the base checked out, so `git checkout <base>` must
+  never run there (#284; docs/contracts.md (b), "Context for the session"). A session whose slot is
+  still detached as it was handed out is also told how to branch: the slot starts detached at the
+  base, the session makes its branch with `git fetch origin`, then `git switch -c <name>
+  origin/<base>`, or from `<base>` itself in a repository with no `origin/<base>`, and a commit
+  left on the detached HEAD parks the slot when the session ends. Once the session has made its
+  branch, or committed on the detached HEAD, later starts such as a compaction no longer say so,
+  and a subagent never hears it: a branch from base would leave the session's work behind. On the
   first benchmark run each session made its branch itself, and an issue skill's `git checkout
   main` could not run in a slot. The handout itself is unchanged: a slot is still handed out
   detached, and confirming it checks out no branch (A18).

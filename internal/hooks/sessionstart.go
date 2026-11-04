@@ -36,8 +36,10 @@ const projectPathVar = "UNITY_PROJECT_PATH"
 // from the main checkout reports that checkout as its cwd, but works in the slot (A47). The stdin
 // cwd is read and $PWD never is, since the hook's own working directory is the main checkout
 // ((b)). For a session in a slot it returns the context document that gives the session upool's
-// instructions (slotContext; A43), on every source, and even when the confirm fails, with that
-// error. A session in no slot, the main checkout's own among them, is left alone and gets
+// instructions (ContextDocument; A43), on every source, and even when the confirm fails, with that
+// error. It reads the slot for them last, after the confirm: they tell the session to make its
+// branch from base only while the slot is as it was handed out (sessionBranching; #284). A
+// session in no slot, the main checkout's own among them, is left alone and gets
 // nothing. The hook exits 0 whatever this returns, its error on stderr:
 // SessionStart has no abort role ((d)).
 func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
@@ -52,11 +54,7 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	doc, err := slotContext(ctx, env, EventSessionStart, ref)
-	if err == nil {
-		env.Log.did(OutcomeContext, ref.slot.Name, "")
-	}
-	errs := []error{err}
+	var errs []error
 	if !takesUp(ref, req.SessionID, env.ParentPID) {
 		l := ref.slot.Lease
 		errs = append(errs, fmt.Errorf("%s's lease %s is another holder's, not this session's, "+
@@ -81,7 +79,12 @@ func SessionStart(ctx context.Context, env Env, req Request) (string, error) {
 	if err := exportProjectPath(env.EnvFile, ref.slot.Path); err != nil {
 		errs = append(errs, err)
 	}
-	return doc, errors.Join(errs...)
+	// After the confirm, whose deferred reset may just have detached the slot at base.
+	doc, err := ContextDocument(EventSessionStart, sessionBranching(ctx, env, ref))
+	if err == nil {
+		env.Log.did(OutcomeContext, ref.slot.Name, "")
+	}
+	return doc, errors.Join(append(errs, err)...)
 }
 
 // takesUp says whether a start of the session sessionID, whose CLI is ppid, may confirm the lease
