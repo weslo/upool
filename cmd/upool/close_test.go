@@ -270,6 +270,47 @@ func TestCloseNamesAPanelWhenItsSaveTimesOut(t *testing.T) {
 	}
 }
 
+// The panel advice is for an Editor with a window. A headless Editor, as `upool open` opens by
+// default in batch mode (A33; A36), has none, so its save that times out is the plain failure:
+// no Cancel to press, and no --force, which would discard what a later close could save. An
+// Editor the ledger does not record may have a window, and gets the advice.
+func TestCloseGivesPanelAdviceOnlyToAnEditorWithAWindow(t *testing.T) {
+	advice := "Press Cancel in slot-1's Editor"
+	for _, tt := range []struct {
+		name    string
+		editors func(p harnessPool) []ledger.Editor
+		advised bool
+	}{
+		{"headless", func(p harnessPool) []ledger.Editor {
+			return []ledger.Editor{{Project: p.slot("slot-1"), PID: closedPID, Mode: modeHeadless,
+				OpenedByUpool: true, ChargeGB: 2.5}}
+		}, false},
+		{"not in the ledger", func(harnessPool) []ledger.Editor { return nil }, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, u, _ := closePool(t, titledScenes, mainThreadTimeout, mainThreadTimeout)
+			writeLedger(t, p, tt.editors(p)...)
+			r := runInSlot1(t, p, procsAlive(closedPID), func() time.Time { return clock },
+				"close")
+			want := "upool: not closing the Editor of " + p.slot("slot-1") + ", since saving " +
+				"its scenes failed: "
+			if tt.advised {
+				want = "upool: not closing the Editor of " + p.slot("slot-1") + ", since saving " +
+					"its scenes timed out: a native panel open in the Editor"
+			}
+			if r.code != output.ExitFailure || !strings.Contains(r.stderr, want) ||
+				!strings.Contains(r.stderr, "Main thread operation timed out") ||
+				strings.Contains(r.stderr, advice) != tt.advised ||
+				strings.Contains(r.stderr, "--force") != tt.advised {
+				t.Errorf("exit %d, stderr %q; want 1 and %q…, with the advice %t", r.code,
+					r.stderr, want, tt.advised)
+			}
+			checkCloseCalls(t, p, u, listingArgs, saveAllArgs, saveAllArgs)
+			checkEditors(t, p, tt.editors(p)...)
+		})
+	}
+}
+
 // The acceptance test of #280, --force: close sends `unity close <slot> --force` and no save_all,
 // nor any listing; once the Editor is gone and `unity status` lists none in the slot, it removes
 // the instance files a forced close leaves (A45), and takes the Editor out of the ledger. It says

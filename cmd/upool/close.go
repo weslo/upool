@@ -109,8 +109,9 @@ func closeEditor(inv *invocation, force bool) (any, []string, error) {
 // closeSlotEditor is close's work on slot s of the pool rp, which release also does for an Editor
 // upool opened, and refresh for the Editor of a re-warm: it returns what it did and the warnings,
 // the CLI's and those of the save. It times closeEditor's step 1 as save_all and steps 2 to 4 as
-// close (#266). again is the command, close or release, that a save that timed out is to be run
-// again with.
+// close (#266). again is the command, close or release, that a save that timed out in a GUI
+// Editor is to be run again with; a headless Editor's, the re-warm's among them, gets no such
+// advice (saveFailure; headlessEditor).
 //
 // With retry, the Editor is the re-warm's, one upool opened headless at base and that holds no
 // work: its scenes are saved with save_all alone, unlisted, and a plain close that leaves it
@@ -128,7 +129,11 @@ func closeSlotEditor(ctx context.Context, inv *invocation, rp registeredPool,
 		return err
 	})
 	if err != nil {
-		return closeReport{}, warnings, saveFailure(s, retry, again, err)
+		headless, lerr := headlessEditor(inv.home, s.Path)
+		if lerr != nil {
+			return closeReport{}, warnings, errors.Join(saveFailure(s, false, again, err), lerr)
+		}
+		return closeReport{}, warnings, saveFailure(s, !headless, again, err)
 	}
 	var r closeReport
 	var more []string
@@ -199,17 +204,19 @@ func saveScenes(ctx context.Context, client unity.Client, s pool.Slot) ([]string
 }
 
 // saveFailure is close's failure for a save of slot s's scenes that failed with err: it names the
-// slot and the cause. A save that timed out names a native panel as the likely cause and says what
-// to do, `upool <again>` once the panel is dismissed or `upool close --force` (#280); a re-warm's,
-// with retry, whose headless Editor has no window to dismiss a panel in, does not.
-func saveFailure(s pool.Slot, retry bool, again string, err error) error {
+// slot and the cause. With windowed, a save that timed out names a native panel as the likely
+// cause and says what to do, `upool <again>` once the panel is dismissed or `upool close --force`
+// (#280). An Editor with no window, a headless one, gets the plain failure: there is no window to
+// press Cancel in, and --force would discard the work that a later close, once the Editor
+// answers, would save.
+func saveFailure(s pool.Slot, windowed bool, again string, err error) error {
 	code := output.CodeCommandFailed
 	var f *output.Failure
 	if errors.As(err, &f) {
 		code = f.Code()
 	}
 	var timedOut *unity.TimedOutError
-	if !retry && errors.As(err, &timedOut) {
+	if windowed && errors.As(err, &timedOut) {
 		return output.Fail(code, "not closing the Editor of %s, since saving its scenes timed "+
 			"out: a native panel open in the Editor, such as the Save panel a scene with no "+
 			"path opens, is the likely cause. Press Cancel in %s's Editor, then run `upool %s` "+
@@ -288,6 +295,30 @@ func shutDone(ctx context.Context, inv *invocation, client unity.Client, rp regi
 		}
 	}
 	return r, warnings, nil
+}
+
+// headlessEditor reports whether the ledger records slot's Editor as headless: one opened in batch
+// mode (A33), which has no window, as `upool open` opens by default (A36) and as refresh's
+// re-warm opens its own. An Editor the ledger records as GUI, or does not record, may have one.
+func headlessEditor(home, slot string) (bool, error) {
+	l, err := ledger.Load(home)
+	if err != nil {
+		return false, err
+	}
+	key, err := paths.Key(slot)
+	if err != nil {
+		return false, err
+	}
+	for _, e := range l.Editors {
+		ek, err := paths.Key(e.Project)
+		if err != nil {
+			return false, err
+		}
+		if ek == key && e.Mode == modeHeadless {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // editorPIDs returns the processes of slot's Editor: those the ledger records for it and reported,

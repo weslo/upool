@@ -249,12 +249,13 @@ by this table's code mapping (#280):
   (command-save-all-timeout.json, **pending** in testdata/README.md), and upool does not read it: it
   bounds each call that saves or lists scenes at 20 s, and fails one that runs out, or whose
   re-query meets the main-thread timeout again (A29), as timed out, naming a native panel as the
-  likely cause. `save_all` takes no parameters (`unity/command-list-query-save.json`), so it cannot
-  be told to pass a scene over: upool lists the open scenes first, with `unity command eval`, and
-  when one has no path it saves the others one at a time, also with `eval` (A48, as amended).
-  Neither eval's reply from a real Editor is captured yet (command-eval-scenes-untitled.json and
-  command-eval-save-scene.json, **pending**); the tests replay `unity/command-eval-first-call.json`
-  with the string upool's code returns in place of that eval's.
+  likely cause unless the ledger records the Editor as headless. `save_all` takes no parameters
+  (`unity/command-list-query-save.json`), so it cannot be told to pass a scene over: upool lists
+  the open scenes first, with `unity command eval`, and when one has no path it saves the others
+  one at a time, also with `eval` (A48, as amended). Neither eval's reply from a real Editor is
+  captured yet (command-eval-scenes-untitled.json and command-eval-save-scene.json, **pending**);
+  the tests replay `unity/command-eval-first-call.json` with the string upool's code returns in
+  place of that eval's.
 
 ### upool's own exit codes
 
@@ -1339,9 +1340,12 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
     unsaved changes in it.
   - **Bounded:** each call that lists or saves is bounded at 20 s, under the CLI's 30 s, and a
     main-thread timeout is re-queried once, as A29 has it for `save_all`. A call that runs out, or
-    whose re-query times out again, fails the close as timed out. The message names a native
-    panel as the likely cause, and says to press Cancel in the slot's Editor and run the command
-    again, or to run `upool close --force` if nothing is unsaved.
+    whose re-query times out again, fails the close as timed out. For an Editor the ledger
+    records as GUI, or does not record, the message names a native panel as the likely cause,
+    and says to press Cancel in the slot's Editor and run the command again, or to run
+    `upool close --force` if nothing is unsaved. A headless Editor, opened in batch mode (A33) as
+    `upool open` opens by default (A36), has no window to press Cancel in, so its timed-out save
+    is the plain failure, with no advice to force a close that would discard the work.
   - **`upool close --force`:** saves nothing and closes with `unity close <slot> --force`. Once
     the Editor is gone, it clears what that leaves, as A45 has it, and puts back the scene list
     (A8). It is a session's way out of an Editor that will not close, and it discards unsaved work.

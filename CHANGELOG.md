@@ -26,9 +26,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   path and unsaved changes on its own instead, and a warning on stderr names each scene they did
   not save. A listing that fails any other way than a timeout is a warning, and save_all saves
   every scene as before. Each call that lists or saves is bounded at 20 s. A save that runs out,
-  or whose re-query meets the main-thread timeout again, fails the close with a message that names
-  a native panel as the likely cause: press Cancel in the slot's Editor and run the command again,
-  or `upool close --force` if nothing is unsaved (docs/contracts.md (d); A48, as amended). The
+  or whose re-query meets the main-thread timeout again, fails the close. For a GUI Editor, the
+  message names a native panel as the likely cause: press Cancel in the slot's Editor and run the
+  command again, or `upool close --force` if nothing is unsaved. A headless Editor, which has no
+  window, gets the plain failure (docs/contracts.md (d); A48, as amended). The
   replies of the listing, of the one-scene save and of a `save_all` a panel holds are not yet
   captured from a real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
 
