@@ -226,19 +226,48 @@ func ledgerOf(t *testing.T, p harnessPool) ledger.Ledger {
 	return l
 }
 
-// checkEditors fails the test unless the ledger holds exactly want.
+// checkEditors fails the test unless the ledger holds exactly want, ready times compared as
+// instants.
 func checkEditors(t *testing.T, p harnessPool, want ...ledger.Editor) {
 	t.Helper()
-	if got := ledgerOf(t, p).Editors; !slices.Equal(got, want) {
-		t.Errorf("editors = %+v, want %+v", got, want)
+	if got := ledgerOf(t, p).Editors; !slices.EqualFunc(got, want, sameEditor) {
+		t.Errorf("editors = %s, want %s", editorsString(got), editorsString(want))
 	}
 }
+
+// sameEditor reports whether a and b record the same Editor, their ready times as instants.
+func sameEditor(a, b ledger.Editor) bool {
+	ra, rb := a.ReadyAt, b.ReadyAt
+	a.ReadyAt, b.ReadyAt = nil, nil
+	if a != b || (ra == nil) != (rb == nil) {
+		return false
+	}
+	return ra == nil || ra.Equal(*rb)
+}
+
+// editorsString is editors with each ready time spelled out, rather than as a pointer.
+func editorsString(editors []ledger.Editor) string {
+	var b strings.Builder
+	for _, e := range editors {
+		ready := "nil"
+		if e.ReadyAt != nil {
+			ready = e.ReadyAt.Format(time.RFC3339Nano)
+		}
+		at := e
+		at.ReadyAt = nil
+		fmt.Fprintf(&b, "%+v ready_at %s; ", at, ready)
+	}
+	return "[" + strings.TrimSuffix(b.String(), "; ") + "]"
+}
+
+// readyAt is t as an Editor's ready_at.
+func readyAt(t time.Time) *time.Time { return &t }
 
 // The acceptance test of #89, a ready reply: `upool open` in a slot with a Library opens a
 // headless Editor (A36; A33), waits with `unity status --until-ready --timeout 120` (A37), and
 // records one ledger entry, under the captured launchedPid, charged editor_ram_gb_headless, 2.5 by
-// default (#287). The CLI's Hub-registry warning, on stderr and in the envelope, is dropped for
-// the slot (#285).
+// default (#287), with the time it saw the Editor ready as its ready_at (#281). The CLI's
+// Hub-registry warning, on stderr and in the envelope, is dropped for the slot (#285).
 func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady,
@@ -256,7 +285,7 @@ func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	}
 	checkOpenCalls(t, p, u, true, true, "120", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
-		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5, ReadyAt: readyAt(clock)})
 }
 
 // --gui opens the Editor with -automated and without -batchmode (A33, as amended by #279), and
@@ -276,7 +305,7 @@ func TestOpenGUI(t *testing.T) {
 	}
 	checkOpenCalls(t, p, u, false, true, "120", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
+		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6, ReadyAt: readyAt(clock)})
 }
 
 // writeUserSettings writes doc as the user config, ~/.config/upool/config.toml, under p's home, as
@@ -324,7 +353,7 @@ func TestOpenChargesTheUsersSettingForItsMode(t *testing.T) {
 					r.stderr, want)
 			}
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: pid, Mode: tt.mode,
-				OpenedByUpool: true, ChargeGB: tt.want})
+				OpenedByUpool: true, ChargeGB: tt.want, ReadyAt: readyAt(clock)})
 		})
 	}
 }
@@ -341,7 +370,8 @@ func refusedWith(refusal fake.Reply, exit int) fake.Reply {
 // refusal is stillSettling, the stand-in for the refusal no capture records, replayed with several
 // exits since its exit is not recorded either, and the recorded main-thread timeout, which open
 // takes for the same thing: neither the refusal's text nor its exit may change the result. The
-// waits pass on testing/synctest's clock.
+// waits pass on testing/synctest's clock. The Editor's ready_at is when `unity status
+// --until-ready` reported it ready, before the settle waits (#281).
 func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
 	for _, tt := range []struct {
 		name    string
@@ -357,8 +387,10 @@ func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
 			p := warmPool(t)
 			u := p.installUnity(t, openReply(t, p.Env, "open-gui-streams.json"), statusReady,
 				tt.refusal, tt.refusal, settledReply)
+			var ready time.Time
 			synctest.Test(t, func(t *testing.T) {
 				begin := time.Now()
+				ready = begin
 				r := runOpen(t, p, procsAlive(os.Getpid(), capturedGUIPID), time.Now, "--gui")
 				if waited := time.Since(begin); waited != 2*unity.SettlePollInterval {
 					t.Errorf("open waited %s, want %s: a poll interval after each refusal",
@@ -373,7 +405,7 @@ func TestOpenReportsReadyOnlyOnceTheRefusalsStop(t *testing.T) {
 			})
 			checkOpenCalls(t, p, u, false, true, "120", 3)
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6, ReadyAt: readyAt(ready)})
 		})
 	}
 }
@@ -415,8 +447,14 @@ func TestOpenSaysWhenTheEditorIsStillImporting(t *testing.T) {
 			}
 			tt.want(t, r)
 			checkOpenCalls(t, p, u, false, true, "120", 1)
+			// The clock moves at every reading, so the ready time is whichever reading open took
+			// once the Editor was ready; that it took one is what this checks.
+			l := ledgerOf(t, p)
+			if len(l.Editors) != 1 || l.Editors[0].ReadyAt == nil {
+				t.Fatalf("editors = %s, want one with a ready_at", editorsString(l.Editors))
+			}
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6})
+				Mode: modeGUI, OpenedByUpool: true, ChargeGB: 6, ReadyAt: l.Editors[0].ReadyAt})
 		})
 	}
 }
@@ -568,7 +606,7 @@ func TestOpenChargesAColdImportUntilReady(t *testing.T) {
 			}
 			checkOpenCalls(t, p, u, true, true, "300", 1)
 			checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
-				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+				Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5, ReadyAt: readyAt(clock)})
 			if s := p.loadPool(t).Slots[0]; s.ReimportPending {
 				t.Error("reimport_pending is still set")
 			}
@@ -707,7 +745,7 @@ func TestOpenRefusesASecondGUIEditorAtABudgetOf10(t *testing.T) {
 		t.Errorf("with editor_ram_gb_gui 2.5: exit %d, stderr %q; want 0", r.code, r.stderr)
 	}
 	checkEditors(t, p, first, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
-		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5, ReadyAt: readyAt(clock)})
 }
 
 // A refusal by max_cold_imports waits for the running cold import, saying so once on stderr, and
@@ -747,6 +785,7 @@ func TestOpenGoesAheadWhenTheColdImportEnds(t *testing.T) {
 	writeLedger(t, p, ledger.Editor{Project: p.slot("slot-2"), PID: 1001, Mode: modeHeadless,
 		OpenedByUpool: true, ColdImport: true, ChargeGB: 4.5})
 	procs := &dyingStart{editorProcs: procsAlive(os.Getpid(), capturedPID), pid: 1001, starts: 2}
+	var ready time.Time
 	synctest.Test(t, func(t *testing.T) {
 		begin := time.Now()
 		r := runOpen(t, p, procs, time.Now)
@@ -756,10 +795,11 @@ func TestOpenGoesAheadWhenTheColdImportEnds(t *testing.T) {
 		if waited := time.Since(begin); waited != 2*retryInterval {
 			t.Errorf("open waited %s, want %s", waited, 2*retryInterval)
 		}
+		ready = begin.Add(2 * retryInterval)
 	})
 	checkOpenCalls(t, p, u, true, true, "300", 1)
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedPID,
-		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5})
+		Mode: modeHeadless, OpenedByUpool: true, ChargeGB: 2.5, ReadyAt: readyAt(ready)})
 }
 
 // dyingStart is an editorProcs in which pid has a process for its first starts Start calls only,

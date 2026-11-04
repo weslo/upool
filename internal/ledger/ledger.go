@@ -16,13 +16,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
+	"time"
 
 	"github.com/weslo/upool/internal/statefile"
 )
 
 // SchemaVersion is the editors.json format this package reads and writes: a document with a
 // higher schema_version is refused, and one with a lower version is written at this one (A7).
-const SchemaVersion = 1
+// Version 2 adds the Editor's ready_at (#281), which a version-1 document lacks and reads as null.
+const SchemaVersion = 2
 
 const (
 	// file is editors.json, relative to ~/.upool as internal/statefile takes it.
@@ -54,6 +57,11 @@ type Editor struct {
 	// 4.5, or that charge if larger (Budget.EditorCharge; #287). A setting changed later charges
 	// only the Editors opened after it.
 	ChargeGB float64 `json:"charge_gb"`
+	// ReadyAt is when `upool open` saw the Editor ready, from which status reckons how long it has
+	// been open; nil until then, and for an Editor a seed refresh opened or a version-1 ledger
+	// recorded (#281). It is not when the Editor last answered: a session drives its Editor with
+	// the Unity CLI itself, and upool hears none of those calls.
+	ReadyAt *time.Time `json:"ready_at"`
 }
 
 // Load returns the ledger in ~/.upool/editors.json under home, without the lock (see
@@ -115,12 +123,20 @@ func decode(data []byte) (Ledger, error) {
 	return l, nil
 }
 
-// encode writes l at SchemaVersion, indented, with a final newline, and editors as an array even
-// when there are none (docs/contracts.md (e)).
+// encode writes l at SchemaVersion, indented, with a final newline, editors as an array even when
+// there are none, and every ready time in UTC (docs/contracts.md (e)). It copies what it changes,
+// so l's slice and pointers are left as they were.
 func encode(l Ledger) ([]byte, error) {
 	l.SchemaVersion = SchemaVersion
+	l.Editors = slices.Clone(l.Editors)
 	if l.Editors == nil {
 		l.Editors = []Editor{}
+	}
+	for i := range l.Editors {
+		if at := l.Editors[i].ReadyAt; at != nil {
+			utc := at.UTC()
+			l.Editors[i].ReadyAt = &utc
+		}
 	}
 	data, err := json.MarshalIndent(l, "", "  ")
 	if err != nil {

@@ -12,4 +12,8 @@ checkout with a warm Library under `.claude/worktrees/slot-N`.
   `unity test "$UNITY_PROJECT_PATH" --mode EditMode`.
 - Open your slot's Editor with `upool open`, headless by default for imports, builds and tests, or
   `upool open --gui` for play mode and captures; close it with `upool close`.
+- Open the Editor when the work needs it. Once the work is done, a pull request open and nothing
+  left to verify, close it with `upool close` rather than leave it running while you wait on
+  review: an open Editor holds several GB of memory and one of the few Editors upool admits at
+  once. Reopen it with `upool open` for a follow-up.
 - Run `unity command save_all` before `unity close "$UNITY_PROJECT_PATH"`.

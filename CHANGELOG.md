@@ -40,6 +40,22 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   lines in the timings log, which has a line for each timed operation once it has ended, where the
   hooks time nothing. Contract (a) gains a table of the archive paths as captured so far, and
   docs/manual-gates/M7.md check 7 re-captures the four on the current app build.
+- A slot's session is told to close its Editor once its work is done (#281; docs/contracts.md (b),
+  "Context for the session"): to open the Editor when the work needs it, close it with
+  `upool close` once a pull request is open and nothing is left to verify, rather than leave it
+  running while it waits on review, and reopen it for a follow-up. On the first benchmark run two
+  sessions kept their GUI Editors, about 12 GB and two of three seats, open 2 h 50 min after their
+  work was done.
+- `upool status` says how long each Editor it lists has been open, since `upool open` saw it ready,
+  `open for 45m`, and flags one open longer than 2 h, `open for 2h50m, over 2h: close it with
+  upool close once its session's work is done` (#281; docs/contracts.md (e), the Editor ledger;
+  (h), the open-for flag). Under `--json` each Editor carries `ready_at`, and `open_long: true`
+  when flagged. It is time open, not time idle: a session drives its Editor with the Unity CLI
+  itself, and upool hears none of those calls, so a session still at work after two hours is
+  flagged too. The flag is a constant, not a setting, and closes nothing. The Editor ledger,
+  `~/.upool/editors.json`, records the time as each Editor's `ready_at`, at `schema_version` 2:
+  an existing ledger is migrated on its next write, its Editors with no ready time, which status
+  lists as before, and an earlier upool refuses the migrated file with a message to upgrade.
 
 ### Changed
 
