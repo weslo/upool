@@ -126,9 +126,10 @@ func probeRequest(repo string) ([]byte, error) {
 // for repo on stdin, bounded at documentsBound (#286). The hook makes its git call in repo and
 // stops, taking no slot. The first time upool reads under ~/Documents from the helper, macOS asks
 // whether it may, and the hook waits for the answer, saying so on stderr. The check passes once
-// the hook answers; warns while the prompt is open, its waiting line on stderr or the bound
-// reached, saying to answer it and run doctor again; fails, naming the setting, when macOS denies
-// upool the folder, and fails with the hook's error otherwise. It warns, naming where it looked,
+// the hook answers; warns while the prompt is open, the bound having ended the hook, saying to
+// answer it and run doctor again; fails, naming the setting, when macOS denies upool the folder,
+// though the answer came within the bound, after the waiting line; and fails with the hook's error
+// otherwise. It warns, naming where it looked,
 // when the helper is not there, or when the project registers no create hook. With no helper to
 // look for, off macOS, it reports false and runs nothing.
 func documentsAccessCheck(ctx context.Context, inv *invocation, repo,
@@ -165,16 +166,18 @@ func documentsAccessCheck(ctx context.Context, inv *invocation, repo,
 	name := filepath.Base(upool)
 	pending := fmt.Sprintf("macOS is asking whether %s may access Documents; answer it, then "+
 		"run upool doctor again", name)
+	// The waiting line tells something only of a hook the bound ended: one that wrote it and then
+	// ended on its own was answered meanwhile, and its exit says how.
 	switch {
 	case err == nil && exit == 0:
 		return doctorCheck{checkDocumentsAccess, checkPass, fmt.Sprintf("the desktop app's "+
 			"helper ran %s's create hook, and its git read %s in %d ms", name, repo,
 			took.Milliseconds())}, true
-	case bytes.Contains(stderr, []byte("upool: "+hooks.WaitingLine)):
-		return doctorCheck{checkDocumentsAccess, checkWarn, pending}, true
 	case errors.Is(err, context.DeadlineExceeded):
-		return doctorCheck{checkDocumentsAccess, checkWarn, pending + fmt.Sprintf(" (the hook "+
-			"did not answer within %s)", documentsBound)}, true
+		if !bytes.Contains(stderr, []byte("upool: "+hooks.WaitingLine)) {
+			pending += fmt.Sprintf(" (the hook did not answer within %s)", documentsBound)
+		}
+		return doctorCheck{checkDocumentsAccess, checkWarn, pending}, true
 	case err != nil:
 		return failedCheck(checkDocumentsAccess, err), true
 	case bytes.Contains(stderr, []byte("Operation not permitted")):

@@ -213,14 +213,22 @@ func TestDoctorDocumentsAccessWarnsWhileThePromptIsPending(t *testing.T) {
 
 // The acceptance test of #286, access denied: git under the helper fails with `Operation not
 // permitted`, as the capture records it, and the check fails, naming the setting that allows it.
+// So it does when the hook wrote the waiting line first: the prompt came up and was answered Don't
+// Allow within the bound, and the hook's exit, not its waiting line, says what came of it.
 func TestDoctorDocumentsAccessFailsWhenMacOSDeniesTheFolder(t *testing.T) {
 	p := newHarnessPool(t)
-	f := newFakeHelper(t, answering(deniedHookStderr(t, p.Repo), output.ExitFailure))
-	c := documentsCheck(t, p, f, createHookUpool(p.Repo))
 	want := "macOS denies upool access to Documents: allow it in System Settings → Privacy & " +
 		"Security → Files and Folders, then run upool doctor again"
-	if c.Result != checkFail || c.Reason != want {
-		t.Errorf("check = %s, %q; want fail, %q", c.Result, c.Reason, want)
+	denied := deniedHookStderr(t, p.Repo)
+	for name, stderr := range map[string]string{
+		"denied":                        denied,
+		"denied after the waiting line": "upool: " + hooks.Waiting("upool") + "\n" + denied,
+	} {
+		f := newFakeHelper(t, answering(stderr, output.ExitFailure))
+		c := documentsCheck(t, p, f, createHookUpool(p.Repo))
+		if c.Result != checkFail || c.Reason != want {
+			t.Errorf("%s: check = %s, %q; want fail, %q", name, c.Result, c.Reason, want)
+		}
 	}
 }
 
