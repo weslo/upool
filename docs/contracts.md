@@ -101,6 +101,7 @@ by `session_id` (S§7 item 3; D-route).
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
 | The app's Archive button runs the remove hook for a dirty slot too. Archiving through the app's session tool does not: for a dirty worktree it logs `Archived session` and nothing more, runs no `WorktreeRemove` and keeps its record of the worktree, which refuses the path to later sessions ("already in use"), even after the session is deleted, until the session is resumed and archived clean (A28) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
+| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. On Claude Code 2.1.305 in the desktop app of late October 2026, archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
@@ -154,6 +155,7 @@ context (A43; #229).
 |---|---|
 | For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block and the skill's body (`assets.Instructions`, about 3 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt` |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
+| The instructions say in one line how to open the slot's Editor and close it: `upool open`, headless by default for imports, builds and tests, or `upool open --gui` for play mode and captures, then `upool close`. `upool open --help` says the same of its two flags. The first benchmark's sessions found the default by trial: one closed a headless Editor and reopened it `--gui`, two read `--help` | `assets/claude-md-block.md`; A33 as amended; A36; #279; [the first benchmark record](https://github.com/weslo/upool/pull/276) |
 | For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context, has its holder recorded and is exported the slot, where it works (A47) | `hooks/cli-resume-checkout-session-start.json`; `hooks/cli-slot-resume-checkout-session-start.json`; question 43; A46; A47 |
 | A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
 | A subagent does not see its session's `SessionStart` context. `SubagentStart`'s stdin carries `agent_id`, `agent_type`, `prompt_id` and `scratchpad_dir`, with the session's `session_id` and `cwd` where the subagent is; for a session in a slot, `upool hook subagent-start` prints the same document with `"hookEventName":"SubagentStart"`, and for any other session nothing. `init` registers it beside the other hooks | `hooks/cli-subagent-start.json`; question 43 |
@@ -337,7 +339,7 @@ Pool:
 | `base` | string, git ref | the ref slots are cloned at and reset to | `init`: from flag, `UPOOL_*`, `.upool` or user config; when none sets it, origin's default branch (`git symbolic-ref --short refs/remotes/origin/HEAD` without its `origin/` prefix), else the current branch, which `init` prints and writes into `.upool` | D-commands; D-lifecycle; A17 |
 | `slots` | array of slot | the pool's slots | see below | D-commands |
 | `agent_worktrees` | array of agent worktree | subagent worktrees made by the hook | hook (subagent branch), `prune` | D-route |
-| `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`: its PID and that process's start time, so a reused PID is not mistaken for it | `refresh`, which the session-start hook spawns after a confirmed startup: records itself as it starts, unless a live job is recorded, and clears itself as it ends (#79) | D-build; D-env; A7 |
+| `refresh_job` | object or null: `pid` (integer) and `pid_start` (timestamp), both always set | the one detached top-up job, announced in `status`, with `--all` or without, while its process is alive: its PID and that process's start time, so a reused PID is not mistaken for it | `refresh`, which the session-start hook spawns after a confirmed startup: records itself as it starts, unless a live job is recorded, and clears itself as it ends (#79) | D-build; D-env; A7; #283 |
 
 Slot:
 
@@ -345,7 +347,7 @@ Slot:
 |---|---|---|---|---|
 | `name` | string | `slot-N` | `init`, `take` (create), `refresh` | D-commands |
 | `path` | string, absolute path | `<repo>/.claude/worktrees/slot-N` | same | D-commands |
-| `state` | string, one of the states in (f) | lifecycle state; `creating` is the "acquisition incomplete" entry written before `git worktree add` | every transition in (f) | D-leases; D-route; A4 |
+| `state` | string, one of the states in (f) | lifecycle state; `creating` is the "acquisition incomplete" entry written before `git worktree add`. `status` lists every slot in its state, `creating` and `warming` ones included, with `--all` or without | every transition in (f) | D-leases; D-route; A4; #283 |
 | `owner_pid` | integer or null | the process cloning the slot (`creating`) or re-warming it (`warming`); null in every other state. A dead owner starts recovery, (f) transitions 21 and 22 | clone (`init`, `take`, `refresh`), `refresh` | A4 |
 | `owner_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the owner | same | A4 |
 | `seed_head` | string, commit SHA | the seed source's `git rev-parse HEAD` at clone time: the commit the cloned Library matches. The slot is then moved to base ((g) step 7), so its own HEAD may differ | clone (`init`, `take`, `refresh`) | D-lifecycle; S§8 "What this changes (updated)", staleness row; A10 |
@@ -360,7 +362,7 @@ Lease:
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
 | `lease_id` | string, random | identity for `release --if-lease-id` | `take` | D-commands; D-leases |
-| `holder` | string | `--holder ID`; for the desktop hook, the create stdin `session_id` | `take` | D-route |
+| `holder` | string | `--holder ID`; for the desktop hook, the create stdin `session_id`, the app's ID, which is not the session's own (`session_id` below; (a)). `status` shows it, and marks the slot the working directory is in, as `which` finds it: `(here)` after the slot's name, and `"here": true` with `--json`, so that a session can tell its own lease without knowing either ID | `take` | D-route; #283 |
 | `worktree_path` | string, absolute path | correlation key for `--confirm`, remove and release | `take` | D-route; D-leases |
 | `holder_pid` | integer or null | the process whose life the lease follows, for dead-PID reclaim: `upool run`'s own PID; for a create-hook lease, null until `take --confirm` sets it to the `SessionStart` hook's parent, the session's CLI process (unverified that no shell sits between them, as for `parent_pid` below); null for a bare `take`, which is never reclaimed automatically | `take`, `run`, `take --confirm` | D-leases; A6 |
 | `holder_pid_start` | timestamp or null | that process's start time, so a reused PID is not mistaken for the holder | same | D-leases; A6 |
@@ -493,6 +495,7 @@ clones anything, and counts `creating` and `warming` slots as ready when it tops
 | 21 | `creating` | removed | the owner PID is dead: `doctor --fix`, or the next `take` or `refresh`, removes the slot's worktree registration if `git worktree add` got that far (`git worktree remove --force`), then its directory and its entry | A4 |
 | 22 | `warming` | `ready` or `parked` | the owner PID is dead and the ledger shows no live Editor in the slot: the slot is checked again; clean → `ready`, and a later `refresh` moves it to base; dirty → `parked`. A live Editor upool opened headless there, which a re-warm's failed close left, is closed by the next `refresh` first (A40 as amended by #273) | A4 |
 | 23 | `ready` | `warming` | a clone chooses the slot as its seed ((g) step 0) and holds it while step 4 copies it | A19 |
+| 24 | `leased` | removed | reclaim: the lease has a holder PID **and** it is dead **and** no live Editor in the ledger **and** the app's record does not name the slot (A50) **and** the slot's directory is not on disk, as the desktop app leaves a slot it deleted on an archive that sent no `WorktreeRemove` ((a), WorktreeRemove rules). The next `take`, `refresh` before its top-up, and `doctor --fix` drop the slot's entry, after `git worktree prune` if git still lists it, so that a clone can replace it within `max_slots`, under the lowest free `slot-N` ((g) step 2), which may be the dropped slot's own. Until then `status` shows the slot `missing`, and `doctor` names the fix. A dead holder's slot still on disk is 13's or 14's, which `refresh` leaves | D-leases; A6; A50; #277 |
 
 `upool run <name> -- <cmd>` is transition 5 or 19, then 11 or 12, around the command (D-commands).
 `take <name>` fails, naming the worktree, when git already has the branch checked out in another
@@ -957,6 +960,28 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   `-nographics` is not passed: it would make the Editor behave unlike the GUI one a person
   develops in (maintainer decision, 2026-10-21; D-editors; (c)).
 
+  **Amended** ([#279](https://github.com/weslo/upool/issues/279)). Every Editor upool launches gets
+  `-automated` too: `unity open <slot> --args "-batchmode -automated"` headless, and
+  `unity open <slot> --args "-automated"` for `--gui`. That is `open`'s two modes and the two
+  launches that share its wrapper, refresh's re-warm and the clone recipe's stale-seed refresh. On
+  the first benchmark run a GUI Editor opened without `-automated` held `upool close` on a native
+  Save panel, and its session had no way to add the argument
+  ([the run's record](https://github.com/weslo/upool/pull/276)). What `-automated` suppresses is
+  not documented. `unity open --help` (CLI 1.0.0-beta.13) says only that `--args` passes extra
+  arguments to Unity, and Unity's
+  [Editor command-line arguments](https://docs.unity3d.com/6000.5/Documentation/Manual/EditorCommandLineArguments.html)
+  page lists no `-automated`; of the arguments it lists, it is `-batchmode` that "suppresses
+  dialog windows that require human interaction (such as the Save Scene window)". So nothing
+  documents that `-automated` keeps a native panel, such as the macOS Save panel, from blocking a
+  GUI Editor, and upool does not claim it does: the M7 gate records whether it does
+  (docs/manual-gates/M7.md, check 2). Two other things are not captured either. How the CLI
+  splits the `--args` string into the Editor's arguments: the gate checks that a headless Editor
+  gets `-batchmode` and `-automated` as two. And a
+  [forum report](https://discussions.unity.com/t/automated-deadlocks-editor-shutdown-when-the-scene-has-unsaved-changes/1732700)
+  (Editor 6000.5.0f1) of an `-automated` Editor that would not quit while a scene had unsaved
+  changes, where without it `unity close` discards them (S§8 C.4): `upool close` saves first, and
+  the gate tries a plain close of a dirty scene (maintainer decision, 2026-11-03; D-editors).
+
 - **2. Unrecorded exit codes** ([#12](https://github.com/weslo/upool/issues/12)). The spike
   recorded no exit for `AMBIGUOUS_EDITOR`, `INVALID_COMMAND_ARGS`, the first-eval `COMMAND_FAILED`
   timeout, `build`'s "Not a Unity project" or `status` filtered to a project with no Editor. M3's
@@ -1354,10 +1379,10 @@ Answered on 2026-10-21, before M3's build began; questions 2, 12, 34 and 35 once
   - **The re-warm** is unchanged: its Editor, one upool opened headless at base, holds no work,
     and is saved with `save_all` alone, now bounded, then closed retrying and then forcing, as
     above (#273).
-  - **Unverified,** and checked by `manual-gates/M7.md`: what a real Editor does with these
-    calls, that the listing reports a scene with no path as one, and that a close with one open
-    raises no panel. The replies of the listing, of the one-scene save and of a `save_all` held
-    by a panel are captures that gate adds.
+  - **Unverified,** and checked by `manual-gates/M7.md`, checks 5 and 6: what a real Editor does
+    with these calls, that the listing reports a scene with no path as one, and that a close with
+    one open raises no panel. The replies of the listing, of the one-scene save and of a
+    `save_all` held by a panel are captures check 6 adds.
 
 - **49. An Editor that has not yet written its instance file**
   ([#255](https://github.com/weslo/upool/issues/255)). upool knew an Editor it had not opened only

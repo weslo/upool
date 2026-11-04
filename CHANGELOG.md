@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `upool status` marks the slot the working directory is in, as `upool which` finds it, with
+  `(here)` after its name, and with `"here": true` on that slot under `--json`, with `--all` or
+  without (#283). A session runs status from its slot, so it can now tell which lease is its own:
+  the lease's holder, for a desktop session the app's ID, is not the session's own
+  (docs/contracts.md (a); (e), the lease's `holder`). Outside every slot nothing is marked, and the
+  output is unchanged. Plain `status` shows its pool as `--all` does, every slot, `creating` and
+  `warming` ones included, and the running refresh, and is now tested to, from the main checkout
+  and from inside a slot.
 - `upool close --force` saves nothing and closes the slot's Editor with `unity close <slot>
   --force`, then removes the instance files a forced close leaves, as A45 has it, and puts back a
   headless Editor's scene list (#280; docs/contracts.md A48, as amended). It is the way out of an
@@ -16,8 +24,41 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   says `closed slot-N's Editor without saving`, reports `"saved": false` under `--json`, and times
   the close as its one step. Every close's `--json` now reports `saved`.
 
+### Changed
+
+- Every Editor upool opens is launched with `-automated` (#279; docs/contracts.md A33, as amended).
+  `upool open --gui` runs `unity open <slot> --args "-automated"`, and a headless `upool open`,
+  refresh's re-warm and the stale-seed refresh run `unity open <slot> --args "-batchmode
+  -automated"`. On the first benchmark run a GUI Editor opened without `-automated` held
+  `upool close` on a native Save panel. Unity's documentation does not say what `-automated`
+  suppresses, so whether it keeps such a panel from blocking the Editor, and whether the CLI hands
+  a headless Editor both arguments, are checks in docs/manual-gates/M7.md, not yet run.
+- `upool open --help` says what each mode is for: headless, the default, for imports, builds and
+  tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
+  say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
+  "Context for the session").
+
 ### Fixed
 
+- A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).
+  On the first benchmark run, archiving three sessions through the desktop app's session tool
+  deleted each one's slot and sent upool no `WorktreeRemove`; with the three left `leased` at
+  `max_slots`, `take` could neither reclaim them nor clone, and `doctor --fix` and `prune` changed
+  nothing. Now `take`'s reclaim, `refresh` before its top-up, and `doctor --fix` drop such a slot
+  from `state.json` when the desktop app's record does not name it, pruning a registration git
+  still has, so that a clone can replace it within `max_slots` (docs/contracts.md (f) transition
+  24). `take` and `refresh` say `dropped slot-N from the pool, since its holder, process <pid>, is
+  gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
+  Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
+  A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+- `upool open` no longer prints `upool: warning: Warning: "<slot>" was not found in the Hub
+  project registry, opening as a file path.`, the Unity CLI's warning with the prefix doubled, on
+  every open (#285). No slot is ever in the Hub's project registry, since upool opens a slot by
+  its path and never registers it with the Hub (docs/design.md, "Why not `unity vcs git worktree
+  add --seed`, symlinks, or the Accelerator"), so the warning is dropped whenever upool opens a
+  slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
+  passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
+  once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
 - `upool close` can no longer be hung by a native Save panel (#280). On the first benchmark run,
   `save_all` opened one for an open scene with no path, which a development build's restore had
   left, and held the Editor until a person dismissed it. `close`, and `release` for an Editor upool
@@ -29,9 +70,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   or whose re-query meets the main-thread timeout again, fails the close. For a GUI Editor, the
   message names a native panel as the likely cause: press Cancel in the slot's Editor and run the
   command again, or `upool close --force` if nothing is unsaved. A headless Editor, which has no
-  window, gets the plain failure (docs/contracts.md (d); A48, as amended). The
-  replies of the listing, of the one-scene save and of a `save_all` a panel holds are not yet
-  captured from a real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
+  window, gets the plain failure (docs/contracts.md (d); A48, as amended). The replies of the
+  listing, of the one-scene save and of a `save_all` a panel holds are not yet captured from a
+  real Editor: `docs/manual-gates/M7.md` checks the close and adds them.
 
 ## [0.6.1] - 2026-11-03
 
