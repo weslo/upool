@@ -209,16 +209,15 @@ func checkEditors(t *testing.T, p harnessPool, want ...ledger.Editor) {
 // The acceptance test of #89, a ready reply: `upool open` in a slot with a Library opens a
 // headless Editor (A36; A33), waits with `unity status --until-ready --timeout 120` (A37), and
 // records one ledger entry, under the captured launchedPid, charged editor_ram_gb. The CLI's
-// Hub-registry warning, on stderr and in the envelope, comes through as upool's warning (A12).
+// Hub-registry warning, on stderr and in the envelope, is dropped for the slot (#285).
 func TestOpenRecordsTheReadyEditor(t *testing.T) {
 	p := warmPool(t)
 	u := p.installUnity(t, openReply(t, p.Env, "open-headless.json"), statusReady)
 	r := runOpen(t, p, procsAlive(os.Getpid(), capturedPID), func() time.Time { return clock },
 		"--json")
 	env := decode(t, r.stdout)
-	if r.code != output.ExitOK || !env.Success || len(env.Warnings) != 1 ||
-		!strings.Contains(env.Warnings[0], "was not found in the Hub project registry") {
-		t.Errorf("exit %d, envelope %+v, stderr %q; want 0, success and the Hub warning", r.code,
+	if r.code != output.ExitOK || !env.Success || len(env.Warnings) != 0 {
+		t.Errorf("exit %d, envelope %+v, stderr %q; want 0, success and no warning", r.code,
 			env, r.stderr)
 	}
 	checkOpenCalls(t, p, u, true, true, "120")
@@ -242,6 +241,40 @@ func TestOpenGUI(t *testing.T) {
 	checkOpenCalls(t, p, u, false, true, "120")
 	checkEditors(t, p, ledger.Editor{Project: p.slot("slot-1"), PID: capturedGUIPID,
 		Mode: modeGUI, OpenedByUpool: true, ChargeGB: 2.5})
+}
+
+// The acceptance test of #285: on every `unity open` of a slot, the CLI warns that the slot was
+// not found in the Hub project registry, on stderr and in the envelope (docs/contracts.md (d);
+// testdata/captures/unity/open-headless.*, open-gui-streams.*). No slot ever is there, since upool
+// opens a slot by its path and never registers it with the Hub (docs/design.md, "Why not `unity
+// vcs git worktree add --seed`, symlinks, or the Accelerator"), so `upool open` drops the warning:
+// it prints none, headless or --gui, under --json or without it.
+func TestOpenDropsTheHubRegistryWarningForASlot(t *testing.T) {
+	for _, tt := range []struct {
+		capture string
+		pid     int
+		args    []string
+	}{
+		{"open-headless.json", capturedPID, nil},
+		{"open-headless.json", capturedPID, []string{"--json"}},
+		{"open-gui-streams.json", capturedGUIPID, []string{"--gui"}},
+		{"open-gui-streams.json", capturedGUIPID, []string{"--gui", "--json"}},
+	} {
+		t.Run(strings.Join(append([]string{tt.capture}, tt.args...), " "), func(t *testing.T) {
+			p := warmPool(t)
+			p.installUnity(t, openReply(t, p.Env, tt.capture), statusReady)
+			r := runOpen(t, p, procsAlive(os.Getpid(), tt.pid),
+				func() time.Time { return clock }, tt.args...)
+			if r.code != output.ExitOK || strings.Contains(r.stderr, "warning") {
+				t.Errorf("exit %d, stderr %q; want 0 and no warning", r.code, r.stderr)
+			}
+			if slices.Contains(tt.args, "--json") {
+				if env := decode(t, r.stdout); len(env.Warnings) != 0 {
+					t.Errorf("warnings = %q, want none", env.Warnings)
+				}
+			}
+		})
+	}
 }
 
 // A slot with no Library, or with reimport_pending set, is opened as a cold import (A20), with

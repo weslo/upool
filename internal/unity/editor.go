@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weslo/upool/internal/output"
@@ -44,9 +45,21 @@ const (
 	ExitPollInterval = time.Second
 )
 
+// The warning `unity open` gives for a project the Hub's project registry does not hold, in every
+// `unity open` capture: `Warning: "<path>" was not found in the Hub project registry, opening as a
+// file path.` (docs/contracts.md (d)).
+const (
+	// cliWarningPrefix starts the warning, as it starts every warning a capture of the CLI holds.
+	cliWarningPrefix = "Warning: "
+	// notInHubRegistry ends it, after the quoted path of the project.
+	notInHubRegistry = `" was not found in the Hub project registry, opening as a file path.`
+)
+
 // Launch runs `unity open <project>`, with `--args -batchmode` for a headless Editor (A33), and
 // returns the PID it launched, launchedPid in stdout's envelope (A12), and the CLI's warnings,
-// such as its Hub-registry warning, which it repeats in the envelope.
+// such as its Hub-registry warning, which it repeats in the envelope. Each warning comes without
+// the CLI's own "Warning: ", since upool prints every warning after its own "upool: warning: "
+// (#285).
 func (c Client) Launch(ctx context.Context, project string, headless bool) (int, []string,
 	error) {
 	ctx, cancel := context.WithTimeout(ctx, launchTimeout)
@@ -62,14 +75,28 @@ func (c Client) Launch(ctx context.Context, project string, headless bool) (int,
 	if err != nil {
 		return 0, nil, err
 	}
+	var warnings []string
+	for _, w := range reply.Response.Warnings {
+		warnings = append(warnings, strings.TrimPrefix(w, cliWarningPrefix))
+	}
 	var data struct {
 		LaunchedPID int `json:"launchedPid"`
 	}
 	if json.Unmarshal(reply.Response.Data, &data) != nil || data.LaunchedPID < 1 {
-		return 0, reply.Response.Warnings, output.Fail(output.CodeCommandFailed,
+		return 0, warnings, output.Fail(output.CodeCommandFailed,
 			"unity open %s reported no launchedPid", project)
 	}
-	return data.LaunchedPID, reply.Response.Warnings, nil
+	return data.LaunchedPID, warnings, nil
+}
+
+// NotInHubRegistry reports whether warning, one of Launch's, is the CLI's warning that the project
+// it opened was not found in the Hub project registry, and so was opened as a file path
+// (docs/contracts.md (d)). upool opens a slot by its path and never registers it with the Hub
+// (docs/design.md, "Why not `unity vcs git worktree add --seed`, symlinks, or the Accelerator"), so
+// the CLI gives this warning on every open of a slot, and for a slot it says nothing (#285).
+func NotInHubRegistry(warning string) bool {
+	w := strings.TrimPrefix(warning, cliWarningPrefix)
+	return strings.HasPrefix(w, `"`) && strings.HasSuffix(w, notInHubRegistry)
 }
 
 // NotReadyError is WaitReady's error for an Editor that was not ready when the wait ran out and

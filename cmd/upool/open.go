@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/weslo/upool/internal/config"
@@ -102,7 +103,9 @@ func openEditor(inv *invocation, mode string) (any, []string, error) {
 //     no Library/ or its reimport_pending is set (A20). A refusal by max_cold_imports waits; any
 //     other fails before anything is launched (A38).
 //  2. It runs `unity open <slot>`, with `--args -batchmode` for headless (A33), reads launchedPid
-//     from stdout's envelope (A12), and records it in place of its own.
+//     from stdout's envelope (A12), and records it in place of its own. Of the CLI's warnings it
+//     drops the one that the slot is not in the Hub project registry, which every open of a slot
+//     gives, since upool opens a slot by its path and never registers it with the Hub (#285).
 //  3. It waits with `unity status --until-ready` while checking that the Editor is still running
 //     (docs/design.md, the lifecycle paragraph): a dead Editor fails before the timeout.
 //  4. Once the Editor is ready, it ends a cold import and clears reimport_pending (A39).
@@ -166,6 +169,7 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 	client := unity.Client{Runner: unity.Exec{}, Env: inv.environ()}
 	launched := inv.now()
 	pid, warnings, err := client.Launch(ctx, s.Path, mode == modeHeadless)
+	warnings = slices.DeleteFunc(warnings, unity.NotInHubRegistry)
 	if err == nil {
 		err = ledger.Launched(ctx, inv.home, s.Path, inv.pid, pid)
 	}
