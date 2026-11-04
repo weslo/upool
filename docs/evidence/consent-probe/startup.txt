@@ -1,0 +1,32 @@
+== #286's start-up probe, 2026-11-03, macOS 15.7.3, desktop app 4.16336.0. Homebrew's upool
+== 0.6.1, which macOS had already allowed the Documents folder, so that no prompt could come, run
+== through the desktop app's helper from a directory under ~/Documents. A script ran the commands
+== below in this order, printing the time before each.
+$ pwd -P
+${home}/Documents/Personal/upool/.claude/worktrees/agent-a81ed60974ff37c82
+$ date +%T; env -u PWD /Applications/Claude.app/Contents/Helpers/disclaimer /opt/homebrew/Cellar/upool/0.6.1/bin/upool --version
+21:09:46
+upool 0.6.1
+[exit 0]
+$ date +%T; env PWD="$(pwd -P)" /Applications/Claude.app/Contents/Helpers/disclaimer /opt/homebrew/Cellar/upool/0.6.1/bin/upool --version
+21:09:49
+upool 0.6.1
+[exit 0]
+$ date +%T; env PWD="$(pwd -P)" /Applications/Claude.app/Contents/Helpers/disclaimer /opt/homebrew/Cellar/upool/0.6.1/bin/upool which
+21:11:21
+upool: ${home}/Documents/Personal/upool/.claude/worktrees/agent-a81ed60974ff37c82 is not inside a slot of any registered pool
+[exit 1]
+
+== log show --start '2026-11-03 21:09:45' --end '2026-11-03 21:09:51' --style compact --predicate 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "Cellar/upool"'
+== found two requests, both at 21:09:46, from the run without PWD; their lines, by msgID:
+2026-11-03 21:09:46.888 Df tccd[185:ea42b99] [com.apple.TCC:access] AUTHREQ_CTX: msgID=179.79802, function=TCCAccessRequest, service=kTCCServiceSystemPolicyAllFiles, preflight=yes, query=1, client_dict=(null), daemon_dict=<private>
+2026-11-03 21:09:46.888 Df tccd[185:ea42b99] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=179.79802, attribution={accessing={TCCDProcess: identifier=a.out, pid=6999, auid=501, euid=501, binary_path=/opt/homebrew/Cellar/upool/0.6.1/bin/upool}, requesting={TCCDProcess: identifier=com.apple.sandboxd, pid=179, auid=0, euid=0, binary_path=/usr/libexec/sandboxd}, },
+2026-11-03 21:09:46.892 Df tccd[185:ea42b99] [com.apple.TCC:access] AUTHREQ_SUBJECT: msgID=179.79802, subject=/opt/homebrew/Cellar/upool/0.6.1/bin/upool,
+2026-11-03 21:09:46.893 Df tccd[185:ea42b99] [com.apple.TCC:access] AUTHREQ_RESULT: msgID=179.79802, authValue=0, authReason=5, authVersion=1, desired_auth=0, error=(null),
+2026-11-03 21:09:46.894 Df tccd[490:ea43102] [com.apple.TCC:access] AUTHREQ_CTX: msgID=179.79803, function=TCCAccessRequest, service=kTCCServiceSystemPolicyDocumentsFolder, preflight=no, query=1, client_dict=(null), daemon_dict=<private>
+2026-11-03 21:09:46.894 Df tccd[490:ea43102] [com.apple.TCC:access] AUTHREQ_ATTRIBUTION: msgID=179.79803, attribution={accessing={TCCDProcess: identifier=a.out, pid=6999, auid=501, euid=501, binary_path=/opt/homebrew/Cellar/upool/0.6.1/bin/upool}, requesting={TCCDProcess: identifier=com.apple.sandboxd, pid=179, auid=0, euid=0, binary_path=/usr/libexec/sandboxd}, },
+2026-11-03 21:09:46.896 Df tccd[490:ea43102] [com.apple.TCC:access] AUTHREQ_SUBJECT: msgID=179.79803, subject=/opt/homebrew/Cellar/upool/0.6.1/bin/upool,
+2026-11-03 21:09:46.896 Df tccd[490:ea43102] [com.apple.TCC:access] AUTHREQ_RESULT: msgID=179.79803, authValue=2, authReason=2, authVersion=1, desired_auth=0, error=(null),
+
+== log show --start '2026-11-03 21:11:20' --end '2026-11-03 21:11:23' --style compact --predicate 'subsystem == "com.apple.TCC" AND eventMessage CONTAINS "Cellar/upool"'
+== found no event.

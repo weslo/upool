@@ -10,6 +10,7 @@ import (
 
 	"github.com/weslo/upool/internal/git"
 	"github.com/weslo/upool/internal/hooks"
+	"github.com/weslo/upool/internal/tcc"
 )
 
 // worktreeCreate is `upool hook worktree-create`: it decodes the request on stdin and hands it to
@@ -17,8 +18,38 @@ import (
 func worktreeCreate(inv *invocation) (string, error) {
 	return logged(inv, hooks.EventWorktreeCreate, func(env hooks.Env, req hooks.Request) (string,
 		error) {
-		return hooks.WorktreeCreate(context.Background(), env, req)
+		return hooks.WorktreeCreate(context.Background(), withConsent(inv, env), req)
 	})
+}
+
+// worktreeCreateDryRun is `upool hook worktree-create --dry-run`: the request on stdin run as far
+// as the pooled branch's git call in the main checkout, making and taking nothing, so that it
+// prints nothing. doctor's documents-access check runs it through the desktop app's helper
+// (#286). It writes nothing to the pool's hook log, which records the hooks Claude Code runs, so
+// that a check does not read as a session's create ((e), "The hook log").
+func worktreeCreateDryRun(inv *invocation) (string, error) {
+	req, err := hooks.Decode(inv.stdin)
+	if err != nil {
+		return "", err
+	}
+	return "", hooks.WorktreeCreateDryRun(context.Background(), withConsent(inv, hooksEnv(inv)),
+		req)
+}
+
+// withConsent is env, the create hook's, with what it reads when its git call in the main checkout
+// stalls (#286): the unified log, and upool's own binary with its symlinks resolved, the client
+// macOS's Documents prompt names. A binary whose path cannot be read or resolved leaves Self empty,
+// so that a prompt about any client counts.
+func withConsent(inv *invocation, env hooks.Env) hooks.Env {
+	env.Consent = tcc.LogShow{Env: inv.environ()}
+	if inv.executable != nil {
+		if exe, err := inv.executable(); err == nil {
+			if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+				env.Self = resolved
+			}
+		}
+	}
+	return env
 }
 
 // worktreeRemove is `upool hook worktree-remove`: it decodes the request on stdin and hands it to

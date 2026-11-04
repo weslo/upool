@@ -36,6 +36,17 @@ func cloneSharingCheck(ctx context.Context, repo string) (doctorCheck, bool) {
 		"of a %d MB file cost %d MB of free space", mb(clone.ProbeSize), mb(max(s.Used, 0)))}, true
 }
 
+// desktopHelpers returns where the Claude desktop app may keep the helper that runs its create
+// hooks: in /Applications, where the app installs itself, then in home's own Applications folder
+// (docs/contracts.md (a), the "Process running the hook" row).
+func desktopHelpers(home string) []string {
+	paths := []string{filepath.Join("/Applications", "Claude.app", helperPath)}
+	if home != "" {
+		paths = append(paths, filepath.Join(home, "Applications", "Claude.app", helperPath))
+	}
+	return paths
+}
+
 // networkVolume returns the file system of the volume holding path and whether it is a network
 // volume, which statfs does not flag local.
 func networkVolume(path string) (fsType string, network bool, err error) {

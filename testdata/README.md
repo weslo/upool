@@ -228,6 +228,34 @@ The captures are the reference for what those states look like.
 | `projectsettings-define-reorder.diff` | `d3-clone1-projectsettings.diff` | §8 D.3; §9 G | the only observed define-order churn: `scriptingDefineSymbols` reordered, same set; the noise rule reverts exactly this |
 | `remove-status-untracked.txt` | `test-a/remove-status-1791774813.txt` | §8 A.8 | `git status --porcelain` taken by the remove hook after session 3: `?? spike-reuse.txt`; the slot must be parked |
 
+Captured after the spike, git's output under the desktop app's helper, which real git in a
+temporary repository cannot produce: so the test of what it shows replays it, stderr as git printed
+it and the exit code in a `.exit` file beside it.
+
+| Capture | Source | Versions | What it is |
+|---|---|---|---|
+| `helper-worktree-list.stderr.txt`, `helper-worktree-list.exit` | [#286](https://github.com/weslo/upool/issues/286) | git 2.39.5 (Apple Git-154, `/usr/bin/git`), desktop app 4.16336.0, macOS 15.7.3, 2026-11-03 | the create hook's git call, `git -C <checkout> worktree list --porcelain -z`, for a checkout under `~/Documents`, run from a shell through `Claude.app/Contents/Helpers/disclaimer`: exit 128, `fatal: Unable to read current working directory: Operation not permitted`, nothing on stdout. TCC denied the platform binary without a prompt (its log: `Platform binary prompting is 'Deny' because: is Platform Binary`). It is the text `doctor`'s `documents-access` check takes for macOS denying the hook the folder (#286). Recorded by the agent on the maintainer's Mac, read-only |
+
+### captures/tcc/
+
+What `log show --style ndjson` prints for the two queries the create hook makes of the unified log
+when its git call in the main checkout stalls (#286; docs/contracts.md (a), the "Process running
+the hook" row): the Documents prompts TCC logged, `subsystem == "com.apple.TCC" AND eventMessage
+BEGINSWITH "AUTHREQ_PROMPTING: " AND eventMessage CONTAINS
+"service=kTCCServiceSystemPolicyDocumentsFolder,"`, then the results of their requests,
+`subsystem == "com.apple.TCC" AND (eventMessage BEGINSWITH "AUTHREQ_RESULT: msgID=<id>,")`. Each is
+one JSON object per event, then a line counting them. They were recorded read-only on the
+benchmark's Mac after the benchmark of 2026-11-03, from the log macOS kept of its stalled hook, with
+`--start` and `--end` in place of the hook's `--last 60m`, since the prompt had been answered by
+then; `scripts/scrubpaths` changed nothing in them. `internal/tcc`'s and the create hook's tests
+replay them.
+
+| Capture | Source | Versions | What it is |
+|---|---|---|---|
+| `documents-prompting.ndjson` | [#286](https://github.com/weslo/upool/issues/286) | macOS 15.7.3, desktop app 4.4212.0, upool 0.6.1, 2026-11-03 | the query for Documents prompts from 10:44 to 11:31 local time: one prompt, `msgID=179.79495`, at 10:44:56, the second the benchmark's first create hook began (`docs/evidence/logs/desktop-consent-stall-main.log`), with `subject=Sub:{/opt/homebrew/Cellar/upool/0.6.1/bin/upool}Resp:{… binary_path=/opt/homebrew/Cellar/upool/0.6.1/bin/upool}`: macOS asked about upool by its resolved Homebrew path, as its own responsible process, not about the app. upool run through the helper four times between 11:00 and 11:04, as the benchmark reproduced the stall, logged no prompt of its own while this one was open |
+| `documents-result-pending.ndjson` | same | same | the query for that request's result from 10:44 to 10:46: no event, only the count line, as while the prompt was open |
+| `documents-result-allowed.ndjson` | same | same | the same query from 10:44 to 11:31: the result at 11:29:59, `authValue=2, authReason=2`, the prompt allowed 45 minutes after it was shown; the next session's create hook, at 11:32:44, made its worktree |
+
 ### Captured but not copied
 
 Kept only in the spike's `logs/` folder, because nothing in upool parses them: the Unity Editor logs

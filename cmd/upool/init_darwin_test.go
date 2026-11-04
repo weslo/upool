@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -13,12 +14,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/weslo/upool/assets"
 	"github.com/weslo/upool/internal/block"
 	"github.com/weslo/upool/internal/config"
 	"github.com/weslo/upool/internal/git"
+	"github.com/weslo/upool/internal/hooks"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -928,5 +931,52 @@ func TestInitRegistersSubagentStart(t *testing.T) {
 		Args: []string{"hook", "subagent-start"}}}}}
 	if got := settings.Hooks["SubagentStart"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("SubagentStart = %+v, want %+v", got, want)
+	}
+}
+
+// init's last step is doctor's documents-access check, once the hooks are registered and the
+// repository is a pool, so that macOS's Documents prompt is raised while the person who ran init
+// is there to answer it (#286): the helper runs the upool the hooks run, and the check's pass is
+// init's last line. A second init, as after an upgrade, runs it again, and a prompt still open is
+// a warning that says to answer it.
+func TestInitRunsTheDocumentsAccessCheckLast(t *testing.T) {
+	e := newInitEnv(t)
+	var ready []bool
+	f := newFakeHelper(t, func(ctx context.Context, r helperRun) ([]byte, int, error) {
+		_, pooled, err := registry.Lookup(e.Home, e.Repo)
+		ready = append(ready, err == nil && pooled && createHookUpool(e.Repo) == r.argv[0])
+		return asTheHelper(e)(ctx, r)
+	})
+	r := runDesktop(t, e, e.Repo, f.desktop(), "init")
+	pass := "the desktop app's helper ran upool's create hook, and its git read " + e.Repo +
+		" in 0 ms\n"
+	if r.code != output.ExitOK || !strings.HasSuffix(r.stdout, "updated "+
+		e.Path(projectSettings)+"\n"+pass) || r.stderr != "" {
+		t.Errorf("exit %d, stdout %q, stderr %q; want 0 and the check's pass last", r.code,
+			r.stdout, r.stderr)
+	}
+	if runs := f.ran(); len(runs) != 1 || runs[0].argv[0] != pathUpool(e) ||
+		!slices.Equal(ready, []bool{true}) {
+		t.Errorf("helper runs = %+v, ready %v; want one, of %s, once the hooks were registered",
+			runs, ready, pathUpool(e))
+	}
+	f.answer = holding("upool: " + hooks.Waiting("upool") + "\n")
+	synctest.Test(t, func(t *testing.T) {
+		r := runDesktop(t, e, e.Repo, f.desktop(), "init", "--json")
+		env := decode(t, r.stdout)
+		want := "macOS is asking whether upool may access Documents; answer it, then run " +
+			"upool doctor again"
+		if r.code != output.ExitOK || len(env.Warnings) != 1 ||
+			env.Warnings[0] != checkDocumentsAccess+": "+want {
+			t.Errorf("exit %d, envelope %+v; want 0 and the prompt pending as a warning", r.code,
+				env)
+		}
+		data, _ := env.Data.(map[string]any)
+		if c, _ := data["documents_access"].(map[string]any); c["result"] != string(checkWarn) {
+			t.Errorf("documents_access = %v, want the check, warning", data["documents_access"])
+		}
+	})
+	if runs := f.ran(); len(runs) != 2 {
+		t.Errorf("helper runs = %d, want the second init's too", len(runs))
 	}
 }

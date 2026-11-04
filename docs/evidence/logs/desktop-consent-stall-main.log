@@ -1,0 +1,20 @@
+2026-11-03 10:44:56 [info] Creating worktree for session local_c65a1ec1-45f3-4448-9dd4-1f0b95b5f42a from ${repo}
+2026-11-03 10:49:56 [error] [CCD] local_c65a1ec1-45f3-4448-9dd4-1f0b95b5f42a: start has held the session's start lock for 300s without starting Claude Code; cancelling it
+2026-11-03 10:50:06 [error] [CCD] local_c65a1ec1-45f3-4448-9dd4-1f0b95b5f42a: the cancelled start did not let go of the session's start lock within 10000ms; releasing it so the session can start again
+2026-11-03 10:54:56 [info] [createWorktree] WorktreeCreate hook error suppressed by user Stop WorktreeCreate hook failed: /opt/homebrew/bin/upool: no output { stack: 'Error: WorktreeCreate hook failed: /opt/homebrew/bin/upool: no output\n    at Object.A (/Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-alpYVpHk.js:1:6315)\n    at async e.createWorktreeInScope (/Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-DeXpsKov.js:1:122652)\n    at async /Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-DeXpsKov.js:1:115129\n    at async V3.ensureSessionWorktree (/Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-C3r2jk0E.js:1:1709343)\n    at async e.startSession (/Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-C3r2jk0E.js:1:2105517)\n    at async e.completeSideSessionStart (/Applications/Claude.app/Contents/Resources/app.asar/.vite/build/index.chunk-C3r2jk0E.js:1:2278542)' }
+2026-11-03 10:54:56 [info] [CCD] local_c65a1ec1-45f3-4448-9dd4-1f0b95b5f42a: 1 undelivered input(s) withdrawn (its session did not start) before they could be sent
+2026-11-03 10:54:56 [warn] [CCD] side session (fresh) local_c65a1ec1-45f3-4448-9dd4-1f0b95b5f42a did not start: Claude Code didn't start within 5 minutes. Try again.
+2026-11-03 11:26:32 [info] Starting app {
+  appVersion: '4.16336.0',
+  isPackaged: true,
+  platform: 'darwin',
+  arch: 'arm64',
+  nodeVersion: '24.22.0'
+}
+2026-11-03 11:26:32 [info] [CCD] Initialized with version 2.1.317
+2026-11-03 11:32:44 [info] Creating worktree for session local_f2270334-3439-4f75-b143-91e6f1d380cf from ${repo}
+2026-11-03 11:32:44 [info] [WorktreeHooks] WorktreeCreate hook created worktree at ${repo}/.claude/worktrees/slot-1
+2026-11-03 11:32:44 [info] Skipped per-machine config overlay for hook-based worktree "issue-350-weapon-hit-shapes-a5ad62" — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-11-03 11:32:44 [info] Created hook-based worktree "issue-350-weapon-hit-shapes-a5ad62" at ${repo}/.claude/worktrees/slot-1
+2026-11-03 11:32:44 [info] Skipped auto-trust for hook-based worktree at ${repo}/.claude/worktrees/slot-1 — hook came from a repo-committed settings tier, or its path was selected from multi-line output (provenance not vouched)
+2026-11-03 11:32:44 [info] Starting local session local_f2270334-3439-4f75-b143-91e6f1d380cf in ${repo}/.claude/worktrees/slot-1
