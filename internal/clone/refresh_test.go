@@ -112,9 +112,10 @@ func (p *refreshProcs) Alive(pid int, start time.Time) (bool, error) {
 // and procs as the process table.
 func newRefresher(e *testenv.Env, u *fake.Unity, procs proc.Checker) *SeedRefresher {
 	return &SeedRefresher{
-		Unity:    unity.Client{Runner: unity.Exec{}, Env: keyEnv(u)},
-		Proc:     procs,
-		Budget:   ledger.Budget{RAMGB: 16, EditorGB: 2.5, HelperGB: 1, MaxColdImports: 1},
+		Unity: unity.Client{Runner: unity.Exec{}, Env: keyEnv(u)},
+		Proc:  procs,
+		Budget: ledger.Budget{RAMGB: 16, GUIGB: 6, HeadlessGB: 2.5, HelperGB: 1,
+			MaxColdImports: 1},
 		Home:     e.Home,
 		OwnerPID: clonerPID,
 		Now:      func() time.Time { return procStart },

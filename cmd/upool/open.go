@@ -188,7 +188,7 @@ func openSlotEditor(ctx context.Context, inv *invocation, rp registeredPool, s p
 		if err := ledger.EndColdImport(ctx, inv.home, procs, budget, s.Path); err != nil {
 			return openReport{}, warnings, err
 		}
-		r.ChargeGB = budget.EditorGB
+		r.ChargeGB = budget.EditorCharge(mode, false)
 	}
 	if s.ReimportPending {
 		if err := clearReimportPending(ctx, inv.home, rp.repo.Key, s.Name); err != nil {

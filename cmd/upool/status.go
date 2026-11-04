@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/weslo/upool/internal/clone"
+	"github.com/weslo/upool/internal/ledger"
 	"github.com/weslo/upool/internal/output"
 	"github.com/weslo/upool/internal/paths"
 	"github.com/weslo/upool/internal/pool"
@@ -27,7 +28,8 @@ const statusUsage = "status [--all] [--du] [--json]"
 // docs/contracts.md (f) has every read of the pool settle: an unconfirmed lease past
 // confirm_timeout ends (#75), and a warming slot whose owner died is checked again (#97). With
 // --du it reports each slot's disk use, its private size beside its apparent size, and each
-// pool's sum (docs/contracts.md A32; #99).
+// pool's sum (docs/contracts.md A32; #99). Each pool lists the Editors the ledger charges in it,
+// each with its charge (#287).
 var statusCommand = command{
 	usage: statusUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -58,6 +60,9 @@ type poolStatus struct {
 	RefreshJob *pool.RefreshJob `json:"refresh_job"`
 	// Disk is the sum of its slots' disk use, with --du.
 	Disk *diskReport `json:"disk,omitempty"`
+	// Editors are the Editors the ledger charges in the pool, each with its charge, and absent
+	// when it charges none (#287).
+	Editors []editorStatus `json:"editors,omitempty"`
 }
 
 // diskReport is disk use as status --du reports it (A32): the private size, the bytes no other
@@ -89,7 +94,8 @@ type slotStatus struct {
 // for a slot that has no lease, after a line announcing the refresh job while it runs. With --du
 // the table adds each slot's private and apparent size, "-" for a slot whose directory is gone,
 // and a line after it gives the pool's sums. A line after the table says why each quarantined slot
-// is quarantined and how to clear it (A50). Pools are separated by a blank line.
+// is quarantined and how to clear it (A50), and one names each Editor the ledger charges in the
+// pool, with its mode, process and charge (#287). Pools are separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
 		return "no pools are registered"
@@ -144,6 +150,7 @@ func (r statusReport) Human() string {
 					pool.QuarantineReason(s.Name, s.expiries))
 			}
 		}
+		writeEditors(&b, p.Editors)
 		if d := p.Disk; d != nil {
 			fmt.Fprintf(&b, "disk: %s private, %s apparent\n", bytesSize(d.PrivateBytes),
 				bytesSize(d.ApparentBytes))
@@ -233,11 +240,18 @@ func status(inv *invocation, all, du bool) (any, []string, error) {
 		}
 		pools = []registeredPool{innermost(pools)}
 	}
+	editors, err := ledger.Load(inv.home)
+	if err != nil {
+		return nil, notes, err
+	}
 	r := statusReport{Pools: make([]poolStatus, 0, len(pools)), now: inv.now(), du: du}
 	for _, rp := range pools {
 		ps := newPoolStatus(rp)
 		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
 			return nil, nil, err
+		}
+		if ps.Editors, err = editorsIn(ps, editors); err != nil {
+			return nil, notes, err
 		}
 		if du {
 			if err := ps.measure(); err != nil {
