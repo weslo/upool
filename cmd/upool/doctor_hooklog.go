@@ -20,8 +20,10 @@ const checkHookLog = "hook-log"
 // slot go, and what the hook did, has an answer (#278; docs/contracts.md (e), "The hook log"). A
 // slot the log has no handout to a desktop session and no WorktreeRemove for gets no line. With
 // the record unknown, as without the app, nothing says which slots it no longer names, and nothing
-// is reported.
-func hookLogChecks(home, key string, slots []pool.Slot, rec desktop.Record) []doctorCheck {
+// is reported. reclaimed is what doctor --fix reclaimed, by slot name, after it read slots: a lease
+// it ended, or a slot it dropped, is reported as reclaimed, not as still on the slot.
+func hookLogChecks(home, key string, slots []pool.Slot, rec desktop.Record,
+	reclaimed map[string]pool.Reclaimed) []doctorCheck {
 	if !rec.Known || len(slots) == 0 {
 		return nil
 	}
@@ -38,7 +40,7 @@ func hookLogChecks(home, key string, slots []pool.Slot, rec desktop.Record) []do
 		if _, held := rec.Holds(s.Path); held {
 			continue
 		}
-		if c, ok := hookLogCheck(s, lines, keys); ok {
+		if c, ok := hookLogCheck(s, lines, keys, reclaimed); ok {
 			checks = append(checks, c)
 		}
 	}
@@ -48,8 +50,10 @@ func hookLogChecks(home, key string, slots []pool.Slot, rec desktop.Record) []do
 // hookLogCheck is s's line from the hook log's lines, if it has one: its last WorktreeRemove and
 // what that did, or, when the log has a desktop session handed s since, that no WorktreeRemove
 // came for that session. The slot's lease tells whether that session's lease is still on it: a
-// lease acquired no later than the handout ended is the one the handout took.
-func hookLogCheck(s pool.Slot, lines []hooks.LogLine, keys logKeys) (doctorCheck, bool) {
+// lease acquired no later than the handout ended is the one the handout took, unless reclaimed
+// says doctor --fix has since reclaimed it, its holder dead ((f) transitions 13, 14 and 24).
+func hookLogCheck(s pool.Slot, lines []hooks.LogLine, keys logKeys,
+	reclaimed map[string]pool.Reclaimed) (doctorCheck, bool) {
 	want, err := paths.Key(s.Path)
 	if err != nil {
 		return failedCheck(checkHookLog, err), true
@@ -76,14 +80,21 @@ func hookLogCheck(s pool.Slot, lines []hooks.LogLine, keys logKeys) (doctorCheck
 	switch {
 	case handout > start:
 		at := logTime(lines[handout].Time)
-		if l := s.Lease; l != nil && !l.AcquiredAt.After(lines[handout].Time) {
-			return line(checkWarn, "the desktop app no longer records it, and no WorktreeRemove "+
-				"is logged since a desktop session was handed it at %s: the app ran no remove "+
-				"hook for that session, or one that never reached upool's own code, and its "+
-				"lease is still on the slot", at)
+		l := s.Lease
+		rc, fixed := reclaimed[s.Name]
+		switch {
+		case l == nil || l.AcquiredAt.After(lines[handout].Time):
+			return line(checkPass, "no WorktreeRemove is logged since a desktop session was "+
+				"handed it at %s; that session's lease has ended since", at)
+		case fixed && rc.Err == nil:
+			return line(checkPass, "no WorktreeRemove is logged since a desktop session was "+
+				"handed it at %s; its holder, process %d, was gone, and doctor --fix has just "+
+				"reclaimed its lease", at, rc.HolderPID)
 		}
-		return line(checkPass, "no WorktreeRemove is logged since a desktop session was "+
-			"handed it at %s; that session's lease has ended since", at)
+		return line(checkWarn, "the desktop app no longer records it, and no WorktreeRemove "+
+			"is logged since a desktop session was handed it at %s: the app ran no remove "+
+			"hook for that session, or one that never reached upool's own code, and its "+
+			"lease is still on the slot", at)
 	case start < 0:
 		return doctorCheck{}, false
 	case end < 0:

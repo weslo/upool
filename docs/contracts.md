@@ -492,8 +492,10 @@ from the same `pid` is a hook that was killed, or is still running.
 name, it gives a `hook-log` line: the slot's last `WorktreeRemove` and its outcome, a warning when
 it failed or logged no end; or, when the log has a desktop session handed the slot since, that no
 `WorktreeRemove` came for that session, a warning while that session's lease is still on the slot.
-A slot the log has neither for gets no line, and while the record is unknown, as without the app,
-nothing is reported.
+With `--fix` it reports after the dead-holder reclaim, so that a lease the reclaim has just ended,
+or a slot it has just dropped, is reported as reclaimed rather than still held. A slot the log has
+neither for gets no line, and while the record is unknown, as without the app, nothing is
+reported.
 
 ## (f) Slot lifecycle
 

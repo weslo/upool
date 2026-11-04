@@ -167,7 +167,8 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 		r.Checks = append(r.Checks, c)
 	}
 	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
-	r.Checks = append(r.Checks, hookLogChecks(inv.home, rp.repo.Key, rp.pool.Slots, rec)...)
+	r.Checks = append(r.Checks, hookLogChecks(inv.home, rp.repo.Key, rp.pool.Slots, rec,
+		sd.reclaimed)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
 	}
