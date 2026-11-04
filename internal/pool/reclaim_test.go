@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -260,24 +261,151 @@ func TestReclaimWaitsForLiveEditor(t *testing.T) {
 	}
 }
 
-// A slot that cannot be reclaimed is reported and left; the rest of the pool is unaffected.
+// A slot that cannot be reclaimed, here a file where its directory was, is reported and left; the
+// rest of the pool is unaffected.
 func TestReclaimReportsASlotItCannotReclaim(t *testing.T) {
 	pid := holderPID
 	e := newReclaimEnv(t, &pid, fakeProcs{})
-	e.Git("worktree", "unlock", e.slot)
-	if err := os.RemoveAll(e.slot); err != nil {
-		t.Fatal(err)
+	e.Git("worktree", "remove", "--force", "--force", e.slot)
+	e.WriteFile(".claude/worktrees/slot-1", "not a slot\n")
+	if gone, err := e.r.Gone(e.mustLoad(t)); err != nil || len(gone) != 0 {
+		t.Errorf("Gone = %+v, %v; want none, since something is at slot-1's path", gone, err)
 	}
 	done, err := e.r.Reclaim(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(done) != 1 || done[0].Err == nil ||
-		!strings.Contains(done[0].Err.Error(), "is not on disk") {
-		t.Errorf("Reclaim = %+v, want slot-1 reported as not on disk", done)
+		!strings.Contains(done[0].Err.Error(), "is not a directory") {
+		t.Errorf("Reclaim = %+v, want slot-1 reported as not a directory", done)
 	}
 	if s := e.slot1(t); s.State != StateLeased || s.Lease == nil {
 		t.Errorf("slot-1 = %s, lease %+v; want it left leased", s.State, s.Lease)
+	}
+}
+
+// removeSlot1 takes slot-1 off the disk the two ways a leased slot leaves it: removed with its
+// registration, as the desktop app's archive through its session tool left the slots it deleted
+// (#277), or its directory deleted and the registration left, locked by an earlier upool.
+var removeSlot1 = []struct {
+	name   string
+	remove func(t *testing.T, e reclaimEnv)
+}{
+	{"removed with its registration", func(_ *testing.T, e reclaimEnv) {
+		e.Git("worktree", "remove", "--force", "--force", e.slot)
+	}},
+	{"its directory deleted", func(t *testing.T, e reclaimEnv) {
+		if err := os.RemoveAll(e.slot); err != nil {
+			t.Fatal(err)
+		}
+	}},
+}
+
+// A dead holder's slot whose directory is gone is dropped from the pool (t24), after a
+// registration git still has is unlocked and pruned, so that a clone can take its name again. The
+// branch it had checked out is kept.
+func TestReclaimDropsASlotWhoseDirectoryIsGone(t *testing.T) {
+	for _, tt := range removeSlot1 {
+		t.Run(tt.name, func(t *testing.T) {
+			pid := holderPID
+			e := newReclaimEnv(t, &pid, fakeProcs{})
+			tt.remove(t, e)
+			if gone, err := e.r.Gone(e.mustLoad(t)); err != nil || len(gone) != 1 ||
+				gone[0].Name != "slot-1" {
+				t.Errorf("Gone = %+v, %v; want slot-1", gone, err)
+			}
+			done, err := e.r.Reclaim(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(done) != 1 || done[0].Slot != "slot-1" || done[0].HolderPID != holderPID ||
+				done[0].State != StateRemoved || done[0].Err != nil {
+				t.Fatalf("Reclaim = %+v, want slot-1 removed", done)
+			}
+			if p := e.mustLoad(t); len(p.Slots) != 0 {
+				t.Errorf("slots = %+v, want slot-1 dropped", p.Slots)
+			}
+			if list := e.Git("worktree", "list", "--porcelain"); strings.Contains(list, e.slot) {
+				t.Errorf("git worktree list = %q, want slot-1 no longer registered", list)
+			}
+			if got := e.Git("branch", "--list", "feature"); got == "" {
+				t.Error("the branch feature is gone, want it kept")
+			}
+		})
+	}
+}
+
+// DropGone drops a dead holder's slot whose directory is gone and leaves one whose directory is
+// still on disk, which only Reclaim reclaims.
+func TestDropGoneLeavesASlotOnDisk(t *testing.T) {
+	pid := holderPID
+	e := newReclaimEnv(t, &pid, fakeProcs{})
+	done, err := e.r.DropGone(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.checkUntouched(t, done)
+
+	removeSlot1[0].remove(t, e)
+	done, err = e.r.DropGone(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(done) != 1 || done[0].State != StateRemoved || done[0].Err != nil {
+		t.Errorf("DropGone = %+v, want slot-1 removed", done)
+	}
+	if p := e.mustLoad(t); len(p.Slots) != 0 {
+		t.Errorf("slots = %+v, want slot-1 dropped", p.Slots)
+	}
+}
+
+// A gone slot is no candidate while its holder is alive, a bare take holds it, an Editor the ledger
+// records is live in it, or the desktop app still records it: it stays in the pool as it was.
+func TestReclaimKeepsAGoneSlotItMayNotReclaim(t *testing.T) {
+	pid := holderPID
+	for _, tt := range []struct {
+		name   string
+		holder *int
+		procs  fakeProcs
+		setup  func(t *testing.T, e *reclaimEnv)
+	}{
+		{"its holder alive", &pid, fakeProcs{holderPID: holderStart}, nil},
+		{"a bare take's", nil, fakeProcs{}, nil},
+		{"its Editor live", &pid, fakeProcs{editorPID: holderStart}, func(t *testing.T,
+			e *reclaimEnv) {
+			err := ledger.Update(t.Context(), e.Home, func(l *ledger.Ledger) error {
+				l.Editors = []ledger.Editor{{Project: e.slot, PID: editorPID, Mode: "gui",
+					OpenedByUpool: true, ChargeGB: 2.5}}
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"recorded by the app", &pid, fakeProcs{}, func(_ *testing.T, e *reclaimEnv) {
+			e.r.Held = func(Slot) (string, bool) { return "pwd-c2e29a", true }
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := newReclaimEnv(t, tt.holder, tt.procs)
+			if tt.setup != nil {
+				tt.setup(t, &e)
+			}
+			removeSlot1[0].remove(t, e)
+			if gone, err := e.r.Gone(e.mustLoad(t)); err != nil || len(gone) != 0 {
+				t.Errorf("Gone = %+v, %v; want none", gone, err)
+			}
+			for _, reclaim := range []func(context.Context) ([]Reclaimed, error){e.r.Reclaim,
+				e.r.DropGone} {
+				done, err := reclaim(t.Context())
+				if err != nil || len(done) != 0 {
+					t.Errorf("reclaim = %+v, %v; want nothing reclaimed", done, err)
+				}
+			}
+			if s := e.slot1(t); s.State != StateLeased || s.Lease == nil {
+				t.Errorf("slot-1 = %s, lease %+v; want it still leased", s.State, s.Lease)
+			}
+		})
 	}
 }
 

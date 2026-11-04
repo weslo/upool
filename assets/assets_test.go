@@ -20,7 +20,9 @@ func TestClaudeMDBlockCanBeUpserted(t *testing.T) {
 	}
 }
 
-// The block says what #53 asks of it (docs/contracts.md (c), the rule for the tool and the skill).
+// The block says what #53 asks of it (docs/contracts.md (c), the rule for the tool and the skill),
+// and what #279 does: open's default mode, what each mode is for, and `upool close`
+// (docs/contracts.md (b), "Context for the session").
 func TestClaudeMDBlockSaysHowToWorkInASlot(t *testing.T) {
 	for _, want := range []string{
 		"never with `git worktree add`",
@@ -29,6 +31,9 @@ func TestClaudeMDBlockSaysHowToWorkInASlot(t *testing.T) {
 		"Pass it positionally to `unity test`",
 		"`close` and `cache key`",
 		"`unity command save_all` before `unity close \"$UNITY_PROJECT_PATH\"`",
+		"`upool open`, headless by default for imports, builds and tests",
+		"`upool open --gui` for play mode and captures",
+		"close it with `upool close`",
 	} {
 		if !strings.Contains(ClaudeMDBlock, want) {
 			t.Errorf("claude-md-block.md does not say %q", want)

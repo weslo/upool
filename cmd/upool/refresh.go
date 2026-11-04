@@ -32,8 +32,10 @@ const refreshUsage = "refresh [--fetch] [--json]"
 // `origin/<base>` after a `git fetch` with --fetch, and re-warms its Library with a headless
 // Editor, so that the next open imports nothing ((f) transitions 3 and 18; docs/design.md, "Slot
 // lifecycle: seed only from a Library current at HEAD, refresh on handout, reset without `-x`";
-// #97). Before the top-up it closes the Editor an earlier re-warm left live in a warming slot
-// whose owner died, and checks that slot again (closeLeftovers; (f) transition 22; #273). While
+// #97). Before the top-up it drops each leased slot whose holder died and whose directory is gone,
+// so that the top-up can clone a replacement within max_slots (dropGone; (f) transition 24; #277),
+// and closes the Editor an earlier re-warm left live in a warming slot whose owner died, and checks
+// that slot again (closeLeftovers; (f) transition 22; #273). While
 // it runs it is the pool's refresh_job, which status announces; a refresh that finds another live
 // one leaves the work to it and exits 0 ((e)). Its steps are each reset, each close of a leftover
 // Editor, the mirror, each clone, and each move to base and re-warm, every one but the mirror
@@ -58,9 +60,11 @@ type refreshReport struct {
 	// Running is the process ID of the refresh already running, which this one left the work to,
 	// or 0 when this one did it.
 	Running int `json:"running,omitempty"`
-	// Reset and Cloned are the slots this refresh reset to ready and cloned, by name, Recovered
-	// the warming slots whose leftover Editor it closed and that it then returned to the pool
-	// (#273), and Mirrored the free slots whose .worktreeinclude files it changed (A44).
+	// Dropped are the leased slots this refresh dropped from the pool, their holder dead and their
+	// directory gone (#277). Reset and Cloned are the slots it reset to ready and cloned, by name,
+	// Recovered the warming slots whose leftover Editor it closed and that it then returned to the
+	// pool (#273), and Mirrored the free slots whose .worktreeinclude files it changed (A44).
+	Dropped   []droppedSlot  `json:"dropped"`
 	Reset     []string       `json:"reset"`
 	Recovered []leftoverSlot `json:"recovered"`
 	Mirrored  []mirroredSlot `json:"mirrored"`
@@ -85,13 +89,24 @@ type movedSlot struct {
 	RewarmSeconds float64 `json:"rewarm_seconds,omitempty"`
 }
 
-// Human returns a line for each slot reset and each slot cloned, then why the refresh stopped
-// cloning, then a line for each slot moved to base.
+// droppedSlot is a leased slot refresh dropped from the pool, since its holder was dead and its
+// directory gone ((f) transition 24; #277).
+type droppedSlot struct {
+	Slot string `json:"slot"`
+	// HolderPID is the dead holder's PID.
+	HolderPID int `json:"holder_pid"`
+}
+
+// Human returns a line for each slot dropped, each slot reset and each slot cloned, then why the
+// refresh stopped cloning, then a line for each slot moved to base.
 func (r refreshReport) Human() string {
 	if r.Running != 0 {
 		return fmt.Sprintf("a refresh of %s is already running as process %d", r.Repo, r.Running)
 	}
 	var lines []string
+	for _, d := range r.Dropped {
+		lines = append(lines, droppedLine(d.Slot, d.HolderPID))
+	}
 	for _, s := range r.Reset {
 		lines = append(lines, "reset "+s)
 	}
@@ -164,8 +179,9 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 	if err != nil {
 		return nil, nil, err
 	}
-	r := refreshReport{Repo: repo, Reset: []string{}, Recovered: []leftoverSlot{},
-		Mirrored: []mirroredSlot{}, Cloned: []string{}, Moved: []movedSlot{}}
+	r := refreshReport{Repo: repo, Dropped: []droppedSlot{}, Reset: []string{},
+		Recovered: []leftoverSlot{}, Mirrored: []mirroredSlot{}, Cloned: []string{},
+		Moved: []movedSlot{}}
 	job, running, err := claimRefreshJob(ctx, inv, key)
 	if err != nil || running != 0 {
 		r.Running = running
@@ -176,9 +192,14 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 	g := git.Client{Runner: git.Exec{}, Env: inv.environ()}
 	keys := clone.KeyCheck{Env: inv.environ()}
 	warn := func(line string) { warnings = append(warnings, line) }
+	dropped, err := dropGone(ctx, inv, g, key, warn)
+	if err != nil {
+		return nil, warnings, err
+	}
+	r.Dropped = append(r.Dropped, dropped...)
 	p, err := pool.Load(inv.home, key)
 	if err != nil {
-		return nil, nil, err
+		return nil, warnings, err
 	}
 	for _, s := range p.Slots {
 		if s.State != pool.StateNeedsReset || s.Lease != nil {
@@ -287,6 +308,35 @@ func refreshPool(inv *invocation, fetch bool) (_ any, warnings []string, err err
 		}
 	}
 	return r, warnings, nil
+}
+
+// dropGone is refresh's recovery of the leased slots whose holder is dead and whose directory is
+// gone, which the desktop app's record does not name: it drops each from the pool, as take's
+// reclaim does, so that the top-up can clone a replacement within max_slots ((f) transition 24;
+// #277). It reclaims no slot still on disk, which take and `doctor --fix` do. A slot it could not
+// drop is a warning. Off macOS, where internal/proc reads no start times, no holder can be shown
+// dead, and it drops nothing.
+func dropGone(ctx context.Context, inv *invocation, g git.Client, key string,
+	warn func(line string)) ([]droppedSlot, error) {
+	r := pool.Reclaimer{Git: g, Proc: inv.checker(), Home: inv.home, Key: key, Now: inv.now,
+		Held: appHolds(inv.home)}
+	done, err := r.DropGone(ctx)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var dropped []droppedSlot
+	for _, rc := range done {
+		if rc.Err != nil {
+			warn(fmt.Sprintf("could not drop %s, though its holder, process %d, is gone and its "+
+				"directory is not on disk: %v", rc.Slot, rc.HolderPID, rc.Err))
+			continue
+		}
+		dropped = append(dropped, droppedSlot{Slot: rc.Slot, HolderPID: rc.HolderPID})
+	}
+	return dropped, nil
 }
 
 // readyCount is how many of p's slots the top-up counts as ready: the ready ones no lease holds,

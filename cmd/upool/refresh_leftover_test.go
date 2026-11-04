@@ -24,7 +24,7 @@ import (
 func rewarmCallsBeforeClose(slot string) [][]string {
 	return [][]string{{"cache", "key", slot, "--format", "json"},
 		{"cache", "key", slot, "--format", "json"},
-		{"open", slot, "--args", "-batchmode", "--format", "json"},
+		{"open", slot, "--args", "-batchmode -automated", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "300", "--format", "json"},
 		{"command", "save_all", "--format", "json"}}
 }

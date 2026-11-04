@@ -18,6 +18,42 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `warming` ones included, and the running refresh, and is now tested to, from the main checkout
   and from inside a slot.
 
+### Changed
+
+- Every Editor upool opens is launched with `-automated` (#279; docs/contracts.md A33, as amended).
+  `upool open --gui` runs `unity open <slot> --args "-automated"`, and a headless `upool open`,
+  refresh's re-warm and the stale-seed refresh run `unity open <slot> --args "-batchmode
+  -automated"`. On the first benchmark run a GUI Editor opened without `-automated` held
+  `upool close` on a native Save panel. Unity's documentation does not say what `-automated`
+  suppresses, so whether it keeps such a panel from blocking the Editor, and whether the CLI hands
+  a headless Editor both arguments, are checks in docs/manual-gates/M7.md, not yet run.
+- `upool open --help` says what each mode is for: headless, the default, for imports, builds and
+  tests, and `--gui` for play mode and captures. The instructions a slot's sessions get at start
+  say the same in one line, with `upool close` to close the Editor (#279; docs/contracts.md (b),
+  "Context for the session").
+
+### Fixed
+
+- A leased slot whose holder is dead and whose directory is gone no longer wedges the pool (#277).
+  On the first benchmark run, archiving three sessions through the desktop app's session tool
+  deleted each one's slot and sent upool no `WorktreeRemove`; with the three left `leased` at
+  `max_slots`, `take` could neither reclaim them nor clone, and `doctor --fix` and `prune` changed
+  nothing. Now `take`'s reclaim, `refresh` before its top-up, and `doctor --fix` drop such a slot
+  from `state.json` when the desktop app's record does not name it, pruning a registration git
+  still has, so that a clone can replace it within `max_slots` (docs/contracts.md (f) transition
+  24). `take` and `refresh` say `dropped slot-N from the pool, since its holder, process <pid>, is
+  gone and its directory is not on disk`, and `refresh --json` lists the slot under `dropped`.
+  Until then `status` shows the slot `missing` rather than `leased`, and `doctor` names the fix.
+  A dead holder's slot still on disk is reclaimed as before, by `take` and `doctor --fix`.
+- `upool open` no longer prints `upool: warning: Warning: "<slot>" was not found in the Hub
+  project registry, opening as a file path.`, the Unity CLI's warning with the prefix doubled, on
+  every open (#285). No slot is ever in the Hub's project registry, since upool opens a slot by
+  its path and never registers it with the Hub (docs/design.md, "Why not `unity vcs git worktree
+  add --seed`, symlinks, or the Accelerator"), so the warning is dropped whenever upool opens a
+  slot's Editor, by `upool open` or by refresh's re-warm, under `--json` too. Where upool still
+  passes a warning of `unity open`'s on, as when a clone first refreshes a stale seed, it prints
+  once, after upool's own prefix and without the CLI's `Warning: ` (docs/contracts.md (d)).
+
 ## [0.6.1] - 2026-11-03
 
 ### Fixed
