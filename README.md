@@ -29,11 +29,13 @@ which it names for you to change in a commit.
 
 With the project under `~/Documents`, the first session the desktop app starts there may make
 macOS ask whether upool may access your Documents folder, since the app's helper runs upool's hook
-in its own name; a new upool binary, as after an upgrade, may be asked about again. So `upool init`
-raises that prompt itself, as its last step, for you to answer while you are at the keyboard, and
-`upool doctor` raises it again in its `documents-access` check, saying while it is open and passing
-once you allow it. A session that starts while the prompt is open waits on it, with nothing on the
-screen but the prompt, until the app gives up after five minutes, so answer it when `init` asks.
+in its own name. macOS records your answer for upool's binary by its path, and each Homebrew
+upgrade puts upool at a new path (`…/Cellar/upool/<version>/bin/upool`), so it asks again after
+every upgrade. So `upool init` raises that prompt itself, as its last step, for you to answer while
+you are at the keyboard, and `upool doctor` raises it in its `documents-access` check, saying while
+it is open and passing once you allow it: run `upool doctor` in a project after every upgrade. A
+session that starts while the prompt is open waits on it, with nothing on the screen but the
+prompt, until the app gives up after five minutes.
 
 ## 🏊 How a session gets a slot
 

@@ -230,7 +230,9 @@ type leaser struct {
 	confirmTimeout time.Duration
 	now            func() time.Time
 	// reclaimer reclaims the leases whose holder died before each try at choosing a slot (#61),
-	// and recoverer checks again the warming slots whose owner died ((f) transition 22; #97).
+	// dropping those whose slot's directory is gone, so that a clone can replace them ((f)
+	// transition 24; #277), and recoverer checks again the warming slots whose owner died ((f)
+	// transition 22; #97).
 	reclaimer pool.Reclaimer
 	recoverer pool.Recoverer
 	// cloner clones a slot when none can be handed out; nil with --no-create.
@@ -257,7 +259,7 @@ func seedRefresher(inv *invocation, cfg config.Config) *clone.SeedRefresher {
 }
 
 // waitForSlot leases a ready slot, trying once and then once a second until timeout has passed.
-// Each try first reclaims the leases whose holder died ((f) transitions 13 and 14) and checks
+// Each try first reclaims the leases whose holder died ((f) transitions 13, 14 and 24) and checks
 // again the warming slots whose owner died ((f) transition 22), saying so on stderr. While no
 // slot is ready it prints each slot's skip reason to stderr, again whenever they change. A scene
 // take while another lease holds the scene lane waits the same way, cloning nothing, since a new
@@ -445,10 +447,19 @@ func sayReclaimed(inv *invocation, rc pool.Reclaimed, failed map[string]bool) {
 	case rc.State == pool.StateParked:
 		line = fmt.Sprintf("parked %s, since %s and it is dirty: %s", rc.Slot, gone,
 			strings.Join(rc.Dirty, "; "))
+	case rc.State == pool.StateRemoved:
+		line = droppedLine(rc.Slot, rc.HolderPID)
 	default:
 		line = fmt.Sprintf("reclaimed %s, since %s", rc.Slot, gone)
 	}
 	_, _ = fmt.Fprintln(inv.stderr, "upool: "+line) // progress only
+}
+
+// droppedLine says that the reclaim dropped slot from the pool, its holder, process pid, being dead
+// and its directory gone ((f) transition 24; #277).
+func droppedLine(slot string, pid int) string {
+	return fmt.Sprintf("dropped %s from the pool, since its holder, process %d, is gone and its "+
+		"directory is not on disk", slot, pid)
 }
 
 // lease leases the first ready slot of the pool under the lock, and returns it with the new

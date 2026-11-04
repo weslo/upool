@@ -224,7 +224,7 @@ func releaseEditor(ctx context.Context, inv *invocation, rp registeredPool,
 	if !ours {
 		return nil, nil, nil
 	}
-	r, warnings, err := closeSlotEditor(ctx, inv, rp, s, false)
+	r, warnings, err := closeSlotEditor(ctx, inv, rp, s, false, "release")
 	if err != nil {
 		return nil, warnings, fmt.Errorf("releasing %s: %w", s.Name, err)
 	}

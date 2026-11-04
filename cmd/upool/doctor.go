@@ -33,19 +33,21 @@ const doctorUsage = "doctor [--fix] [--json]"
 // the scratch files the clone-sharing check writes and removes and, as take and status do, the
 // end of unconfirmed leases that outlived confirm_timeout (#75) and the return of warming slots
 // whose owner died, to ready or parked ((f) transition 22; #97); with --fix it also repairs what
-// is safe to repair, interrupted clones and slots whose directory is gone (#56). It also checks
+// is safe to repair, interrupted clones and slots whose directory is gone, a ready one's or a dead
+// holder's lease's (#56; (f) transition 24; #277). It also checks
 // the hook registration `upool init` makes in the project (#69; A26), checks the ledger's Editors
 // against the process table, reports the Unity licence, and reports the repository's VCS set-up
 // as `unity vcs doctor` sees it, which init leaves to the repository's owner (A35). With --fix it
 // also takes a dead Editor out of the ledger and, when no Editor has its slot open, deletes the
-// slot's Temp/ (#93). Last, on macOS, it has the desktop app's helper run the create hook's dry
-// run, so that macOS asks whether upool may access Documents while someone is there to answer
-// (#286). It exits 1 if any check fails.
+// slot's Temp/ (#93). From the pool's hook log, it reports the last WorktreeRemove of each slot
+// the desktop app's record no longer names (#278). Last, on macOS, it has the desktop app's helper
+// run the create hook's dry run, so that macOS asks whether upool may access Documents while
+// someone is there to answer (#286). It exits 1 if any check fails.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
-		fix := fs.Bool("fix", false, "remove interrupted clones, drop missing ready slots, and "+
-			"clear dead Editors and their Temp/")
+		fix := fs.Bool("fix", false, "remove interrupted clones, drop missing ready slots and "+
+			"dead holders' missing slots, and clear dead Editors and their Temp/")
 		return func(inv *invocation) (any, []string, error) { return doctor(inv, *fix) }
 	},
 }
@@ -167,6 +169,8 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 		r.Checks = append(r.Checks, c)
 	}
 	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
+	r.Checks = append(r.Checks, hookLogChecks(inv.home, rp.repo.Key, rp.pool.Slots, rec,
+		sd.reclaimed)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
 	}
@@ -270,8 +274,9 @@ func (d *slotDoctor) checks(ctx context.Context, slots []pool.Slot) []doctorChec
 }
 
 // findDeadHolders finds the leases whose holder died, and with fix reclaims them before any slot
-// is checked: the release reset for a clean slot, parked for a dirty one ((f) transitions 13 and
-// 14). Without fix it only finds them.
+// is checked: the release reset for a clean slot, parked for a dirty one, and dropped from the
+// pool for one whose directory is gone ((f) transitions 13, 14 and 24). Without fix it only finds
+// them.
 func (d *slotDoctor) findDeadHolders(ctx context.Context, slots []pool.Slot) error {
 	kept, err := d.reclaimer.Kept(pool.Pool{Slots: slots})
 	if err != nil {
@@ -300,7 +305,8 @@ func (d *slotDoctor) findDeadHolders(ctx context.Context, slots []pool.Slot) err
 // holder turns the passing presence check c of the leased slot s into what became of a lease
 // whose holder died: a warning without fix, since the next take reclaims it anyway, and with fix
 // what the reclaim did. A lease the reclaim keeps, since the desktop app still records the slot,
-// is a warning either way, saying how to free the slot (A50).
+// is a warning either way, saying how to free the slot (A50). A slot the reclaim dropped, its
+// directory gone, reaches it only with goneHolder's fixed check as c, which it keeps.
 func (d *slotDoctor) holder(s pool.Slot, c doctorCheck) doctorCheck {
 	if k, ok := d.kept[s.Name]; ok {
 		return doctorCheck{s.Name, checkWarn, keptLine(k)}
@@ -308,6 +314,8 @@ func (d *slotDoctor) holder(s pool.Slot, c doctorCheck) doctorCheck {
 	if rc, ok := d.reclaimed[s.Name]; ok {
 		gone := fmt.Sprintf("its holder, process %d, was gone", rc.HolderPID)
 		switch {
+		case rc.State == pool.StateRemoved:
+			return c
 		case rc.Err != nil:
 			return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; reclaiming it: %v", gone,
 				rc.Err)}
@@ -445,8 +453,10 @@ func (d *slotDoctor) removeClone(ctx context.Context, s pool.Slot) error {
 // worktrees through the pool: three branches in one hook": doctor checks that each slot is still
 // on disk and in the list). A slot that has left the disk is missing ((f) transition 17); with fix,
 // a ready one with no lease is dropped from the pool, after `git worktree prune` drops its
-// registration, so that a later clone replaces it. A leased, parked or needs-reset slot is never
-// dropped, and nor is one whose directory is still on disk, which may hold work.
+// registration, so that a later clone replaces it. A leased slot whose holder is dead is the
+// reclaim's, which with fix dropped it before any slot was checked (goneHolder; (f) transition
+// 24). Any other leased, parked or needs-reset slot is never dropped, and nor is one whose
+// directory is still on disk, which may hold work.
 func (d *slotDoctor) present(ctx context.Context, s pool.Slot) doctorCheck {
 	var problems []string
 	info, err := os.Stat(s.Path)
@@ -479,6 +489,11 @@ func (d *slotDoctor) present(ctx context.Context, s pool.Slot) doctorCheck {
 			"on disk, in git worktree list, and its .git points back into the main checkout"}
 	}
 	reason := strings.Join(problems, "; ")
+	if gone {
+		if c, ok := d.goneHolder(s, reason); ok {
+			return c
+		}
+	}
 	if !gone || s.State != pool.StateReady || s.Lease != nil || d.listErr != nil ||
 		keyErr != nil {
 		return doctorCheck{s.Name, checkFail, reason}
@@ -490,6 +505,30 @@ func (d *slotDoctor) present(ctx context.Context, s pool.Slot) doctorCheck {
 		return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; dropping it: %v", reason, err)}
 	}
 	return doctorCheck{s.Name, checkPass, "fixed: dropped it from the pool, since " + reason}
+}
+
+// goneHolder is the check of the leased slot s, whose directory is gone and whose presence check
+// found reason, when its holder is dead: without fix a failure that names what drops it, and with
+// fix what the reclaim did, which dropped it before any slot was checked ((f) transition 24;
+// #277). It is false for any other slot, such as one the desktop app still records (A50).
+func (d *slotDoctor) goneHolder(s pool.Slot, reason string) (doctorCheck, bool) {
+	if rc, ok := d.reclaimed[s.Name]; ok {
+		gone := fmt.Sprintf("its holder, process %d, was gone", rc.HolderPID)
+		switch {
+		case rc.Err != nil:
+			return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; %s; dropping it: %v", reason,
+				gone, rc.Err)}, true
+		case rc.State == pool.StateRemoved:
+			return doctorCheck{s.Name, checkPass, fmt.Sprintf("fixed: dropped it from the pool, "+
+				"since %s and %s", gone, reason)}, true
+		}
+	}
+	if d.dead[s.Name] {
+		return doctorCheck{s.Name, checkFail, fmt.Sprintf("%s; its holder, process %d, is gone, "+
+			"so upool doctor --fix, or the next upool take or upool refresh, drops it",
+			reason, *s.Lease.HolderPID)}, true
+	}
+	return doctorCheck{}, false
 }
 
 // dropMissing drops the missing ready slot s from the pool, after `git worktree prune` if git still

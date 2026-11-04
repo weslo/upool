@@ -178,6 +178,10 @@ func TestDoctorDocumentsAccessPassesWhenTheHookAnswers(t *testing.T) {
 				s.Lease)
 		}
 	}
+	// The dry run is no session's create, so the hook log has no line for it (#278).
+	if lines, err := hooks.ReadLog(p.Home, p.key); err != nil || len(lines) != 0 {
+		t.Errorf("hook log = %+v, %v; want no line for the dry run", lines, err)
+	}
 }
 
 // The acceptance test of #286, a prompt pending: the hook's waiting line on stderr, or no answer

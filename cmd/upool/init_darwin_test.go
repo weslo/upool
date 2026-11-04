@@ -132,7 +132,7 @@ func TestInitRefreshesAStaleLibrary(t *testing.T) {
 	if !strings.Contains(r.stderr, want) {
 		t.Errorf("stderr = %q, want it to contain %q", r.stderr, want)
 	}
-	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode", "--format", "json"},
+	wantCalls := [][]string{{"open", e.Repo, "--args", "-batchmode -automated", "--format", "json"},
 		{"status", "--until-ready", "--timeout", "120", "--format", "json"},
 		{"close", e.Repo, "--format", "json"}}
 	if got := unityArgs(u); len(got) < 3 || !slices.EqualFunc(got[:3], wantCalls, slices.Equal) {

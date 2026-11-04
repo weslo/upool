@@ -556,7 +556,8 @@ func (c Client) WorktreeRemove(ctx context.Context, repo, path string) error {
 
 // WorktreePrune drops the registration of every worktree of the repository at repo whose directory
 // is gone: `git worktree prune`. `doctor --fix` runs it before dropping a missing slot's entry
-// (docs/contracts.md (f) transition 17).
+// (docs/contracts.md (f) transition 17), and the dead-holder reclaim before dropping a slot whose
+// directory is gone (transition 24).
 func (c Client) WorktreePrune(ctx context.Context, repo string) error {
 	_, err := c.run(ctx, repo, "worktree", "prune")
 	return err

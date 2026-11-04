@@ -3,7 +3,9 @@
 // worktree path for WorktreeCreate and the context document for SessionStart and SubagentStart, and
 // an error, and only the dispatcher writes stdout, where Claude Code reads them, so that nothing
 // else can reach it (docs/design.md, "Repository, CI and Homebrew distribution": the layout and the
-// rules after it; docs/contracts.md (a), "WorktreeCreate output and app behaviour"; (b); A43).
+// rules after it; docs/contracts.md (a), "WorktreeCreate output and app behaviour"; (b); A43). A
+// handler also records what it did in Env.Log, for the end line of its run in its pool's hook log
+// (log.go; (e), "The hook log").
 package hooks
 
 import (
@@ -135,6 +137,9 @@ type Env struct {
 	// Timer times Confirm's steps for `upool take --confirm`, which reports them (#266); nil, as
 	// for the hooks, times nothing.
 	Timer *timing.Timer
+	// Log is the hook's run in its pool's hook log, in which a handler records what it did for the
+	// run's end line (StartLog; #278); nil, as for `upool take --confirm`, logs nothing.
+	Log *Log
 	// Consent is the unified log the create hook reads when its git call in the main checkout
 	// stalls, for macOS's prompt asking whether upool may access the Documents folder (#286); nil
 	// reads none, so that every stall fails.
@@ -230,6 +235,7 @@ func passThroughWorktree(ctx context.Context, env Env, req Request) (string, err
 	if err := env.Git.WorktreeAddBranch(ctx, req.Cwd, path); err != nil {
 		return "", fmt.Errorf("making the worktree %s: %w", path, err)
 	}
+	env.Log.did(OutcomePassThrough, "", path)
 	return path, nil
 }
 
@@ -258,6 +264,7 @@ func subagentWorktree(ctx context.Context, env Env, req Request) (string, error)
 		return "", err
 	}
 	copyIncluded(ctx, env, req, path)
+	env.Log.did(OutcomeAgentWorktree, "", path)
 	return path, nil
 }
 
@@ -332,6 +339,7 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("checking whether %s is clean: %w", s.Name, err)
 	}
+	var next pool.State
 	err = pool.Update(ctx, env.Home, ref.repo.Key, func(p *pool.Pool) error {
 		i := slices.IndexFunc(p.Slots, func(cur pool.Slot) bool { return cur.Name == s.Name })
 		if i < 0 {
@@ -341,11 +349,12 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 		if cur.Lease == nil || cur.Lease.LeaseID != s.Lease.LeaseID {
 			return fmt.Errorf("%s's lease changed in state.json meanwhile", s.Name)
 		}
-		next, err := pool.Next(*cur, pool.Remove{Clean: len(dirty) == 0})
+		state, err := pool.Next(*cur, pool.Remove{Clean: len(dirty) == 0})
 		if err != nil {
 			return err
 		}
-		cur.State, cur.Lease, cur.LastUsed = next, nil, env.Now().UTC()
+		cur.State, cur.Lease, cur.LastUsed = state, nil, env.Now().UTC()
+		next = state
 		return nil
 	})
 	if err != nil {
@@ -355,6 +364,11 @@ func WorktreeRemove(ctx context.Context, env Env, req Request) (string, error) {
 		// stderr is for warnings only; the app reads nothing from a remove hook's stdout.
 		_, _ = fmt.Fprintf(env.Stderr, "upool: parked %s, which is dirty: %s\n", s.Name, d)
 	}
+	outcome := OutcomeNeedsReset
+	if next == pool.StateParked {
+		outcome = OutcomeParked
+	}
+	env.Log.did(outcome, s.Name, "")
 	return s.Path, nil
 }
 
@@ -373,6 +387,7 @@ func removePassThrough(ctx context.Context, env Env, req Request) (string, error
 	path := req.WorktreePath
 	// A stat, which worked from the helper under ~/Documents (docs/contracts.md (a)).
 	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		env.Log.did(OutcomeGone, "", "")
 		return path, nil // already gone: nothing is left to remove
 	}
 	dirty, err := pool.DirtyBesideNoise(ctx, env.Git, path)
@@ -384,6 +399,7 @@ func removePassThrough(ctx context.Context, env Env, req Request) (string, error
 			// stderr is for warnings only; the app reads nothing from a remove hook's stdout.
 			_, _ = fmt.Fprintf(env.Stderr, "upool: kept %s, which is dirty: %s\n", path, d)
 		}
+		env.Log.did(OutcomeKept, "", "")
 		return path, nil
 	}
 	if _, err := pool.RevertNoise(ctx, env.Git, path); err != nil {
@@ -392,6 +408,7 @@ func removePassThrough(ctx context.Context, env Env, req Request) (string, error
 	if err := env.Git.WorktreeRemoveClean(ctx, req.Cwd, path); err != nil {
 		return "", fmt.Errorf("removing %s: %w", path, err)
 	}
+	env.Log.did(OutcomeRemoved, "", "")
 	return path, nil
 }
 

@@ -117,6 +117,44 @@ func TestCreateWaitsThroughAPendingDocumentsPrompt(t *testing.T) {
 	h.checkHandedOut(t, "slot-1", req, false)
 }
 
+// A hook that reaches main logs its start line before its git call (#278), so the hook log shows
+// a run the prompt holds there as started and not ended, and its end line, once git goes on, the
+// slot it handed out.
+func TestCreateWaitsWithItsStartLineLogged(t *testing.T) {
+	h := newHarness(t, true)
+	h.readySlot(t, "slot-1", h.slotPath("slot-1"))
+	req := h.capture(t, "desktop-session-create.json")
+	var waiting []LogLine
+	synctest.Test(t, func(t *testing.T) {
+		env, g := h.stalling(newCapturedLog("documents-prompting.ndjson",
+			"documents-result-pending.ndjson"))
+		env.Log = StartLog(env, EventWorktreeCreate, parentPID, req)
+		go func() {
+			time.Sleep(7 * time.Second)
+			lines, err := ReadLog(h.e.Home, h.key)
+			if err != nil {
+				t.Error(err)
+			}
+			waiting = lines
+			close(g.release)
+		}()
+		_, err := WorktreeCreate(context.Background(), env, req)
+		env.Log.End(err)
+		if err != nil {
+			t.Errorf("WorktreeCreate = %v, want no error", err)
+		}
+	})
+	if len(waiting) != 1 || waiting[0].Phase != PhaseStart ||
+		waiting[0].Event != EventWorktreeCreate {
+		t.Errorf("log while waiting = %+v, want the start line alone", waiting)
+	}
+	lines := h.logOf(t)
+	if len(lines) != 2 || lines[1].Phase != PhaseEnd || lines[1].Outcome != OutcomeSlot ||
+		lines[1].Slot != "slot-1" {
+		t.Errorf("log = %+v, want the start line, then the end line with slot-1", lines)
+	}
+}
+
 // The acceptance test of #286, a stall with no prompt: with none logged, or with the only one
 // answered, the hook ends git and fails at the patience's end, naming the folder and the likely
 // causes, and hands out nothing.

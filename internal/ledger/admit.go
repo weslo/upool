@@ -11,17 +11,27 @@ import (
 	"github.com/weslo/upool/internal/proc"
 )
 
-// ColdImportGB is an Editor's charge while its cold import runs, instead of the long-lived charge:
-// the spike measured a cold-importing Editor's whole process at 4.2 to 4.5 GB, so it is not
-// charged on top of it. It is a constant, not a setting (docs/contracts.md (h); A9).
+// ColdImportGB is an Editor's charge while its cold import runs, instead of its long-lived charge
+// unless that is larger: the spike measured a cold-importing Editor's whole process at 4.2 to 4.5
+// GB, so it is not charged on top of it, and a GUI Editor, charged more than that at work, is not
+// charged less while it imports than after. It is a constant, not a setting (docs/contracts.md
+// (h); A9, as #287 amended it).
 const ColdImportGB = 4.5
+
+// The modes an Editor is opened in, as editors.json records them (docs/contracts.md (e),
+// editors[].mode).
+const (
+	modeHeadless = "headless"
+	modeGUI      = "gui"
+)
 
 // Budget is what an admission is checked against: the settings of docs/contracts.md (h).
 type Budget struct {
 	// RAMGB is editor_ram_budget_gb, the RAM Editors may be charged in all.
 	RAMGB float64
-	// EditorGB is editor_ram_gb, a long-lived Editor's charge.
-	EditorGB float64
+	// GUIGB is editor_ram_gb_gui, a long-lived GUI Editor's charge, and HeadlessGB is
+	// editor_ram_gb_headless, a long-lived headless Editor's (#287).
+	GUIGB, HeadlessGB float64
 	// HelperGB is helper_ram_gb, charged once while any Editor is up.
 	HelperGB float64
 	// MaxEditors is max_editors, when MaxEditorsSet says a layer set it; otherwise the cap is
@@ -34,35 +44,59 @@ type Budget struct {
 
 // NewBudget is the budget c's settings give.
 func NewBudget(c config.Config) Budget {
-	b := Budget{RAMGB: c.EditorRAMBudgetGB.Value, EditorGB: c.EditorRAMGB.Value,
-		HelperGB: c.HelperRAMGB.Value, MaxColdImports: c.MaxColdImports.Value}
+	b := Budget{RAMGB: c.EditorRAMBudgetGB.Value, GUIGB: c.EditorRAMGBGUI.Value,
+		HeadlessGB: c.EditorRAMGBHeadless.Value, HelperGB: c.HelperRAMGB.Value,
+		MaxColdImports: c.MaxColdImports.Value}
 	if c.MaxEditors.Set() {
 		b.MaxEditors, b.MaxEditorsSet = c.MaxEditors.Value, true
 	}
 	return b
 }
 
-// MaxEditorsAllowed is max_editors, or when it is unset the Editors that fit beside the helper
-// charge and room for every cold import max_cold_imports allows:
-// floor((editor_ram_budget_gb − helper_ram_gb − 4.5 × max_cold_imports) / editor_ram_gb), 3 at
-// 64 GB of RAM (docs/contracts.md (h); A9).
+// EditorCharge is what b charges an Editor opened in mode: editor_ram_gb_gui for "gui" and
+// editor_ram_gb_headless for "headless", or for any other mode the larger of the two, the safe
+// mistake; and while cold, the larger of that and ColdImportGB (docs/contracts.md (h); A9; #287).
+func (b Budget) EditorCharge(mode string, cold bool) float64 {
+	var charge float64
+	switch mode {
+	case modeGUI:
+		charge = b.GUIGB
+	case modeHeadless:
+		charge = b.HeadlessGB
+	default:
+		charge = max(b.GUIGB, b.HeadlessGB)
+	}
+	if cold {
+		charge = max(charge, ColdImportGB)
+	}
+	return charge
+}
+
+// MaxEditorsAllowed is max_editors, or when it is unset the most Editors the budget can hold: as
+// many as fit at the smaller of the two charges beside the helper charge, with room for each cold
+// import max_cold_imports allows to cost what it does over that charge,
+// floor((editor_ram_budget_gb − helper_ram_gb − max_cold_imports × max(0, 4.5 − smaller)) /
+// smaller), 6 at 64 GB of RAM. So, unset, it refuses no Editor that the budget, which charges
+// each Editor by its mode, has room for beside the cold imports (docs/contracts.md (h); A9; #287).
 func (b Budget) MaxEditorsAllowed() int {
 	if b.MaxEditorsSet {
 		return b.MaxEditors
 	}
-	if b.EditorGB <= 0 {
+	smaller := min(b.GUIGB, b.HeadlessGB)
+	if smaller <= 0 {
 		return 0
 	}
-	n := (b.RAMGB - b.HelperGB - ColdImportGB*float64(b.MaxColdImports)) / b.EditorGB
+	cold := float64(b.MaxColdImports) * max(0, ColdImportGB-smaller)
+	n := (b.RAMGB - b.HelperGB - cold) / smaller
 	return max(0, int(math.Floor(n+epsilon)))
 }
 
 // epsilon absorbs the float error of sums like 2 + 2.5 + 2.5 + 2.5 against a budget of 9.5.
 const epsilon = 1e-9
 
-// Charge is what l's Editors charge against the budget: each one's charge_gb, 4.5 while it cold
-// imports and editor_ram_gb otherwise (A9), and the helper charge once if any Editor is up. The
-// helper charge is computed here, never stored (D-editors).
+// Charge is what l's Editors charge against the budget: each one's charge_gb, which Admit set from
+// its mode and EndColdImport after its cold import (Budget.EditorCharge), and the helper charge
+// once if any Editor is up. The helper charge is computed here, never stored (D-editors).
 func (l Ledger) Charge(b Budget) float64 {
 	if len(l.Editors) == 0 {
 		return 0
@@ -91,24 +125,35 @@ type Refusal struct {
 	Limit string
 	// Why says what the Editor would have taken past it.
 	Why string
+	// Editor is the Editor refused, with the charge it would have had, which the error names so
+	// that a refusal, or the wait behind a cold import, says what the open would cost (#287).
+	Editor Editor
 }
 
+// Error names the limit, the refused Editor's mode and charge, and why, such as
+// "editor_ram_budget_gb refuses another Editor, a gui one charged 6.0 GB: the Editors would be
+// charged 14.0 GB, over its 10.0 GB".
 func (r *Refusal) Error() string {
-	return fmt.Sprintf("%s refuses another Editor: %s", r.Limit, r.Why)
+	e := r.Editor
+	charged := fmt.Sprintf("charged %.1f GB", e.ChargeGB)
+	if e.ColdImport {
+		charged += " as a cold import"
+	}
+	if e.Mode != "" {
+		charged = "a " + e.Mode + " one " + charged
+	}
+	return fmt.Sprintf("%s refuses another Editor, %s: %s", r.Limit, charged, r.Why)
 }
 
 // Admit adds e to the ledger under home if b admits it, and returns the Editor as recorded, its
-// charge_gb set: ColdImportGB while e.ColdImport, else b.EditorGB. Under ~/.upool/lock it first
-// drops every Editor whose PID c finds no process for, then refuses, with a *Refusal naming the
-// limit, an Editor that would take the cold imports past max_cold_imports, the Editors past
-// MaxEditorsAllowed, or the charge, the helper's included, past editor_ram_budget_gb
+// charge_gb set by its mode and whether it cold imports (Budget.EditorCharge). Under ~/.upool/lock
+// it first drops every Editor whose PID c finds no process for, then refuses, with a *Refusal
+// naming the limit, an Editor that would take the cold imports past max_cold_imports, the Editors
+// past MaxEditorsAllowed, or the charge, the helper's included, past editor_ram_budget_gb
 // (docs/contracts.md (h); docs/design.md, "Editors: budget by RAM, serialize cold imports as a
 // courtesy, target by variable and by path"). A refusal writes only the dropped Editors.
 func Admit(ctx context.Context, home string, c proc.Checker, b Budget, e Editor) (Editor, error) {
-	e.ChargeGB = b.EditorGB
-	if e.ColdImport {
-		e.ChargeGB = ColdImportGB
-	}
+	e.ChargeGB = b.EditorCharge(e.Mode, e.ColdImport)
 	var refused error
 	err := Update(ctx, home, func(l *Ledger) error {
 		if err := l.dropDead(c); err != nil {
@@ -132,16 +177,16 @@ func Admit(ctx context.Context, home string, c proc.Checker, b Budget, e Editor)
 // refuse returns the Refusal for adding e to l, or nil if b admits it.
 func (b Budget) refuse(l Ledger, e Editor) error {
 	if cold := l.coldImports(); e.ColdImport && cold+1 > b.MaxColdImports {
-		return &Refusal{Limit: "max_cold_imports", Why: fmt.Sprintf(
+		return &Refusal{Limit: "max_cold_imports", Editor: e, Why: fmt.Sprintf(
 			"%d cold imports are running, and it allows %d at once", cold, b.MaxColdImports)}
 	}
 	if n, most := len(l.Editors), b.MaxEditorsAllowed(); n+1 > most {
-		return &Refusal{Limit: "max_editors", Why: fmt.Sprintf(
+		return &Refusal{Limit: "max_editors", Editor: e, Why: fmt.Sprintf(
 			"%d Editors are open, and it allows %d", n, most)}
 	}
 	with := Ledger{Editors: append(l.Editors[:len(l.Editors):len(l.Editors)], e)}
 	if charge := with.Charge(b); charge > b.RAMGB+epsilon {
-		return &Refusal{Limit: "editor_ram_budget_gb", Why: fmt.Sprintf(
+		return &Refusal{Limit: "editor_ram_budget_gb", Editor: e, Why: fmt.Sprintf(
 			"the Editors would be charged %.1f GB, over its %.1f GB", charge, b.RAMGB)}
 	}
 	return nil
@@ -183,7 +228,8 @@ var ErrNotInLedger = errors.New("no Editor in " + shown + " has it open")
 
 // EndColdImport marks the cold import of the Editor that has project open as done, under
 // ~/.upool/lock, after dropping every Editor whose PID c finds no process for: it gives back its
-// cold-import place and is charged b.EditorGB from then on (A9).
+// cold-import place and is charged its mode's long-lived charge from then on, which under the
+// same settings is never more than its charge while it imported (Budget.EditorCharge; A9; #287).
 func EndColdImport(ctx context.Context, home string, c proc.Checker, b Budget,
 	project string) error {
 	key, err := paths.Key(project)
@@ -200,7 +246,8 @@ func EndColdImport(ctx context.Context, home string, c proc.Checker, b Budget,
 				return err
 			}
 			if ek == key {
-				l.Editors[i].ColdImport, l.Editors[i].ChargeGB = false, b.EditorGB
+				l.Editors[i].ColdImport = false
+				l.Editors[i].ChargeGB = b.EditorCharge(l.Editors[i].Mode, false)
 				return nil
 			}
 		}

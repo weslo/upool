@@ -132,8 +132,8 @@ func TestClassifyEveryCapture(t *testing.T) {
 // session's CLI process, so its name says no kind of request.
 func checkPreToolUse(t *testing.T, file string, req Request, tool string) {
 	t.Helper()
-	if req.HookEventName != eventPreToolUse {
-		t.Errorf("%s: hook_event_name = %q, want %q", file, req.HookEventName, eventPreToolUse)
+	if req.HookEventName != EventPreToolUse {
+		t.Errorf("%s: hook_event_name = %q, want %q", file, req.HookEventName, EventPreToolUse)
 	}
 	raw, err := os.ReadFile(filepath.Join(capturesDir, file))
 	if err != nil {
