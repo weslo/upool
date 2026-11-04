@@ -39,7 +39,8 @@ const doctorUsage = "doctor [--fix] [--json]"
 // against the process table, reports the Unity licence, and reports the repository's VCS set-up
 // as `unity vcs doctor` sees it, which init leaves to the repository's owner (A35). With --fix it
 // also takes a dead Editor out of the ledger and, when no Editor has its slot open, deletes the
-// slot's Temp/ (#93). It exits 1 if any check fails.
+// slot's Temp/ (#93). From the pool's hook log, it reports the last WorktreeRemove of each slot
+// the desktop app's record no longer names (#278). It exits 1 if any check fails.
 var doctorCommand = command{
 	usage: doctorUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -166,6 +167,8 @@ func doctor(inv *invocation, fix bool) (any, []string, error) {
 		r.Checks = append(r.Checks, c)
 	}
 	r.Checks = append(r.Checks, sd.checks(ctx, rp.pool.Slots)...)
+	r.Checks = append(r.Checks, hookLogChecks(inv.home, rp.repo.Key, rp.pool.Slots, rec,
+		sd.reclaimed)...)
 	if c, ok := cloneSharingCheck(ctx, repo); ok {
 		r.Checks = append(r.Checks, c)
 	}
