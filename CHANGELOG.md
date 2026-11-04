@@ -9,6 +9,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- The first benchmark record, `docs/benchmarks/2026-11-03-three-sessions-shared-prefab.md`:
+  three sessions on a 9 GB Library, two of them editing the same two prefabs, with the
+  measurements, what the sessions reported, and what the run changes for upool.
 - `upool status` marks the slot the working directory is in, as `upool which` finds it, with
   `(here)` after its name, and with `"here": true` on that slot under `--json`, with `--all` or
   without (#283). A session runs status from its slot, so it can now tell which lease is its own:
