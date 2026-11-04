@@ -34,7 +34,8 @@ const statusUsage = "status [--all] [--du] [--json]"
 // and warming ones included, and the refresh job, and it marks the slot the working directory is
 // in, since a lease's holder, for a desktop session the app's ID, is not the session's own
 // (docs/contracts.md (a); (e), the lease's `holder` and `session_id`; #283). Each pool lists the
-// Editors the ledger charges in it, each with its charge (#287).
+// Editors the ledger charges in it, each with its charge (#287) and how long it has been open,
+// flagging one open longer than openLongAfter (#281).
 var statusCommand = command{
 	usage: statusUsage,
 	setup: func(fs *flag.FlagSet) handler {
@@ -65,8 +66,8 @@ type poolStatus struct {
 	RefreshJob *pool.RefreshJob `json:"refresh_job"`
 	// Disk is the sum of its slots' disk use, with --du.
 	Disk *diskReport `json:"disk,omitempty"`
-	// Editors are the Editors the ledger charges in the pool, each with its charge, and absent
-	// when it charges none (#287).
+	// Editors are the Editors the ledger charges in the pool, each with its charge and how long it
+	// has been open, and absent when it charges none (#287; #281).
 	Editors []editorStatus `json:"editors,omitempty"`
 }
 
@@ -105,7 +106,8 @@ type slotStatus struct {
 // the table adds each slot's private and apparent size, "-" for a slot whose directory is gone,
 // and a line after it gives the pool's sums. A line after the table says why each quarantined slot
 // is quarantined and how to clear it (A50), and one names each Editor the ledger charges in the
-// pool, with its mode, process and charge (#287). The slot the working directory is in has
+// pool, with its mode, process and charge (#287), and how long it has been open, with a flag on
+// one open longer than openLongAfter (#281). The slot the working directory is in has
 // "(here)" after its name (#283). Pools are separated by a blank line.
 func (r statusReport) Human() string {
 	if len(r.Pools) == 0 {
@@ -268,7 +270,7 @@ func status(inv *invocation, all, du bool) (any, []string, error) {
 		if ps.RefreshJob, err = refreshJobLive(rp.pool); err != nil {
 			return nil, nil, err
 		}
-		if ps.Editors, err = editorsIn(ps, editors); err != nil {
+		if ps.Editors, err = editorsIn(ps, editors, r.now); err != nil {
 			return nil, notes, err
 		}
 		if err := ps.markHere(rp.repo, cwd); err != nil {

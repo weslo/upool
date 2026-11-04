@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "editors": [
     {
       "project": "${repo}/.claude/worktrees/slot-1",
@@ -7,7 +7,8 @@
       "mode": "gui",
       "opened_by_upool": true,
       "cold_import": false,
-      "charge_gb": 2.5
+      "charge_gb": 2.5,
+      "ready_at": "2026-11-03T19:42:30Z"
     },
     {
       "project": "${repo}/.claude/worktrees/slot-2",
@@ -15,7 +16,8 @@
       "mode": "headless",
       "opened_by_upool": false,
       "cold_import": true,
-      "charge_gb": 4.5
+      "charge_gb": 4.5,
+      "ready_at": null
     }
   ]
 }

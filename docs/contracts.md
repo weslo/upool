@@ -101,7 +101,7 @@ by `session_id` (S§7 item 3; D-route).
 | Exit 0 with the directory still present is accepted: the app logs "Removed hook-based worktree", deletes its registry entry and can hand the same path out again | S§8 A.6–A.7; S§9 E.6 |
 | Archive gives no warning about uncommitted work; the remove hook saw `?? spike-reuse.txt` | S§8 A.8; `git/remove-status-untracked.txt` |
 | The app's Archive button runs the remove hook for a dirty slot too. Archiving through the app's session tool does not: for a dirty worktree it logs `Archived session` and nothing more, runs no `WorktreeRemove` and keeps its record of the worktree, which refuses the path to later sessions ("already in use"), even after the session is deleted, until the session is resumed and archived clean (A28) | A28; `evidence/logs/desktop-dirty-archive-main.log` |
-| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. On Claude Code 2.1.305 in the desktop app of late October 2026, archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
+| The app may delete the directory itself. The rows above were captured on an earlier app build, which kept it. In the desktop app of late October 2026, running Claude Code 2.1.317 (its log's `[CCD] Initialized with version 2.1.317`, at 11:26 on 2026-11-03, before the archives; 2.1.305 was the machine's `claude` CLI, the version `doctor` checks), archiving each of three sessions through the app's session tool logged `Cleaning up worktree`, `Removing worktree … (leased by …): <slot path>` and `Removed hook-based worktree`, deleted the slot's directory and dropped the app's record of it, and no `WorktreeRemove` reached upool: `state.json` did not change, and the app's log has no hook line. Each slot was left `leased` to a dead holder with its path gone, which (f) transition 24 drops. Whether the Archive button does the same, and whether the hook ran at all, is not captured (#278) | #277; the benchmark record of 2026-11-03 (#276) |
 | `git -C <slot> status --porcelain` works from the disclaimed helper; git writes (`checkout`, `clean`) and `unity` calls from it are untested | S§8 A, `~/Documents` row; D-unverified |
 | A pass-through worktree, in a repository upool does not manage, is removed with `git -C <cwd> worktree remove <worktree_path>` when clean as (f) defines it, and kept, with a line on stderr, when dirty; the hook exits 0 either way | A22 |
 
@@ -172,9 +172,10 @@ context (A43; #229).
 
 | Rule | Source |
 |---|---|
-| For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block, the skill's body and the pool's base (`assets.Instructions`, about 3.5 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt`; #284 |
+| For a session in a slot, `upool hook session-start` prints one line on every `source`: `{"hookSpecificOutput":{"additionalContext":<instructions>,"hookEventName":"SessionStart"}}`, the instructions being the block, the skill's body and the pool's base (`assets.Instructions`, about 4 KB). It prints it even when the startup confirm fails, with that error on stderr, and exits 0 | question 43; `evidence/session-context-probe/probe.txt`; #284 |
 | The model sees it, and the transcript records it as a `hook_additional_context` attachment. Plain stdout reached the model too, in the CLI; upool prints JSON | question 43 |
 | The instructions say in one line how to open the slot's Editor and close it: `upool open`, headless by default for imports, builds and tests, or `upool open --gui` for play mode and captures, then `upool close`. `upool open --help` says the same of its two flags. The first benchmark's sessions found the default by trial: one closed a headless Editor and reopened it `--gui`, two read `--help` | `assets/claude-md-block.md`; A33 as amended; A36; #279; [the first benchmark record](https://github.com/weslo/upool/pull/276) |
+| They say when: open the Editor when the work needs it, close it with `upool close` once the work is done, a pull request open and nothing left to verify, rather than leave it running while the session waits on review, and reopen it for a follow-up. upool closes no Editor while its slot's lease is held, so a done session's Editor is freed when the session closes it; `upool status` says how long each Editor has been open and flags one open past 2 h ((e), the Editor ledger; (h)). On the first benchmark run, whose instructions said none of this, two sessions kept their GUI Editors, about 6 GB and a seat of `max_editors` each, open 2 h 50 min after their pull requests while they waited on review | `assets/claude-md-block.md`; #281; [the first benchmark record](https://github.com/weslo/upool/pull/276) |
 | The instructions say in one line, after the block's own, that the main checkout has the pool's base checked out, so `git checkout <base>` must never run there, even where a workflow says to. For a session whose slot is as it was handed out, detached at a commit some ref holds, the line also says that the slot starts detached at the base; that the session makes its branch before it commits, with `git fetch origin` then `git switch -c <name> origin/<base>`, or `git switch -c <name> <base>` in a repository with no `origin/<base>` (A17); and that a commit left on the detached HEAD parks the slot when the session ends ((f), clean). The hook reads the slot after the startup confirm, whose deferred reset may detach it, and on every later start: a session that has made its branch, or committed on the detached HEAD, would leave its work behind on a branch from base, so a `compact` or `resume` start does not tell it to. It asks git in the slot (`git symbolic-ref -q HEAD`, `git for-each-ref --contains HEAD`) and in the main checkout, whether `refs/remotes/origin/<base>` exists. When git cannot say, it warns on stderr and says less: nothing of making a branch, or the base alone. The handout stays detached (A18). On the first benchmark run each session made its branch itself, and an issue skill's `git checkout main` could not run in a slot | `assets/assets.go`; A17; A18; S§9 E.5; #284; [the first benchmark record](https://github.com/weslo/upool/pull/276) |
 | For any other session the hook prints nothing, a session in the main checkout without a slot among them. A `claude -p --resume` launched from the main checkout reports `cwd` as the main checkout; found by its `session_id`, it gets the context, has its holder recorded and is exported the slot, where it works (A47) | `hooks/cli-resume-checkout-session-start.json`; `hooks/cli-slot-resume-checkout-session-start.json`; question 43; A46; A47 |
 | A session is in a slot when the slot's lease records its `session_id`, which the startup confirm sets, or, failing that, when its `cwd` is the slot or a path under it. Claude Code reports `cwd` as where the session or subagent is now: after a `cd` it is under the slot, and a subagent with `isolation: worktree` reports its own worktree inside the slot. Every start of one desktop session carried the same `session_id`, its subagents' too | `hooks/desktop-slot-*.json`; A46 |
@@ -363,10 +364,11 @@ RFC 3339 strings in UTC, as Go encodes `time.Time`; a process start time (`holde
 precision, never against another source such as `ps -o lstart` (A7). Each file has a top-level
 `schema_version`, `1` for the format described here, but `3` for `state.json`, whose leases gained
 `session_id` at `2` (A46; a version-1 document reads as one without it) and whose slots gained
-`unconfirmed_expiries` at `3` (A50; an earlier document reads as 0): a binary that reads a higher
-version refuses with exit 1 and a message to upgrade upool, rather than rewriting the file and
-dropping fields it does not know, and one that reads a lower version migrates it on its next write
-(A7).
+`unconfirmed_expiries` at `3` (A50; an earlier document reads as 0), and `2` for `editors.json`,
+whose Editors gained `ready_at` at `2` (#281; a version-1 document reads as null): a binary that
+reads a higher version refuses with exit 1 and a message to upgrade upool, rather than rewriting the
+file and dropping fields it does not know, and one that reads a lower version migrates it on its
+next write (A7).
 
 ### `~/.upool/pools/<repo-key>/state.json`
 
@@ -449,7 +451,7 @@ from the disclaimed helper (D-commands; S§2 TB).
 
 | Field | Type | Meaning | Written by | Source |
 |---|---|---|---|---|
-| `schema_version` | integer | `1` | every writer | A7 |
+| `schema_version` | integer | `2`; `1` before `ready_at` | every writer | A7; #281 |
 | `editors` | array of editor | every Editor `upool` is charging for | `open`, `close`, `release`, `refresh`, `doctor --fix` | D-commands; D-editors |
 | `editors[].project` | string, absolute path | the slot the Editor has open | `open` | D-editors |
 | `editors[].pid` | integer | Editor PID; a dead PID is reclaimed | `open`; removed by `close`, `release`, `doctor --fix` | D-editors; D-leases |
@@ -457,11 +459,21 @@ from the disclaimed helper (D-commands; S§2 TB).
 | `editors[].opened_by_upool` | bool | `release` closes only Editors the tool opened | `open` | D-commands |
 | `editors[].cold_import` | bool | holds a cold-import slot (`max_cold_imports`) while true | `open`, `refresh` | D-editors |
 | `editors[].charge_gb` | number | by mode, as (h) charges it when the Editor is admitted: `editor_ram_gb_gui` or `editor_ram_gb_headless` when long-lived, and while a cold import runs 4.5, or that charge where it is larger | `open`, `refresh` | D-editors; (h); #287 |
+| `editors[].ready_at` | timestamp, or null | when `open` saw the Editor ready, as `unity status --until-ready` reported it, before the settle wait; null until then, and for an Editor a seed refresh opens or a version-1 ledger recorded. It is not when the Editor last answered a command: a session drives its Editor with the Unity CLI itself, and upool hears none of those calls | `open`, and `refresh` when it re-warms a slot, as `open` does | #281 |
 
 The helper charge (2 GB once any Editor is up) is computed from the list, not stored (D-editors).
 A charge is set when its Editor is admitted, so a charge setting changed later charges only the
 Editors opened after it. `upool status` lists each pool's Editors with their charges, under
 `editors` in `--json`, a key it leaves out for a pool the ledger charges nothing in (#287).
+
+Each Editor with a `ready_at` is listed as open for the time since, `open for 45m`, and one open
+longer than 2 h, counted in the whole minutes the line shows, is flagged: `open for 2h50m, over 2h:
+close it with upool close once its session's work is done`. Under `--json` it carries its
+`ready_at`, and `open_long: true` when flagged; an Editor with no `ready_at` has neither, and its
+line says nothing of how long it has been open. This is time open, not time idle, for the reason
+`ready_at` gives, so a session still at work past 2 h is flagged too; nothing closes a flagged
+Editor ((h), the open-for flag; #281). Like the charge, it is what the ledger records, read without
+checking the Editor's process.
 
 ### `~/.upool/pools/<repo-key>/timings.jsonl` (the timings log)
 
@@ -660,6 +672,7 @@ measuring their own Editors.
 | cold-import charge | 4.5 GB, instead of the Editor's mode charge unless that is larger, while the Editor's cold import runs; a constant, not a setting (A9, as amended) | D-editors; A9 |
 | `max_cold_imports` | 1 | D-commands; D-editors |
 | `max_editors` | derived unless set; 6 at 64 GB | D-commands; D-editors; #287 |
+| open-for flag | 2 h: `upool status` flags an Editor open longer than this since `open` saw it ready, counted in whole minutes; it charges and closes nothing; a constant, not a setting | #281; the first benchmark run |
 
 Charge against the budget:
 
@@ -708,6 +721,17 @@ resident size summed with its children's, one level down):
 - **The cold-import charge** stays 4.5 GB, the spike's cold-importing Editor (S§2 T5), for a
   headless Editor. A GUI Editor is charged its larger mode charge while it imports, so that its
   charge never rises when the import ends, after the budget admitted it.
+
+**The open-for flag, 2 h,** is when `upool status` marks an Editor as open long, so that one a done
+session left running is visible ((e), the Editor ledger; #281). On the same run, in its step
+timings, no session kept an Editor open for its work longer than about an hour: B's and C's GUI
+Editors were ready at 19:42 and 19:44Z, and the work ended at 20:38Z. B and C then kept theirs open
+2 h 50 min, about 12 GB and two of three seats, while they waited on review. Two hours is twice the
+longest working open, so a session at that pace is not flagged at work, and each of those Editors
+would have been flagged about an hour into its wait. It measures time open, not time idle, since
+upool hears none of a session's own Unity calls, so a session still at work after two hours is
+flagged too; the session's instructions, which say to close the Editor once the work is done
+((b), "Context for the session"), are what closes it.
 
 The `max_editors` formula is derived, not quoted[^4]. The gate is this ledger count, never
 `memory_pressure`, which read 92 to 93 % free under 12.5 GB of Editor RSS (D-editors; S§6).
@@ -1044,8 +1068,9 @@ Raised while an M2 issue was built, rather than filed by Stage 2.
   Amended by A50: the reclaim now leaves such a slot leased while the app's record names it, and
   `doctor` names its worktree and says how to free it.
 
-  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and on Claude Code
-  2.1.305 the session tool deleted the slots it archived, with nothing to say whether the remove
+  Pending a re-capture (#278): this answer rests on desktop app 3.1623.0, and in the desktop app
+  running Claude Code 2.1.317 the session tool deleted the slots it archived (2.1.305 was the
+  machine's `claude` CLI, the version `doctor` checks), with nothing to say whether the remove
   hook ran ((a), WorktreeRemove rules). upool now logs each hook run ((e), "The hook log"), and
   `manual-gates/M7.md` check 7 archives a clean and a dirty slot each way on the current build;
   its result fills in (a), "Archive paths", and updates this answer.
