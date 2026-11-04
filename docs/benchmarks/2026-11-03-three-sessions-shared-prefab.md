@@ -8,7 +8,7 @@
 | upool | 0.6.1 (Homebrew; 0.6.0 until the first stop, see Observations) |
 | Unity Editor | 6000.4.11f1 |
 | Unity CLI | 1.0.0-beta.13 |
-| Claude Code | 2.1.305, desktop app; sessions on Opus 5.5 at extra effort, `auto` permissions |
+| Claude Code | 2.1.309 in the desktop app until it updated itself to 2.1.317 at 11:26; the `claude` CLI that `doctor` checks is 2.1.305; sessions on Opus 5.5 at extra effort, `auto` permissions |
 
 ## Machine class
 
@@ -170,11 +170,15 @@ stops the run for a fix rather than a workaround.**
   (the 17:42 line above, which closed the orphan in 2.4 s). The run continued on the Homebrew
   0.6.1 binary.
 - The first `start_session` failed after the app's five-minute start timeout. Root cause: the
-  `WorktreeCreate` hook, run by the desktop app's helper, blocked silently inside
-  `git -C <main checkout> worktree list` on a pending macOS consent prompt for the helper's access
-  to the Documents folder; the prompt was accepted an hour later and the hook answered at once.
-  upool could put a bounded timeout on the hook's git calls and name the likely cause, and the
-  install docs could say the first pooled session may raise that prompt.
+  `WorktreeCreate` hook, run by the desktop app's helper, was held silently by a pending macOS
+  consent prompt asking whether upool may access the Documents folder. The app cancelled the
+  start at 300 s and logged the hook as failed with no output at 600 s; the prompt was accepted
+  45 minutes later, and the next session's hook, three minutes after that, answered at once.
+  `sample` had shown git blocked in `getcwd`, but that was the shell reproduction: #286 found
+  from the TCC log that the app's hook was held in Go's start-up `Getwd`, before any of upool's
+  code ran, where no timeout of upool's can reach it. upool could name the likely cause where
+  it can, and the install docs could say the first pooled session may raise that prompt, which
+  #286 has `doctor` and `init` raise on purpose.
 
 **During the work phase, from the sessions' own reports.**
 
@@ -230,8 +234,8 @@ stops the run for a fix rather than a workaround.**
   skips the three as leased, and declines to clone because the pool is at `max_slots`. The
   pool could not hand out a slot until its state was edited by hand. Contract (a) was captured
   on an earlier app build, where the hook ran about a second after the archive and the app
-  accepted exit 0 with the directory still present; on this build (Claude Code 2.1.305, the
-  desktop app of late October 2026) an archive from the session tool removed the directory
+  accepted exit 0 with the directory still present; on this build (Claude Code 2.1.317 in the
+  desktop app of early November 2026) an archive from the session tool removed the directory
   itself. The Archive button was not tried, and upool logs nothing for its hooks, so whether the
   hook ran at all is not answerable from the machine.
 
