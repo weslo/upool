@@ -58,7 +58,9 @@ func events() []Event {
 		for _, c := range bools {
 			es = append(es, DeadOwner{EditorLive: b, Clean: c})
 			for _, d := range bools {
-				es = append(es, Reclaim{HolderAlive: b, EditorLive: c, Clean: d})
+				for _, g := range bools {
+					es = append(es, Reclaim{HolderAlive: b, EditorLive: c, Clean: d, Gone: g})
+				}
 			}
 		}
 	}
@@ -162,6 +164,12 @@ var transitions = []struct {
 		{warming, DeadOwner{EditorLive: false, Clean: false}, StateParked},
 	}},
 	{"23_seed", []step{{readySlot, Seed{}, StateWarming}}},
+	{"24_reclaim_dead_holder_gone", []step{
+		{leased, Reclaim{HolderAlive: false, EditorLive: false, Clean: true, Gone: true},
+			StateRemoved},
+		{leased, Reclaim{HolderAlive: false, EditorLive: false, Clean: false, Gone: true},
+			StateRemoved},
+	}},
 }
 
 // checkRefused fails t unless err is Next's refusal of e from s: an error naming s's state and e,
@@ -202,8 +210,8 @@ func TestTransition(t *testing.T) {
 			}
 		})
 	}
-	if len(transitions) != 23 {
-		t.Errorf("transitions has %d rows, want the 23 of docs/contracts.md (f)", len(transitions))
+	if len(transitions) != 24 {
+		t.Errorf("transitions has %d rows, want the 24 of docs/contracts.md (f)", len(transitions))
 	}
 }
 

@@ -9,10 +9,13 @@ import (
 // them, and no slot is ever written to state.json in either.
 const (
 	// StateRemoved is a slot whose entry, worktree and directory go: a pruned ready slot
-	// (transition 15), or a clone whose owner died (transition 21).
+	// (transition 15), a clone whose owner died (transition 21), or a dead holder's slot whose
+	// directory is already gone, so that only its entry and git's registration of it go
+	// (transition 24).
 	StateRemoved State = "removed"
 	// StateMissing is a slot that left the disk or `git worktree list` (transition 17): a
-	// condition take skips and doctor reports, not a state.
+	// condition take skips and doctor reports, not a state. status shows it in place of the state
+	// of a slot that transition 24 will drop.
 	StateMissing State = "missing"
 )
 
@@ -92,15 +95,19 @@ type Release struct {
 }
 
 // Reclaim is doctor, take or refresh finding a lease to check: its holder is reclaimed only when
-// dead (transitions 13 and 14; docs/design.md, "Leases that survive crashes and never reclaim a
-// live tree"). A lease with no holder PID, a bare take's, is never reclaimed (A6).
+// dead (transitions 13, 14 and 24; docs/design.md, "Leases that survive crashes and never reclaim
+// a live tree"). A lease with no holder PID, a bare take's, is never reclaimed (A6).
 type Reclaim struct {
 	// HolderAlive is whether the lease's holder PID, at its start time, is alive (internal/proc).
 	HolderAlive bool
 	// EditorLive is whether the ledger shows a live Editor in the slot.
 	EditorLive bool
-	// Clean is whether the slot is clean, as (f) defines it.
+	// Clean is whether the slot is clean, as (f) defines it. Next does not read it for a slot
+	// that is Gone, which has no tree to judge.
 	Clean bool
+	// Gone is whether the slot's directory is not on disk, as when the desktop app deleted it on
+	// an archive that sent upool no WorktreeRemove (transition 24; #277).
+	Gone bool
 }
 
 // Prune is `upool prune --yes` removing a ready slot (transition 15). Which slots it chooses is
@@ -161,7 +168,11 @@ func (e Reclaim) String() string {
 	if e.HolderAlive {
 		holder = "holder alive"
 	}
-	return "reclaim (" + holder + ", " + editorLive(e.EditorLive) + ", " + clean(e.Clean) + ")"
+	tree := clean(e.Clean)
+	if e.Gone {
+		tree = "gone"
+	}
+	return "reclaim (" + holder + ", " + editorLive(e.EditorLive) + ", " + tree + ")"
 }
 
 func (Prune) String() string { return "prune" }
@@ -269,6 +280,10 @@ func Next(s Slot, e Event) (State, error) {
 		if s.State == StateLeased && s.Lease != nil && s.Lease.HolderPID != nil &&
 			!e.HolderAlive {
 			switch {
+			case e.Gone:
+				if !e.EditorLive {
+					return StateRemoved, nil // 24
+				}
 			case !e.Clean:
 				return StateParked, nil // 14
 			case !e.EditorLive:
